@@ -89,16 +89,17 @@ class MultiplayerRoom {
     required this.status,
     required this.seed,
     required this.players,
+    this.isRanked = false,
   });
 
   final String roomId;
   final String status;
   final int seed;
   final Map<String, MultiplayerPlayer> players;
+  final bool isRanked;
 
   bool get hasHost => players.containsKey('host');
   bool get hasGuest => players.containsKey('guest');
-  bool get isRanked => roomId.startsWith('ranked_');
   bool get bothPlayersJoined => hasHost && hasGuest;
   bool get bothPlayersReady =>
       players['host']?.status == 'ready' && players['guest']?.status == 'ready';
@@ -116,6 +117,7 @@ class MultiplayerRoom {
       status: (map['status'] as String?) ?? 'waiting',
       seed: (map['seed'] as num?)?.toInt() ??
           DateTime.now().millisecondsSinceEpoch,
+      isRanked: map['mode'] == 'ranked',
       players: {
         for (final entry in playersRaw.entries)
           entry.key.toString(): MultiplayerPlayer.fromMap(
@@ -150,6 +152,7 @@ class MultiplayerManager {
   StreamSubscription<DatabaseEvent>? _opponentOjamaSpawnSubscription;
   StreamSubscription<DatabaseEvent>? _opponentStatusSubscription;
   StreamSubscription<DatabaseEvent>? _matchmakingSubscription;
+  Timer? _matchmakingPollTimer;
   RoomUpdateCallback? onRoomUpdated;
   OpponentBoardUpdateCallback? onOpponentBoardUpdated;
   OpponentPieceUpdateCallback? onOpponentPieceUpdated;
@@ -162,6 +165,8 @@ class MultiplayerManager {
   String? _lastRoomStatus;
   bool _hadOpponentPresent = false;
   bool _isLaunchingRematch = false;
+  bool _isMatchmakingPolling = false;
+  DateTime? _matchmakingStartedAt;
 
   static const int initialRating = 1000;
   static const String _userIdKey = 'user_id';
@@ -363,12 +368,13 @@ class MultiplayerManager {
 
     currentRoomId = roomId;
     myRoleId = roleId;
-    isRankedMode = roomId.startsWith('ranked_');
+    final room = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
+    isRankedMode = room.isRanked;
     await _db.child('rooms/$roomId/players/$roleId').update({
       'name': displayPlayerName,
       'userId': userId,
     });
-    currentRoom = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
+    currentRoom = room;
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
     await _setupPresence();
@@ -529,27 +535,25 @@ class MultiplayerManager {
   Future<RandomMatchResult> startRandomMatch() async {
     try {
       await initializeUser();
-      await leaveRoom();
+      await cancelRandomMatch();
       isRankedMode = true;
 
-      final narrow = await _findOrWaitForMatch(
-        ratingRange: 100,
-        waitDuration: const Duration(seconds: 10),
-      );
-      if (narrow != null) {
-        return narrow;
+      final id = userId;
+      if (id == null) {
+        throw StateError('ユーザーIDを生成できませんでした。');
       }
 
-      final wide = await _findOrWaitForMatch(
-        ratingRange: 300,
-        waitDuration: const Duration(seconds: 5),
-      );
-      if (wide != null) {
-        return wide;
-      }
+      final completer = Completer<RandomMatchResult>();
+      _matchmakingStartedAt = DateTime.now();
+      await _registerInMatchmaking();
+      _listenForRandomMatchInvite(completer);
 
-      await cancelRandomMatch();
-      throw StateError('条件に合う相手が見つかりませんでした。');
+      _matchmakingPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+        unawaited(_pollForRandomMatchOpponent(completer));
+      });
+      unawaited(_pollForRandomMatchOpponent(completer));
+
+      return await completer.future;
     } on FirebaseException catch (error) {
       await cancelRandomMatch();
       throw StateError(_firebaseErrorMessage('ランダムマッチ', error));
@@ -557,8 +561,12 @@ class MultiplayerManager {
   }
 
   Future<void> cancelRandomMatch() async {
+    _matchmakingPollTimer?.cancel();
+    _matchmakingPollTimer = null;
     _matchmakingSubscription?.cancel();
     _matchmakingSubscription = null;
+    _isMatchmakingPolling = false;
+    _matchmakingStartedAt = null;
     final id = userId;
     if (id != null) {
       try {
@@ -807,30 +815,116 @@ class MultiplayerManager {
     });
   }
 
-  Future<RandomMatchResult?> _findOrWaitForMatch({
-    required int ratingRange,
-    required Duration waitDuration,
-  }) async {
-    final candidate = await _findCandidate(ratingRange);
-    if (candidate != null) {
-      final result = await _tryInviteCandidate(candidate, ratingRange);
-      if (result != null) {
-        return result;
-      }
+  void _listenForRandomMatchInvite(Completer<RandomMatchResult> completer) {
+    final id = userId;
+    if (id == null) {
+      return;
     }
 
-    await _registerInMatchmaking(ratingRange);
-    return _waitForMatchInvite(waitDuration);
+    _matchmakingSubscription?.cancel();
+    _matchmakingSubscription =
+        _db.child('matchmaking/$id/roomId').onValue.listen((event) async {
+      final rawRoomId = event.snapshot.value;
+      final roomId = rawRoomId == null ? null : '$rawRoomId';
+      if (roomId == null || roomId.isEmpty || completer.isCompleted) {
+        return;
+      }
+
+      _matchmakingPollTimer?.cancel();
+      _matchmakingPollTimer = null;
+
+      try {
+        final result = await _joinRankedRoomAsGuest(roomId);
+        await _cleanupMatchmakingEntry();
+        if (!completer.isCompleted) {
+          completer.complete(result);
+        }
+      } catch (error, stackTrace) {
+        await cancelRandomMatch();
+        if (!completer.isCompleted) {
+          completer.completeError(error, stackTrace);
+        }
+      }
+    });
   }
 
-  Future<_MatchCandidate?> _findCandidate(int ratingRange) async {
+  Future<void> _pollForRandomMatchOpponent(
+    Completer<RandomMatchResult> completer,
+  ) async {
+    if (completer.isCompleted || _isMatchmakingPolling) {
+      return;
+    }
+
+    final id = userId;
+    if (id == null) {
+      return;
+    }
+
+    _isMatchmakingPolling = true;
+    try {
+      final myEntrySnapshot = await _db.child('matchmaking/$id/roomId').get();
+      if (myEntrySnapshot.value != null) {
+        return;
+      }
+
+      final ratingRange = _currentRandomMatchRatingRange();
+      final snapshot = await _db.child('matchmaking').get();
+      final candidate = _findCandidateFromMatchmakingSnapshot(
+        snapshot.value,
+        ratingRange,
+      );
+      if (candidate == null || completer.isCompleted) {
+        return;
+      }
+
+      _matchmakingPollTimer?.cancel();
+      _matchmakingPollTimer = null;
+
+      final result = await _inviteCandidateAsRankedHost(
+        candidate,
+        ratingRange,
+      );
+      if (result == null) {
+        _restartRandomMatchPolling(completer);
+        return;
+      }
+
+      await _cleanupMatchmakingEntry();
+      if (!completer.isCompleted) {
+        completer.complete(result);
+      }
+    } catch (error, stackTrace) {
+      _restartRandomMatchPolling(completer);
+      if (error is FirebaseException && !completer.isCompleted) {
+        await cancelRandomMatch();
+        completer.completeError(
+          StateError(_firebaseErrorMessage('ランダムマッチ検索', error)),
+          stackTrace,
+        );
+      }
+    } finally {
+      _isMatchmakingPolling = false;
+    }
+  }
+
+  int _currentRandomMatchRatingRange() {
+    final startedAt = _matchmakingStartedAt;
+    if (startedAt == null) {
+      return 100;
+    }
+    final elapsed = DateTime.now().difference(startedAt);
+    return elapsed >= const Duration(seconds: 15) ? 300 : 100;
+  }
+
+  _MatchCandidate? _findCandidateFromMatchmakingSnapshot(
+    Object? value,
+    int ratingRange,
+  ) {
     final id = userId;
     if (id == null) {
       return null;
     }
 
-    final snapshot = await _db.child('matchmaking').get();
-    final value = snapshot.value;
     if (value is! Map<dynamic, dynamic>) {
       return null;
     }
@@ -841,14 +935,23 @@ class MultiplayerManager {
       if (candidateId == id || entry.value is! Map<dynamic, dynamic>) {
         continue;
       }
+
+      // Deterministic host election prevents two equally timed clients from
+      // reserving each other and both becoming hosts.
+      if (candidateId.compareTo(id) <= 0) {
+        continue;
+      }
+
       final data = entry.value as Map<dynamic, dynamic>;
       if (data['roomId'] != null) {
         continue;
       }
+
       final rating = (data['rating'] as num?)?.toInt();
       if (rating == null || (rating - playerRating).abs() > ratingRange) {
         continue;
       }
+
       candidates.add(
         _MatchCandidate(
           userId: candidateId,
@@ -874,21 +977,85 @@ class MultiplayerManager {
     return candidates.first;
   }
 
-  Future<RandomMatchResult?> _tryInviteCandidate(
+  Future<RandomMatchResult?> _inviteCandidateAsRankedHost(
     _MatchCandidate candidate,
     int ratingRange,
   ) async {
-    final id = userId;
-    if (id == null) {
+    final roomId = await _generateRankedRoomId();
+    final candidateRef = _db.child('matchmaking/${candidate.userId}');
+    final transaction = await candidateRef.runTransaction((current) {
+      if (current is! Map<dynamic, dynamic>) {
+        return Transaction.abort();
+      }
+      if (current['roomId'] != null) {
+        return Transaction.abort();
+      }
+      final latestRating = (current['rating'] as num?)?.toInt();
+      if (latestRating == null ||
+          (latestRating - playerRating).abs() > ratingRange) {
+        return Transaction.abort();
+      }
+      return Transaction.success({
+        ...current,
+        'roomId': roomId,
+        'matchedAt': ServerValue.timestamp,
+      });
+    }, applyLocally: false);
+
+    if (!transaction.committed) {
       return null;
     }
 
-    final roomRef = _db.child('rooms').push();
-    final roomId = 'ranked_${roomRef.key}';
-    final rankedRoomRef = _db.child('rooms/$roomId');
-    final seed = DateTime.now().millisecondsSinceEpoch;
+    try {
+      await _createRankedRoomAsHost(roomId, candidate);
+    } catch (_) {
+      await candidateRef.update({
+        'roomId': null,
+        'matchedAt': null,
+      });
+      rethrow;
+    }
+    return RandomMatchResult(roomId: roomId, isHost: true);
+  }
 
-    await rankedRoomRef.set({
+  Future<void> _registerInMatchmaking() async {
+    final id = userId;
+    if (id == null) {
+      throw StateError('ユーザーIDを生成できませんでした。');
+    }
+
+    final entryRef = _db.child('matchmaking/$id');
+    await entryRef.set({
+      'name': displayPlayerName,
+      'rating': playerRating,
+      'roomId': null,
+      'timestamp': ServerValue.timestamp,
+    });
+    await entryRef.onDisconnect().remove();
+  }
+
+  Future<String> _generateRankedRoomId() async {
+    for (var attempt = 0; attempt < 30; attempt++) {
+      final roomId = (_random.nextInt(9000) + 1000).toString();
+      final existing = await _db.child('rooms/$roomId').get();
+      if (!existing.exists) {
+        return roomId;
+      }
+    }
+    throw StateError('ルームIDの生成に失敗しました。もう一度お試しください。');
+  }
+
+  Future<void> _createRankedRoomAsHost(
+    String roomId,
+    _MatchCandidate candidate,
+  ) async {
+    final id = userId;
+    if (id == null) {
+      throw StateError('ユーザーIDを生成できませんでした。');
+    }
+
+    final seed = DateTime.now().millisecondsSinceEpoch;
+    await _db.child('rooms/$roomId').set({
       'status': 'waiting',
       'seed': seed,
       'mode': 'ranked',
@@ -909,39 +1076,14 @@ class MultiplayerManager {
       },
     });
 
-    final candidateRef = _db.child('matchmaking/${candidate.userId}');
-    final transaction = await candidateRef.runTransaction((current) {
-      if (current is! Map<dynamic, dynamic>) {
-        return Transaction.abort();
-      }
-      if (current['roomId'] != null) {
-        return Transaction.abort();
-      }
-      final latestRating = (current['rating'] as num?)?.toInt();
-      if (latestRating == null ||
-          (latestRating - playerRating).abs() > ratingRange) {
-        return Transaction.abort();
-      }
-
-      return Transaction.success({
-        ...current,
-        'roomId': roomId,
-        'roleId': 'guest',
-        'matchedAt': ServerValue.timestamp,
-      });
-    }, applyLocally: false);
-
-    if (!transaction.committed) {
-      await rankedRoomRef.remove();
-      return null;
-    }
-
     currentRoomId = roomId;
     myRoleId = 'host';
+    isRankedMode = true;
     currentRoom = MultiplayerRoom(
       roomId: roomId,
       status: 'waiting',
       seed: seed,
+      isRanked: true,
       players: {
         'host': MultiplayerPlayer(
           status: 'waiting',
@@ -959,93 +1101,95 @@ class MultiplayerManager {
     );
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = true;
-    await cancelRandomMatch();
     await _setupPresence();
     _listenRoom();
     _listenGameplayChannels();
-    return RandomMatchResult(roomId: roomId, isHost: true);
   }
 
-  Future<void> _registerInMatchmaking(int ratingRange) async {
+  Future<RandomMatchResult> _joinRankedRoomAsGuest(String roomId) async {
     final id = userId;
     if (id == null) {
       throw StateError('ユーザーIDを生成できませんでした。');
     }
 
-    final entryRef = _db.child('matchmaking/$id');
-    await entryRef.set({
+    DataSnapshot? roomSnapshot;
+    for (var attempt = 0; attempt < 20; attempt++) {
+      final snapshot = await _db.child('rooms/$roomId').get();
+      if (snapshot.exists) {
+        roomSnapshot = snapshot;
+        break;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+
+    if (roomSnapshot == null || !roomSnapshot.exists) {
+      throw StateError('マッチしたルームが見つかりません。');
+    }
+
+    final room = MultiplayerRoom.fromSnapshot(roomId, roomSnapshot.value);
+    if (room.status != 'waiting') {
+      throw StateError('マッチしたルームはすでに開始されています。');
+    }
+
+    await _db.child('rooms/$roomId/players/guest').update({
+      'status': 'waiting',
       'name': displayPlayerName,
+      'userId': id,
       'rating': playerRating,
-      'range': ratingRange,
-      'createdAt': ServerValue.timestamp,
     });
-    await entryRef.onDisconnect().remove();
+
+    currentRoomId = roomId;
+    myRoleId = 'guest';
+    isRankedMode = true;
+    currentRoom = MultiplayerRoom(
+      roomId: room.roomId,
+      status: room.status,
+      seed: room.seed,
+      isRanked: true,
+      players: {
+        ...room.players,
+        'guest': MultiplayerPlayer(
+          status: 'waiting',
+          name: displayPlayerName,
+          userId: id,
+          rating: playerRating,
+        ),
+      },
+    );
+    _lastRoomStatus = currentRoom!.status;
+    _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
+    await _setupPresence();
+    _listenRoom();
+    _listenGameplayChannels();
+    return RandomMatchResult(roomId: roomId, isHost: false);
   }
 
-  Future<RandomMatchResult?> _waitForMatchInvite(Duration timeout) async {
+  void _restartRandomMatchPolling(Completer<RandomMatchResult> completer) {
+    if (completer.isCompleted || _matchmakingPollTimer != null) {
+      return;
+    }
+    _matchmakingPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      unawaited(_pollForRandomMatchOpponent(completer));
+    });
+  }
+
+  Future<void> _cleanupMatchmakingEntry() async {
+    _matchmakingPollTimer?.cancel();
+    _matchmakingPollTimer = null;
+    await _matchmakingSubscription?.cancel();
+    _matchmakingSubscription = null;
+    _isMatchmakingPolling = false;
+    _matchmakingStartedAt = null;
     final id = userId;
     if (id == null) {
-      return null;
+      return;
     }
-
-    final completer = Completer<RandomMatchResult?>();
-    Timer? timeoutTimer;
-
-    _matchmakingSubscription?.cancel();
-    _matchmakingSubscription =
-        _db.child('matchmaking/$id').onValue.listen((event) async {
-      final value = event.snapshot.value;
-      if (value is! Map<dynamic, dynamic>) {
-        return;
-      }
-      final roomId = value['roomId'] as String?;
-      final roleId = value['roleId'] as String? ?? 'guest';
-      if (roomId == null || roomId.isEmpty || completer.isCompleted) {
-        return;
-      }
-
-      timeoutTimer?.cancel();
-      await _matchmakingSubscription?.cancel();
-      _matchmakingSubscription = null;
+    try {
       await _db.child('matchmaking/$id').onDisconnect().cancel();
       await _db.child('matchmaking/$id').remove();
-
-      currentRoomId = roomId;
-      myRoleId = roleId;
-      isRankedMode = true;
-      final roomSnapshot = await _db.child('rooms/$roomId').get();
-      if (!roomSnapshot.exists) {
-        if (!completer.isCompleted) {
-          completer.complete(null);
-        }
-        return;
-      }
-      currentRoom = MultiplayerRoom.fromSnapshot(roomId, roomSnapshot.value);
-      _lastRoomStatus = currentRoom!.status;
-      _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
-      await _setupPresence();
-      _listenRoom();
-      _listenGameplayChannels();
-      if (!completer.isCompleted) {
-        completer.complete(
-          RandomMatchResult(roomId: roomId, isHost: roleId == 'host'),
-        );
-      }
-    });
-
-    timeoutTimer = Timer(timeout, () {
-      if (!completer.isCompleted) {
-        completer.complete(null);
-      }
-    });
-
-    final result = await completer.future;
-    timeoutTimer.cancel();
-    if (result == null) {
-      await _matchmakingSubscription?.cancel();
-      _matchmakingSubscription = null;
+    } on FirebaseException {
+      // マッチ成立後の掃除失敗は対戦開始を止めない。
     }
-    return result;
   }
 
   Future<void> leaveRoom() async {
