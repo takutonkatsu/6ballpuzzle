@@ -15,6 +15,7 @@ class GameScreen extends StatefulWidget {
   final bool isOnlineMultiplayer;
   final String? roomId;
   final bool isHost;
+  final bool isRankedMode;
 
   const GameScreen({
     super.key,
@@ -22,12 +23,14 @@ class GameScreen extends StatefulWidget {
     this.isOnlineMultiplayer = false,
     this.roomId,
     this.isHost = false,
+    this.isRankedMode = false,
   });
 
   const GameScreen.online({
     super.key,
     this.roomId,
     this.isHost = false,
+    this.isRankedMode = false,
   })  : isCpuMode = false,
         isOnlineMultiplayer = true;
 
@@ -46,6 +49,8 @@ class _GameScreenState extends State<GameScreen> {
   String? _onlineResultMessage;
   bool _isWaitingForRematch = false;
   bool _isDisconnectDialogVisible = false;
+  bool _rankedRatingApplied = false;
+  RankedRatingChange? _rankedRatingChange;
 
   final List<Timer> _pendingAttackTimers = [];
 
@@ -159,6 +164,7 @@ class _GameScreenState extends State<GameScreen> {
           _onlineResultMessage = 'YOU LOSE...';
           _isWaitingForRematch = false;
         });
+        unawaited(_applyRankedRatingResult(isWin: false));
         unawaited(_multiplayerManager.declareGameOver());
       }
     };
@@ -295,7 +301,9 @@ class _GameScreenState extends State<GameScreen> {
           Flexible(
             child: Text(
               widget.isOnlineMultiplayer
-                  ? 'FRIEND BATTLE'
+                  ? widget.isRankedMode
+                      ? 'RANDOM MATCH'
+                      : 'FRIEND BATTLE'
                   : widget.isCpuMode
                       ? 'CPU LEVEL: GA-Optimized'
                       : '1P MODE',
@@ -690,24 +698,31 @@ class _GameScreenState extends State<GameScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _isWaitingForRematch ? null : _requestRematch,
-                style: ElevatedButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-                  backgroundColor: Colors.blueAccent,
-                ),
-                child: Text(
-                  _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH (再戦)',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
+              if (widget.isRankedMode) ...[
+                _buildRankedRatingChange(),
+                const SizedBox(height: 24),
+              ] else ...[
+                ElevatedButton(
+                  onPressed: _isWaitingForRematch ? null : _requestRematch,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 48,
+                      vertical: 16,
+                    ),
+                    backgroundColor: Colors.blueAccent,
+                  ),
+                  child: Text(
+                    _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH (再戦)',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               ElevatedButton(
                 onPressed: () {
                   _leaveOnlineBattle();
@@ -731,6 +746,55 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildRankedRatingChange() {
+    final change = _rankedRatingChange;
+    if (change == null) {
+      return const Text(
+        'Ratingを更新中...',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+
+    final deltaText =
+        change.delta >= 0 ? '+${change.delta}' : '${change.delta}';
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 600),
+      builder: (context, value, child) {
+        final animatedRating = change.oldRating +
+            ((change.newRating - change.oldRating) * value).round();
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Rating: ${change.oldRating} → $animatedRating ($deltaText)',
+              style: const TextStyle(
+                color: Colors.amberAccent,
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${change.oldRating} → ${change.newRating}',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -767,7 +831,11 @@ class _GameScreenState extends State<GameScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    isHost ? 'フレンドバトルの部屋を作成しました' : 'フレンドバトルに参加しました',
+                    widget.isRankedMode
+                        ? 'ランダムマッチが成立しました'
+                        : isHost
+                            ? 'フレンドバトルの部屋を作成しました'
+                            : 'フレンドバトルに参加しました',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
@@ -776,7 +844,7 @@ class _GameScreenState extends State<GameScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),
-                  if (isHost) ...[
+                  if (isHost && !widget.isRankedMode) ...[
                     const Text(
                       'ルームID',
                       style: TextStyle(
@@ -798,11 +866,15 @@ class _GameScreenState extends State<GameScreen> {
                     const SizedBox(height: 16),
                   ],
                   Text(
-                    canShowReady && opponentName != null
-                        ? '$opponentName が参加しました。READYで開始準備をしてください。'
-                        : canShowReady
-                            ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
-                            : '相手の入室を待っています…',
+                    widget.isRankedMode && canShowReady
+                        ? 'READYで開始準備をしてください。'
+                        : canShowReady && opponentName != null
+                            ? '$opponentName が参加しました。READYで開始準備をしてください。'
+                            : canShowReady
+                                ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
+                                : widget.isRankedMode
+                                    ? '対戦相手の接続を待っています...'
+                                    : '相手の入室を待っています…',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 16,
@@ -1106,9 +1178,36 @@ class _GameScreenState extends State<GameScreen> {
       _onlineResultMessage = 'YOU WIN!!';
       _isWaitingForRematch = false;
     });
+    unawaited(_applyRankedRatingResult(isWin: true));
     _playerGame.gameStateWrapper.value = GameState.gameover;
     if (_playerGame.activePiece != null) {
       _playerGame.activePiece!.isLocked = true;
+    }
+  }
+
+  Future<void> _applyRankedRatingResult({required bool isWin}) async {
+    if (!widget.isRankedMode || _rankedRatingApplied) {
+      return;
+    }
+
+    _rankedRatingApplied = true;
+    try {
+      final change = await _multiplayerManager.applyRankedResult(
+        isWin: isWin,
+      );
+      if (!mounted || change == null) {
+        return;
+      }
+      setState(() {
+        _rankedRatingChange = change;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rankedRatingChange = null;
+      });
     }
   }
 
