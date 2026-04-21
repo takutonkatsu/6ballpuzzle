@@ -11,7 +11,10 @@ typedef RoomUpdateCallback = void Function(MultiplayerRoom room);
 typedef OpponentBoardUpdateCallback = void Function(Map<String, dynamic> board);
 typedef OpponentPieceUpdateCallback = void Function(Map<String, dynamic> piece);
 typedef AttackReceivedCallback = void Function(OjamaTask task);
-typedef OpponentOjamaSpawnedCallback = void Function(List<dynamic> ojamaData);
+typedef OpponentOjamaSpawnedCallback = void Function(
+  List<dynamic> ojamaData,
+  int dropSeed,
+);
 typedef OpponentGameOverCallback = void Function();
 typedef OpponentDisconnectedCallback = void Function();
 typedef RematchStartedCallback = void Function(int newSeed);
@@ -309,7 +312,7 @@ class MultiplayerManager {
     }
   }
 
-  Future<void> sendOjamaSpawn(List<dynamic> ojamaData) async {
+  Future<void> sendOjamaSpawn(List<dynamic> ojamaData, int dropSeed) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
     if (roomId == null || roleId == null) {
@@ -319,6 +322,7 @@ class MultiplayerManager {
     try {
       await _db.child('rooms/$roomId/players/$roleId/ojamaSpawns').push().set({
         'items': ojamaData,
+        'dropSeed': dropSeed,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
@@ -492,8 +496,12 @@ class MultiplayerManager {
       final value = event.snapshot.value;
       if (value is Map<dynamic, dynamic>) {
         final items = _dynamicList(value['items']);
+        final dropSeed = (value['dropSeed'] as num?)?.toInt();
         if (items.isNotEmpty) {
-          onOpponentOjamaSpawned?.call(items);
+          onOpponentOjamaSpawned?.call(
+            items,
+            dropSeed ?? DateTime.now().microsecondsSinceEpoch,
+          );
         }
       }
 

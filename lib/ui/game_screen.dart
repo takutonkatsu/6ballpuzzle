@@ -123,9 +123,9 @@ class _GameScreenState extends State<GameScreen> {
         );
       }
     };
-    _playerGame.onOjamaSpawned = (ojamaData) {
+    _playerGame.onOjamaSpawned = (ojamaData, dropSeed) {
       if (_isOnlineMode && _onlineGameStarted) {
-        unawaited(_multiplayerManager.sendOjamaSpawn(ojamaData));
+        unawaited(_multiplayerManager.sendOjamaSpawn(ojamaData, dropSeed));
       }
     };
     _playerGame.onGameOverTriggered = () {
@@ -1010,8 +1010,8 @@ class _GameScreenState extends State<GameScreen> {
     _queueOjamaTask(_playerGame, task);
   }
 
-  void _handleOpponentOjamaSpawned(List<dynamic> ojamaData) {
-    _cpuGame?.spawnRemoteOjama(ojamaData);
+  void _handleOpponentOjamaSpawned(List<dynamic> ojamaData, int dropSeed) {
+    _cpuGame?.spawnRemoteOjama(ojamaData, dropSeed);
   }
 
   void _handleOpponentGameOver() {

@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:async' as async;
 import 'dart:math';
 import 'dart:collection';
 import 'package:flame/game.dart';
@@ -26,6 +26,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final bool isRemotePlayerMode;
   final bool useConstantFallSpeed;
   late Random _rng;
+  Random? syncDropRng;
   CPUAgent? cpuAgent;
   late GridSystem grid;
   ActivePieceComponent? activePiece;
@@ -55,7 +56,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     int rotation,
     List<BallColor> colors,
   )? onActivePieceChanged;
-  Function(List<dynamic>)? onOjamaSpawned;
+  Function(List<dynamic>, int)? onOjamaSpawned;
 
   static const double constantFallSpeed = 50.0;
   static const double _activePieceSyncInterval = 0.12;
@@ -64,6 +65,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   int pendingOjamaSpawns = 0;
   bool isReadyGoText = false;
   double _activePieceSyncCooldown = 0.0;
+  bool _hasRemoteOjamaInFlight = false;
+  DateTime? _remoteOjamaSpawnedAt;
+  async.Timer? _deferredRemoteBoardTimer;
+  Map<String, dynamic>? _deferredRemoteBoardState;
+  static const Duration _minimumRemoteOjamaVisibleDuration =
+      Duration(milliseconds: 180);
 
   double get currentFallSpeed => isCpuMode || isRemotePlayerMode
       ? constantFallSpeed
@@ -95,6 +102,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (newSeed != null) {
       _rng = Random(newSeed);
     }
+    syncDropRng = null;
     _clearLockedBalls();
     _clearHints();
     incomingOjama.clear();
@@ -106,6 +114,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     activeOjamaBlocks.clear();
     pendingOjamaSpawns = 0;
+    syncDropRng = null;
+    _hasRemoteOjamaInFlight = false;
+    _remoteOjamaSpawnedAt = null;
+    _deferredRemoteBoardTimer?.cancel();
+    _deferredRemoteBoardTimer = null;
+    _deferredRemoteBoardState = null;
 
     scoreManager.reset();
     _idleGlowTime = 0.0;
@@ -524,11 +538,18 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         }
       } while (_needsGravityRetry);
     } finally {
+      if (activeOjamaBlocks.isEmpty && pendingOjamaSpawns == 0) {
+        syncDropRng = null;
+      }
       _isProcessingGravity = false;
     }
   }
 
   void applyRemoteBoardState(Map<String, dynamic> boardData) {
+    if (_shouldDeferRemoteBoardState(boardData)) {
+      return;
+    }
+
     _clearLockedBalls();
     _clearHints();
     clearRemoteActivePiece();
@@ -592,6 +613,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     activeOjamaBlocks.clear();
     pendingOjamaSpawns = 0;
+    syncDropRng = null;
+    _hasRemoteOjamaInFlight = false;
+    _remoteOjamaSpawnedAt = null;
+    _deferredRemoteBoardTimer?.cancel();
+    _deferredRemoteBoardTimer = null;
+    _deferredRemoteBoardState = null;
   }
 
   void _notifyBoardUpdated() {
@@ -638,10 +665,18 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _updateGhostPosition();
   }
 
-  void spawnRemoteOjama(List<dynamic> ojamaData) {
+  void prepareSyncedOjamaDrop(int dropSeed) {
+    syncDropRng = Random(dropSeed);
+  }
+
+  void spawnRemoteOjama(List<dynamic> ojamaData, int dropSeed) {
     if (!isRemotePlayerMode) {
       return;
     }
+
+    prepareSyncedOjamaDrop(dropSeed);
+    clearRemoteActivePiece();
+    var spawnedAny = false;
 
     for (final item in ojamaData) {
       if (item is! Map) {
@@ -677,6 +712,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       );
       activeOjamaBlocks.add(block);
       add(block);
+      spawnedAny = true;
+    }
+
+    if (spawnedAny) {
+      _hasRemoteOjamaInFlight = true;
+      _remoteOjamaSpawnedAt = DateTime.now();
     }
   }
 
@@ -737,7 +778,42 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   void onOjamaBlockLanded(OjamaBlockComponent block) {
     activeOjamaBlocks.remove(block);
+    if (isRemotePlayerMode && activeOjamaBlocks.isEmpty) {
+      _hasRemoteOjamaInFlight = false;
+      _remoteOjamaSpawnedAt = null;
+    }
     _processGravityAndMatches();
+  }
+
+  bool _shouldDeferRemoteBoardState(Map<String, dynamic> boardData) {
+    if (!isRemotePlayerMode ||
+        !_hasRemoteOjamaInFlight ||
+        activeOjamaBlocks.isEmpty) {
+      return false;
+    }
+
+    final spawnedAt = _remoteOjamaSpawnedAt;
+    if (spawnedAt == null) {
+      return false;
+    }
+
+    final elapsed = DateTime.now().difference(spawnedAt);
+    final remaining = _minimumRemoteOjamaVisibleDuration - elapsed;
+    if (remaining <= Duration.zero) {
+      return false;
+    }
+
+    _deferredRemoteBoardState = Map<String, dynamic>.from(boardData);
+    _deferredRemoteBoardTimer?.cancel();
+    _deferredRemoteBoardTimer = async.Timer(remaining, () {
+      final deferred = _deferredRemoteBoardState;
+      _deferredRemoteBoardState = null;
+      _deferredRemoteBoardTimer = null;
+      if (deferred != null) {
+        applyRemoteBoardState(deferred);
+      }
+    });
+    return true;
   }
 
   void _dropOjamaTask(OjamaTask task) {
@@ -788,7 +864,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         if (task.type == OjamaType.straightSet && task.startColor != null) {
           spawnData['startColor'] = task.startColor!.index;
         }
-        onOjamaSpawned?.call([spawnData]);
+        final dropSeed = _rng.nextInt(999999);
+        prepareSyncedOjamaDrop(dropSeed);
+        onOjamaSpawned?.call([spawnData], dropSeed);
         pendingOjamaSpawns--;
       });
     }
@@ -958,7 +1036,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           return e!;
         } else {
           if (offsetX == 0.0) {
-            return Random().nextBool() ? b! : c!;
+            final rng = syncDropRng ?? Random();
+            return rng.nextBool() ? b! : c!;
           }
           return (offsetX < 0) ? b! : c!;
         }
