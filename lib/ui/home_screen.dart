@@ -17,7 +17,9 @@ class _HomeScreenState extends State<HomeScreen> {
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final TextEditingController _playerNameController = TextEditingController();
   bool _isBusy = false;
+  bool _isUserLoading = true;
   String _playerName = '';
+  int _rating = MultiplayerManager.initialRating;
 
   @override
   void initState() {
@@ -36,63 +38,84 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F1A),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              '6-BALL PUZZLE',
-              style: TextStyle(
-                fontSize: 40,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 4,
-                color: Colors.white,
-                shadows: [
-                  Shadow(color: Colors.blueAccent, blurRadius: 20),
-                ],
-              ),
-            ),
-            const SizedBox(height: 32),
-            _buildPlayerNameField(),
-            if (_playerName.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Text(
-                _playerName,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '6-BALL PUZZLE',
+                style: TextStyle(
+                  fontSize: 40,
                   fontWeight: FontWeight.bold,
+                  letterSpacing: 4,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(color: Colors.blueAccent, blurRadius: 20),
+                  ],
                 ),
               ),
+              const SizedBox(height: 32),
+              _buildPlayerNameField(),
+              if (_playerName.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _playerName,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _isUserLoading ? 'Rating: ...' : 'Rating: $_rating',
+                  style: const TextStyle(
+                    color: Colors.amberAccent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 40),
+              _buildMenuButton(
+                context,
+                'ENDLESS MODE',
+                Icons.loop,
+                () => _startGame(context, false),
+              ),
+              const SizedBox(height: 24),
+              _buildMenuButton(
+                context,
+                'CPU VS MODE',
+                Icons.smart_toy,
+                () => _startGame(context, true),
+              ),
+              const SizedBox(height: 24),
+              _buildMenuButton(
+                context,
+                'CREATE ROOM',
+                Icons.add_link,
+                _isBusy ? null : () => _createRoom(context),
+              ),
+              const SizedBox(height: 24),
+              _buildMenuButton(
+                context,
+                'JOIN ROOM',
+                Icons.login,
+                _isBusy ? null : () => _joinRoom(context),
+              ),
+              const SizedBox(height: 24),
+              _buildMenuButton(
+                context,
+                'ランダムマッチ',
+                Icons.travel_explore,
+                _isBusy || _isUserLoading
+                    ? null
+                    : () => _startRandomMatch(context),
+              ),
             ],
-            const SizedBox(height: 40),
-            _buildMenuButton(
-              context,
-              'ENDLESS MODE',
-              Icons.loop,
-              () => _startGame(context, false),
-            ),
-            const SizedBox(height: 24),
-            _buildMenuButton(
-              context,
-              'CPU VS MODE',
-              Icons.smart_toy,
-              () => _startGame(context, true),
-            ),
-            const SizedBox(height: 24),
-            _buildMenuButton(
-              context,
-              'CREATE ROOM',
-              Icons.add_link,
-              _isBusy ? null : () => _createRoom(context),
-            ),
-            const SizedBox(height: 24),
-            _buildMenuButton(
-              context,
-              'JOIN ROOM',
-              Icons.login,
-              _isBusy ? null : () => _joinRoom(context),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -188,6 +211,23 @@ class _HomeScreenState extends State<HomeScreen> {
       _playerNameController.text = savedName;
     });
     _multiplayerManager.setPlayerName(savedName);
+    try {
+      await _multiplayerManager.initializeUser(name: savedName);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rating = _multiplayerManager.playerRating;
+        _isUserLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isUserLoading = false;
+      });
+    }
   }
 
   Future<void> _savePlayerName(String value) async {
@@ -197,6 +237,11 @@ class _HomeScreenState extends State<HomeScreen> {
     });
     _multiplayerManager.setPlayerName(nextName);
     await _writeSavedPlayerName(nextName);
+    try {
+      await _multiplayerManager.syncUserName();
+    } catch (_) {
+      // 名前同期の失敗は次回起動時に再同期される。
+    }
   }
 
   Future<String> _readSavedPlayerName() async {
@@ -296,6 +341,14 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     }
+  }
+
+  Future<void> _startRandomMatch(BuildContext context) async {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (context) => const GameScreen.ranked(),
+      ),
+    );
   }
 
   Future<String?> _showRoomIdDialog(BuildContext context) async {
