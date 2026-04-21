@@ -16,16 +16,19 @@ class GridSystem {
   late Vector2 offset;
 
   GridSystem({
-    this.ballRadius = 15.0, 
+    this.ballRadius = 15.0,
     Vector2? offset,
   }) {
     this.offset = offset ?? Vector2.zero();
-    
+    updateBounds();
+  }
+
+  void updateBounds() {
     double maxCenterY = hexToPixel(HexCoordinate(0, numRows - 1)).y;
-    floorY = maxCenterY + ballRadius; 
-    
-    leftWallX = this.offset.x - ballRadius;
-    rightWallX = this.offset.x + (10 * ballRadius * 2) - ballRadius;
+    floorY = maxCenterY + ballRadius;
+
+    leftWallX = offset.x - ballRadius;
+    rightWallX = offset.x + (10 * ballRadius * 2) - ballRadius;
   }
 
   int getColumnsForRow(int row) {
@@ -356,24 +359,19 @@ class GridSystem {
     return patterns;
   }
 
-  /// 対象の色・パターンリストから最良のヒント座標を探す
-  /// 残り1個 → 残り2個 の順で最良パターンを返す。なければ null を返す。
   List<HexCoordinate>? _findBestHintSpots(BallColor color, List<List<HexCoordinate>> patterns) {
-    // 残り1個 → 2個 の順で最良を探す
     for (final targetFilled in [5, 4]) {
       for (var pattern in patterns) {
         int colorCount = 0;
         final emptySpots = <HexCoordinate>[];
-        final filledSpots = <HexCoordinate>[];
         bool invalid = false;
 
         for (var h in pattern) {
           if (lockedBalls.containsKey(h)) {
             if (lockedBalls[h]!.ballColor == color) {
               colorCount++;
-              filledSpots.add(h);
             } else {
-              invalid = true; // 違う色が邪魔している
+              invalid = true;
               break;
             }
           } else if (isOutOfBounds(h)) {
@@ -384,45 +382,51 @@ class GridSystem {
           }
         }
 
-        if (invalid) continue;
-        if (colorCount != targetFilled) continue;
-        if (emptySpots.length != 6 - targetFilled) continue;
+        if (invalid || colorCount != targetFilled || emptySpots.length != 6 - targetFilled) continue;
 
-        // 既存のボールがすべて1つの繋がったグループになっているかチェック
-        if (!_areHexesContiguous(filledSpots)) continue;
-
-        // 空きスポットがすべて直ちに配置可能であるか（空中の落下ルートでないか）を確認
-        final supportedSpots = _getValidRestingSpots();
-        bool allRested = true;
-        for (var h in emptySpots) {
-           if (!supportedSpots.contains(h)) {
-              allRested = false;
+        // Simulate dropping into these specific empty spots
+        Map<HexCoordinate, BallColor> boardCopy = {};
+        for (var entry in lockedBalls.entries) boardCopy[entry.key] = entry.value.ballColor;
+        SimGrid sim = SimGrid(numRows, boardCopy);
+        
+        var sortedEmpty = List<HexCoordinate>.from(emptySpots)..sort((a, b) => b.row.compareTo(a.row));
+        
+        bool canFill = true;
+        for (var spot in sortedEmpty) {
+           bool isSupported = _isAccessibleFromTop(spot, sim);
+           if (isSupported) {
+              sim.board[spot] = color;
+           } else {
+              canFill = false;
               break;
            }
         }
         
-        if (allRested) {
-           return emptySpots;
+        if (canFill) {
+            return emptySpots;
         }
       }
     }
     return null;
   }
-  
-  Set<HexCoordinate> _getValidRestingSpots() {
-     Set<HexCoordinate> spots = {};
-     Map<HexCoordinate, BallColor> boardCopy = {};
-     for (var entry in lockedBalls.entries) boardCopy[entry.key] = entry.value.ballColor;
-     
-     SimGrid sim = SimGrid(numRows, boardCopy);
-     
-     for (int col = 0; col < 10; col++) {
-        var startHex = HexCoordinate(col, -1);
-        var dropHex = sim.findNearestEmpty(startHex);
-        var restingHex = sim.dropBall(dropHex, 0.0);
-        spots.add(restingHex);
+
+  bool _isAccessibleFromTop(HexCoordinate start, SimGrid sim) {
+     if (start.row <= 0) return true;
+     List<HexCoordinate> queue = [start];
+     Set<HexCoordinate> visited = {start};
+     while (queue.isNotEmpty) {
+        var curr = queue.removeAt(0);
+        if (curr.row <= 0) return true;
+        for (var dir in ['f', 'g', 'a', 'd', 'b', 'c']) {
+           var n = sim.getNeighbor(curr, dir);
+           if (n != null && !sim.isOutOfBounds(n) && !sim.isOccupied(n) && !visited.contains(n)) {
+              if (n.row <= 0) return true;
+              visited.add(n);
+              queue.add(n);
+           }
+        }
      }
-     return spots;
+     return false;
   }
 
   bool _areHexesContiguous(List<HexCoordinate> hexes) {

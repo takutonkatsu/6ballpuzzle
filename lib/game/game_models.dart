@@ -1,6 +1,4 @@
-enum BallColor {
-  blue, green, red, yellow, purple
-}
+enum BallColor { blue, green, red, yellow, purple }
 
 enum WazaType {
   none(1.0),
@@ -16,13 +14,15 @@ enum CPUDifficulty { easy, normal, hard, oni }
 
 enum OjamaType {
   straightSet,
-  colorSet, // Pyramid/Hexagon set
+  pyramidSet,
+  hexagonSet,
 }
 
 class OjamaTask {
   final OjamaType type;
-  final BallColor? startColor; 
-  OjamaTask(this.type, {this.startColor});
+  final BallColor? startColor;
+  final List<BallColor>? presetColors;
+  OjamaTask(this.type, {this.startColor, this.presetColors});
 }
 
 class MoveOption {
@@ -53,7 +53,8 @@ class HexCoordinate {
 class MatchResult {
   final Set<HexCoordinate> targets;
   final WazaType highestWaza;
-  final List<List<HexCoordinate>> wazaPattern; 
+  final List<List<HexCoordinate>> wazaPattern;
   final BallColor? wazaColor;
-  MatchResult(this.targets, this.highestWaza, {this.wazaPattern = const [], this.wazaColor});
+  MatchResult(this.targets, this.highestWaza,
+      {this.wazaPattern = const [], this.wazaColor});
 }
