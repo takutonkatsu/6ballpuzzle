@@ -27,6 +27,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final bool useConstantFallSpeed;
   late Random _rng;
   Random? syncDropRng;
+  int currentDropSeed = 0;
   CPUAgent? cpuAgent;
   late GridSystem grid;
   ActivePieceComponent? activePiece;
@@ -55,6 +56,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     double y,
     int rotation,
     List<BallColor> colors,
+    int dropSeed,
   )? onActivePieceChanged;
   Function(List<dynamic>, int)? onOjamaSpawned;
 
@@ -103,6 +105,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       _rng = Random(newSeed);
     }
     syncDropRng = null;
+    currentDropSeed = 0;
     _clearLockedBalls();
     _clearHints();
     incomingOjama.clear();
@@ -205,6 +208,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     final currentColors = nextPieceColors.value;
+
+    if (!isRemotePlayerMode) {
+      currentDropSeed = _rng.nextInt(999999);
+      syncDropRng = Random(currentDropSeed);
+    }
 
     activePiece = ActivePieceComponent(
       position: Vector2(size.x / 2, 50),
@@ -435,7 +443,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
               if (!grid.lockedBalls.containsKey(curr)) continue;
               BallComponent comp = grid.lockedBalls.remove(curr)!;
 
-              HexCoordinate next = _calcNextStep(curr, comp.hitOffsetX);
+              HexCoordinate next = _calcNextStep(curr, comp);
 
               if (next != curr) {
                 changed = true;
@@ -777,6 +785,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       piece.position.y,
       activePieceRotation,
       List<BallColor>.from(piece.colors),
+      currentDropSeed,
     );
   }
 
@@ -1017,7 +1026,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
   }
 
-  HexCoordinate _calcNextStep(HexCoordinate curr, double offsetX) {
+  HexCoordinate _calcNextStep(HexCoordinate curr, BallComponent comp) {
+    double offsetX = comp.hitOffsetX;
+
     if (curr.row >= grid.numRows - 1) return curr;
 
     var a = grid.getNeighbor(curr, 'a');
@@ -1042,9 +1053,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           return e!;
         } else {
           if (offsetX == 0.0) {
-            final bool goRight = syncDropRng != null
-                ? syncDropRng!.nextBool()
-                : Random().nextBool();
+            final goRight = _deterministicSlideRight(curr, comp);
             return goRight ? b! : c!;
           }
           return (offsetX < 0) ? b! : c!;
@@ -1061,6 +1070,15 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     return curr;
+  }
+
+  bool _deterministicSlideRight(HexCoordinate curr, BallComponent comp) {
+    var hash = 17;
+    hash = 31 * hash + curr.col;
+    hash = 31 * hash + curr.row;
+    hash = 31 * hash + comp.ballColor.index;
+    hash = 31 * hash + (comp.hitOffsetX * 1000).round();
+    return hash.isEven;
   }
 
   void rotateLeft() {

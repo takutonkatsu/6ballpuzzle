@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
@@ -110,7 +111,8 @@ class _GameScreenState extends State<GameScreen> {
         unawaited(_multiplayerManager.sendBoardState(boardData));
       }
     };
-    _playerGame.onActivePieceChanged = (action, x, y, rotation, colors) {
+    _playerGame.onActivePieceChanged =
+        (action, x, y, rotation, colors, dropSeed) {
       if (_isOnlineMode && _onlineGameStarted) {
         unawaited(
           _multiplayerManager.sendActivePiece(
@@ -119,6 +121,7 @@ class _GameScreenState extends State<GameScreen> {
             rotation,
             colors,
             action,
+            dropSeed,
           ),
         );
       }
@@ -910,6 +913,11 @@ class _GameScreenState extends State<GameScreen> {
     final y = (pieceData['y'] as num?)?.toDouble();
     final rotation = (pieceData['rotation'] as num?)?.toInt();
     final colors = _parseColors(pieceData['colors']);
+    final dropSeed = (pieceData['dropSeed'] as num?)?.toInt();
+    if (dropSeed != null) {
+      opponentGame.currentDropSeed = dropSeed;
+      opponentGame.syncDropRng = Random(dropSeed);
+    }
 
     switch (action) {
       case 'spawn':

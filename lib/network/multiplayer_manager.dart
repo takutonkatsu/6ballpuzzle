@@ -270,6 +270,7 @@ class MultiplayerManager {
     int rotation,
     List<BallColor> colors,
     String action,
+    int dropSeed,
   ) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
@@ -284,6 +285,7 @@ class MultiplayerManager {
         'y': y,
         'rotation': rotation,
         'colors': colors.map((color) => color.index).toList(),
+        'dropSeed': dropSeed,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
