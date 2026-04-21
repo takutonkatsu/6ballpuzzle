@@ -695,6 +695,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final y = _asDouble(item['y']);
       final colors = _parseBallColors(item['colors']);
       final startColorIndex = _asInt(item['startColor']);
+      final itemDropSeed = _asInt(item['dropSeed']);
+      if (itemDropSeed != null) {
+        syncDropRng = Random(itemDropSeed);
+      }
 
       if (type == null || x == null || y == null || colors.isEmpty) {
         continue;
@@ -855,17 +859,19 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         );
         activeOjamaBlocks.add(block);
         add(block);
+        final dropSeed = _rng.nextInt(999999);
+        syncDropRng = Random(dropSeed);
+
         final spawnData = <String, dynamic>{
           'type': task.type.name,
           'x': spawnX,
           'y': spawnY,
           'colors': colors.map((color) => color.index).toList(),
+          'dropSeed': dropSeed,
         };
         if (task.type == OjamaType.straightSet && task.startColor != null) {
           spawnData['startColor'] = task.startColor!.index;
         }
-        final dropSeed = _rng.nextInt(999999);
-        prepareSyncedOjamaDrop(dropSeed);
         onOjamaSpawned?.call([spawnData], dropSeed);
         pendingOjamaSpawns--;
       });
@@ -1036,8 +1042,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           return e!;
         } else {
           if (offsetX == 0.0) {
-            final rng = syncDropRng ?? Random();
-            return rng.nextBool() ? b! : c!;
+            final bool goRight = syncDropRng != null
+                ? syncDropRng!.nextBool()
+                : Random().nextBool();
+            return goRight ? b! : c!;
           }
           return (offsetX < 0) ? b! : c!;
         }
