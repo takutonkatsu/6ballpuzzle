@@ -538,7 +538,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           _updateHints();
           _notifyBoardUpdated();
 
-          if (activePiece == null) {
+          if (incomingOjama.isNotEmpty) {
+            var task = incomingOjama.removeFirst();
+            _dropOjamaTask(task);
+            return;
+          } else if (activePiece == null) {
             _isSpawning = true;
             _spawnNewPiece();
             _isSpawning = false;
@@ -1078,7 +1082,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     hash = 31 * hash + curr.row;
     hash = 31 * hash + comp.ballColor.index;
     hash = 31 * hash + (comp.hitOffsetX * 1000).round();
-    return hash.isEven;
+    return hash.abs() % 2 == 0;
   }
 
   void rotateLeft() {

@@ -20,14 +20,21 @@ typedef OpponentDisconnectedCallback = void Function();
 typedef RematchStartedCallback = void Function(int newSeed);
 
 class MultiplayerPlayer {
-  const MultiplayerPlayer({required this.status});
+  const MultiplayerPlayer({required this.status, this.name = 'Player'});
 
   final String status;
+  final String name;
 
   factory MultiplayerPlayer.fromMap(Map<dynamic, dynamic>? data) {
     return MultiplayerPlayer(
       status: (data?['status'] as String?) ?? 'waiting',
+      name: _normalizePlayerName(data?['name'] as String?),
     );
+  }
+
+  static String _normalizePlayerName(String? value) {
+    final name = value?.trim() ?? '';
+    return name.isEmpty ? 'Player' : name;
   }
 }
 
@@ -85,6 +92,7 @@ class MultiplayerManager {
   String? currentRoomId;
   String? myRoleId;
   MultiplayerRoom? currentRoom;
+  String playerName = 'Player';
 
   StreamSubscription<DatabaseEvent>? _roomSubscription;
   StreamSubscription<DatabaseEvent>? _opponentBoardSubscription;
@@ -108,6 +116,13 @@ class MultiplayerManager {
   bool get isHost => myRoleId == 'host';
   bool get isGuest => myRoleId == 'guest';
   String get opponentRoleId => myRoleId == 'host' ? 'guest' : 'host';
+  String get displayPlayerName =>
+      playerName.trim().isEmpty ? 'Player' : playerName.trim();
+
+  void setPlayerName(String name) {
+    final nextName = name.trim();
+    playerName = nextName.isEmpty ? 'Player' : nextName;
+  }
 
   DatabaseReference get _db {
     final app = Firebase.app();
@@ -135,7 +150,10 @@ class MultiplayerManager {
           'status': 'waiting',
           'seed': seed,
           'players': {
-            'host': {'status': 'waiting'},
+            'host': {
+              'status': 'waiting',
+              'name': displayPlayerName,
+            },
           },
         });
 
@@ -145,8 +163,11 @@ class MultiplayerManager {
           roomId: roomId,
           status: 'waiting',
           seed: seed,
-          players: const {
-            'host': MultiplayerPlayer(status: 'waiting'),
+          players: {
+            'host': MultiplayerPlayer(
+              status: 'waiting',
+              name: displayPlayerName,
+            ),
           },
         );
         _lastRoomStatus = currentRoom!.status;
@@ -178,7 +199,10 @@ class MultiplayerManager {
         return false;
       }
 
-      await roomRef.child('players/guest').set({'status': 'waiting'});
+      await roomRef.child('players/guest').set({
+        'status': 'waiting',
+        'name': displayPlayerName,
+      });
 
       currentRoomId = roomId;
       myRoleId = 'guest';
@@ -188,7 +212,10 @@ class MultiplayerManager {
         seed: room.seed,
         players: {
           ...room.players,
-          'guest': const MultiplayerPlayer(status: 'waiting'),
+          'guest': MultiplayerPlayer(
+            status: 'waiting',
+            name: displayPlayerName,
+          ),
         },
       );
       _lastRoomStatus = currentRoom!.status;
@@ -213,6 +240,9 @@ class MultiplayerManager {
 
     currentRoomId = roomId;
     myRoleId = roleId;
+    await _db.child('rooms/$roomId/players/$roleId').update({
+      'name': displayPlayerName,
+    });
     currentRoom = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
@@ -271,6 +301,7 @@ class MultiplayerManager {
     List<BallColor> colors,
     String action,
     int dropSeed,
+    List<int> nextColors,
   ) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
@@ -286,6 +317,7 @@ class MultiplayerManager {
         'rotation': rotation,
         'colors': colors.map((color) => color.index).toList(),
         'dropSeed': dropSeed,
+        'nextColors': nextColors,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {

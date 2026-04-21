@@ -51,6 +51,25 @@ class _GameScreenState extends State<GameScreen> {
 
   bool get _isOnlineMode => widget.isOnlineMultiplayer;
   bool get _showsOpponentBoard => widget.isCpuMode || _isOnlineMode;
+  String get _myDisplayName {
+    if (_isOnlineMode) {
+      final roleId = _multiplayerManager.myRoleId;
+      return _displayNameForRole(roleId) ??
+          _multiplayerManager.displayPlayerName;
+    }
+    return _multiplayerManager.displayPlayerName;
+  }
+
+  String get _opponentDisplayName {
+    if (widget.isCpuMode) {
+      return 'CPU';
+    }
+    if (_isOnlineMode) {
+      return _displayNameForRole(_multiplayerManager.opponentRoleId) ??
+          'Opponent';
+    }
+    return '';
+  }
 
   @override
   void initState() {
@@ -122,6 +141,9 @@ class _GameScreenState extends State<GameScreen> {
             colors,
             action,
             dropSeed,
+            _playerGame.nextPieceColors.value
+                .map((color) => color.index)
+                .toList(),
           ),
         );
       }
@@ -257,7 +279,11 @@ class _GameScreenState extends State<GameScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Icon(Icons.settings, color: Colors.white54),
+          IconButton(
+            tooltip: 'Settings',
+            onPressed: _showSettingsMenu,
+            icon: const Icon(Icons.settings, color: Colors.white54),
+          ),
           const Text(
             'TIME ∞',
             style: TextStyle(
@@ -354,8 +380,8 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildGameBox(PuzzleGame game, {required bool isCpu}) {
-    final isOnlineOpponent = _isOnlineMode && isCpu;
-    final panelLabel = isOnlineOpponent ? 'OPPONENT' : (isCpu ? 'CPU' : 'NEXT');
+    final panelLabel = isCpu ? 'NEXT' : 'NEXT';
+    final displayName = isCpu ? _opponentDisplayName : _myDisplayName;
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -381,6 +407,11 @@ class _GameScreenState extends State<GameScreen> {
       clipBehavior: Clip.hardEdge,
       child: Stack(
         children: [
+          Positioned(
+            top: 8,
+            left: 8,
+            child: _buildNameBadge(displayName, isCpu: isCpu),
+          ),
           Positioned.fill(
             child: FittedBox(
               fit: BoxFit.contain,
@@ -432,20 +463,12 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                   ),
                   Expanded(
-                    child: isOnlineOpponent
-                        ? const Center(
-                            child: Icon(
-                              Icons.person,
-                              color: Colors.white54,
-                              size: 22,
-                            ),
-                          )
-                        : ValueListenableBuilder<List<BallColor>>(
-                            valueListenable: game.nextPieceColors,
-                            builder: (context, colors, child) => Center(
-                              child: _buildPieceIcon(colors, size: 16),
-                            ),
-                          ),
+                    child: ValueListenableBuilder<List<BallColor>>(
+                      valueListenable: game.nextPieceColors,
+                      builder: (context, colors, child) => Center(
+                        child: _buildPieceIcon(colors, size: 16),
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -489,6 +512,31 @@ class _GameScreenState extends State<GameScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNameBadge(String name, {required bool isCpu}) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 130),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isCpu
+              ? Colors.redAccent.withValues(alpha: 0.35)
+              : Colors.blueAccent.withValues(alpha: 0.45),
+        ),
+      ),
+      child: Text(
+        name,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: isCpu ? Colors.redAccent : Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -694,6 +742,8 @@ class _GameScreenState extends State<GameScreen> {
         room?.players[_multiplayerManager.myRoleId]?.status ?? 'waiting';
     final hostReady = room?.players['host']?.status == 'ready';
     final guestReady = room?.players['guest']?.status == 'ready';
+    final opponentName =
+        _displayNameForRole(_multiplayerManager.opponentRoleId);
 
     if (_onlineGameStarted || room == null) {
       return const SizedBox.shrink();
@@ -748,9 +798,11 @@ class _GameScreenState extends State<GameScreen> {
                     const SizedBox(height: 16),
                   ],
                   Text(
-                    canShowReady
-                        ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
-                        : '相手の入室を待っています…',
+                    canShowReady && opponentName != null
+                        ? '$opponentName が参加しました。READYで開始準備をしてください。'
+                        : canShowReady
+                            ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
+                            : '相手の入室を待っています…',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 16,
@@ -759,9 +811,17 @@ class _GameScreenState extends State<GameScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),
-                  _buildLobbyStatusRow('HOST', hostReady),
+                  _buildLobbyStatusRow(
+                    'HOST',
+                    _displayNameForRole('host') ?? 'Player',
+                    hostReady,
+                  ),
                   const SizedBox(height: 12),
-                  _buildLobbyStatusRow('GUEST', guestReady),
+                  _buildLobbyStatusRow(
+                    'GUEST',
+                    _displayNameForRole('guest') ?? 'Player',
+                    guestReady,
+                  ),
                   const SizedBox(height: 28),
                   if (canShowReady)
                     SizedBox(
@@ -803,7 +863,7 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildLobbyStatusRow(String label, bool isReady) {
+  Widget _buildLobbyStatusRow(String label, String name, bool isReady) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -813,7 +873,7 @@ class _GameScreenState extends State<GameScreen> {
       child: Row(
         children: [
           Text(
-            label,
+            '$label  $name',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 16,
@@ -898,6 +958,17 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  String? _displayNameForRole(String? roleId) {
+    if (roleId == null) {
+      return null;
+    }
+    final name = _room?.players[roleId]?.name.trim();
+    if (name == null || name.isEmpty) {
+      return null;
+    }
+    return name;
+  }
+
   void _handleOpponentBoardUpdated(Map<String, dynamic> boardData) {
     _cpuGame?.applyRemoteBoardState(boardData);
   }
@@ -913,10 +984,14 @@ class _GameScreenState extends State<GameScreen> {
     final y = (pieceData['y'] as num?)?.toDouble();
     final rotation = (pieceData['rotation'] as num?)?.toInt();
     final colors = _parseColors(pieceData['colors']);
+    final nextColors = _parseColors(pieceData['nextColors']);
     final dropSeed = (pieceData['dropSeed'] as num?)?.toInt();
     if (dropSeed != null) {
       opponentGame.currentDropSeed = dropSeed;
       opponentGame.syncDropRng = Random(dropSeed);
+    }
+    if (nextColors.isNotEmpty) {
+      opponentGame.nextPieceColors.value = nextColors;
     }
 
     switch (action) {
@@ -1108,6 +1183,65 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  Future<void> _showSettingsMenu() {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E32),
+          title: const Text(
+            'SETTINGS',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: SizedBox(
+            width: 280,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                unawaited(_returnHomeFromSettings());
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey[800],
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: const Text(
+                'ホーム画面に戻る',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('CANCEL'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _returnHomeFromSettings() async {
+    _clearAllPendingAttacks();
+    _playerGame.pauseEngine();
+    _cpuGame?.pauseEngine();
+
+    if (_isOnlineMode) {
+      await _multiplayerManager.leaveRoom();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    );
+  }
+
   Future<void> _requestRematch() async {
     setState(() {
       _isWaitingForRematch = true;
@@ -1173,11 +1307,20 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   List<BallColor> _parseColors(Object? rawColors) {
-    if (rawColors is! List) {
+    final values = switch (rawColors) {
+      List list => list,
+      Map map => (map.entries.toList()
+            ..sort((a, b) => a.key.toString().compareTo(b.key.toString())))
+          .map((entry) => entry.value)
+          .toList(),
+      _ => null,
+    };
+
+    if (values == null) {
       return const [];
     }
 
-    return rawColors
+    return values
         .map((value) => value is num ? value.toInt() : int.tryParse('$value'))
         .whereType<int>()
         .where((index) => index >= 0 && index < BallColor.values.length)

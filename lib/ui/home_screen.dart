@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/multiplayer_manager.dart';
 import 'game_screen.dart';
@@ -11,8 +13,23 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const _playerNameKey = 'player_name';
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
+  final TextEditingController _playerNameController = TextEditingController();
   bool _isBusy = false;
+  String _playerName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPlayerName();
+  }
+
+  @override
+  void dispose() {
+    _playerNameController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,7 +51,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 60),
+            const SizedBox(height: 32),
+            _buildPlayerNameField(),
+            if (_playerName.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                _playerName,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+            const SizedBox(height: 40),
             _buildMenuButton(
               context,
               'ENDLESS MODE',
@@ -68,6 +98,35 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildPlayerNameField() {
+    return SizedBox(
+      width: 280,
+      child: TextField(
+        controller: _playerNameController,
+        maxLength: 16,
+        textInputAction: TextInputAction.done,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          labelText: 'PLAYER NAME',
+          counterText: '',
+          labelStyle: const TextStyle(color: Colors.white70),
+          prefixIcon: const Icon(Icons.person, color: Colors.amberAccent),
+          filled: true,
+          fillColor: const Color(0xFF1E1E32),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.white24, width: 2),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.amberAccent, width: 2),
+          ),
+        ),
+        onChanged: _savePlayerName,
+      ),
+    );
+  }
+
   Widget _buildMenuButton(
     BuildContext context,
     String title,
@@ -89,13 +148,19 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Icon(icon, color: Colors.amberAccent, size: 28),
             const SizedBox(width: 16),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
-                color: Colors.white,
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ),
           ],
@@ -110,6 +175,47 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (context) => GameScreen(isCpuMode: isCpuMode),
       ),
     );
+  }
+
+  Future<void> _loadPlayerName() async {
+    final savedName = await _readSavedPlayerName();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _playerName = savedName;
+      _playerNameController.text = savedName;
+    });
+    _multiplayerManager.setPlayerName(savedName);
+  }
+
+  Future<void> _savePlayerName(String value) async {
+    final nextName = value.trim();
+    setState(() {
+      _playerName = nextName;
+    });
+    _multiplayerManager.setPlayerName(nextName);
+    await _writeSavedPlayerName(nextName);
+  }
+
+  Future<String> _readSavedPlayerName() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_playerNameKey) ?? '';
+    } on MissingPluginException {
+      return '';
+    }
+  }
+
+  Future<void> _writeSavedPlayerName(String name) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_playerNameKey, name);
+    } on MissingPluginException {
+      // The app can still run if a dev build has not been fully rebuilt after
+      // adding the plugin; the value will persist once registration is active.
+    }
   }
 
   Future<void> _createRoom(BuildContext context) async {
