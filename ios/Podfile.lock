@@ -1,4 +1,7 @@
 PODS:
+  - audioplayers_darwin (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - Firebase/CoreOnly (12.12.0):
     - FirebaseCore (~> 12.12.0)
   - Firebase/Database (12.12.0):
@@ -26,6 +29,13 @@ PODS:
     - leveldb-library (~> 1.22)
   - FirebaseSharedSwift (12.12.0)
   - Flutter (1.0.0)
+  - Google-Mobile-Ads-SDK (13.2.0):
+    - GoogleUserMessagingPlatform (>= 1.1)
+  - google_mobile_ads (8.0.0):
+    - Flutter
+    - Google-Mobile-Ads-SDK (~> 13.2.0)
+    - webview_flutter_wkwebview
+  - GoogleUserMessagingPlatform (3.1.0)
   - GoogleUtilities/Environment (8.1.0):
     - GoogleUtilities/Privacy
   - GoogleUtilities/Logger (8.1.0):
@@ -41,12 +51,18 @@ PODS:
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
+  - webview_flutter_wkwebview (0.0.1):
+    - Flutter
+    - FlutterMacOS
 
 DEPENDENCIES:
+  - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/darwin`)
   - firebase_core (from `.symlinks/plugins/firebase_core/ios`)
   - firebase_database (from `.symlinks/plugins/firebase_database/ios`)
   - Flutter (from `Flutter`)
+  - google_mobile_ads (from `.symlinks/plugins/google_mobile_ads/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - webview_flutter_wkwebview (from `.symlinks/plugins/webview_flutter_wkwebview/darwin`)
 
 SPEC REPOS:
   trunk:
@@ -56,20 +72,29 @@ SPEC REPOS:
     - FirebaseCoreInternal
     - FirebaseDatabase
     - FirebaseSharedSwift
+    - Google-Mobile-Ads-SDK
+    - GoogleUserMessagingPlatform
     - GoogleUtilities
     - leveldb-library
 
 EXTERNAL SOURCES:
+  audioplayers_darwin:
+    :path: ".symlinks/plugins/audioplayers_darwin/darwin"
   firebase_core:
     :path: ".symlinks/plugins/firebase_core/ios"
   firebase_database:
     :path: ".symlinks/plugins/firebase_database/ios"
   Flutter:
     :path: Flutter
+  google_mobile_ads:
+    :path: ".symlinks/plugins/google_mobile_ads/ios"
   shared_preferences_foundation:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
+  webview_flutter_wkwebview:
+    :path: ".symlinks/plugins/webview_flutter_wkwebview/darwin"
 
 SPEC CHECKSUMS:
+  audioplayers_darwin: 835ced6edd4c9fc8ebb0a7cc9e294a91d99917d5
   Firebase: aa154fee4e9b8eac17aa42344988865b3e857d33
   firebase_core: 9156a152117c843440b0b990c785aa0259bc5447
   firebase_database: 9eff3255f2e09e55b7b7636c077bbe19af8f522a
@@ -79,9 +104,13 @@ SPEC CHECKSUMS:
   FirebaseDatabase: 00d7d9fc5347273620a40807fa2d7bd5001a6b77
   FirebaseSharedSwift: bccaff90721d14bafc14be34f28b77fdd7c91dc9
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Google-Mobile-Ads-SDK: f0365e190d66539c65cea8ded43e2c367abb5477
+  google_mobile_ads: fc71399df4ee37c5637400f351898ee22543f75b
+  GoogleUserMessagingPlatform: befe603da6501006420c206222acd449bba45a9c
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   leveldb-library: cc8b8f8e013647a295ad3f8cd2ddf49a6f19be19
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
 
 PODFILE CHECKSUM: 53a6aebc29ccee84c41f92f409fc20cd4ca011f1
 

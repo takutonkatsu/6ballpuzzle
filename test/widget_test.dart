@@ -5,8 +5,7 @@ void main() {
   testWidgets('home screen shows ranked match entry points', (tester) async {
     await tester.pumpWidget(const MyApp());
 
-    expect(find.text('6-BALL PUZZLE'), findsOneWidget);
-    expect(find.text('Rating: ...'), findsOneWidget);
-    expect(find.text('RANDOM MATCH'), findsOneWidget);
+    expect(find.text('RATE: ...'), findsOneWidget);
+    expect(find.text('RANDOM\nMATCH'), findsOneWidget);
   });
 }

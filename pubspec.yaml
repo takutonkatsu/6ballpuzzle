@@ -13,6 +13,8 @@ dependencies:
   firebase_core: ^4.7.0
   firebase_database: ^12.3.0
   shared_preferences: ^2.3.3
+  flame_audio: ^2.12.1
+  google_mobile_ads: ^8.0.0
 
 dev_dependencies:
   flutter_test:
@@ -23,3 +25,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/rl_model.json
+    - assets/audio/

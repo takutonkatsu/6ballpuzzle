@@ -1,4 +1,7 @@
 PODS:
+  - audioplayers_darwin (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - Firebase/CoreOnly (12.12.1):
     - FirebaseCore (~> 12.12.1)
   - Firebase/Database (12.12.1):
@@ -42,12 +45,17 @@ PODS:
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
+  - webview_flutter_wkwebview (0.0.1):
+    - Flutter
+    - FlutterMacOS
 
 DEPENDENCIES:
+  - audioplayers_darwin (from `Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/darwin`)
   - firebase_core (from `Flutter/ephemeral/.symlinks/plugins/firebase_core/macos`)
   - firebase_database (from `Flutter/ephemeral/.symlinks/plugins/firebase_database/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - webview_flutter_wkwebview (from `Flutter/ephemeral/.symlinks/plugins/webview_flutter_wkwebview/darwin`)
 
 SPEC REPOS:
   trunk:
@@ -61,6 +69,8 @@ SPEC REPOS:
     - leveldb-library
 
 EXTERNAL SOURCES:
+  audioplayers_darwin:
+    :path: Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/darwin
   firebase_core:
     :path: Flutter/ephemeral/.symlinks/plugins/firebase_core/macos
   firebase_database:
@@ -69,8 +79,11 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
   shared_preferences_foundation:
     :path: Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin
+  webview_flutter_wkwebview:
+    :path: Flutter/ephemeral/.symlinks/plugins/webview_flutter_wkwebview/darwin
 
 SPEC CHECKSUMS:
+  audioplayers_darwin: 835ced6edd4c9fc8ebb0a7cc9e294a91d99917d5
   Firebase: 14f11e91129d246a8a6166b4c1c2ea61b56806ec
   firebase_core: 8022171e82601bac2c79cfa04d69977f12595682
   firebase_database: 5ab759212a758dd9937c1755da5bff6d55d3c5e9
@@ -83,6 +96,7 @@ SPEC CHECKSUMS:
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   leveldb-library: cc8b8f8e013647a295ad3f8cd2ddf49a6f19be19
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
 

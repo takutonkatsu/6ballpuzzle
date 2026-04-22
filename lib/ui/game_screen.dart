@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flame/game.dart';
+import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 
 import '../game/components/ball_component.dart';
@@ -54,6 +55,7 @@ class _GameScreenState extends State<GameScreen> {
   Timer? _rankedAutoStartTimer;
   bool _rankedAutoStartScheduled = false;
   String? _readyGoOverlayText;
+  bool _isBattleBgmPlaying = false;
 
   final List<Timer> _pendingAttackTimers = [];
 
@@ -132,10 +134,14 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     if (widget.isCpuMode) {
-      _cpuGame = PuzzleGame(isCpuMode: true, seed: gameSeed, wallColor: Colors.redAccent);
+      _cpuGame = PuzzleGame(
+          isCpuMode: true, seed: gameSeed, wallColor: Colors.redAccent);
       if (_cpuGame!.cpuAgent != null) {
         _cpuGame!.cpuAgent!.difficulty = CPUDifficulty.oni;
       }
+      _cpuGame!.onGameOverTriggered = () {
+        unawaited(_stopBattleBgm());
+      };
     }
 
     _playerGame.onBoardUpdated = (boardData) {
@@ -167,6 +173,7 @@ class _GameScreenState extends State<GameScreen> {
       }
     };
     _playerGame.onGameOverTriggered = () {
+      unawaited(_stopBattleBgm());
       if (_isOnlineMode) {
         setState(() {
           _onlineResultMessage = 'YOU LOSE...';
@@ -190,6 +197,12 @@ class _GameScreenState extends State<GameScreen> {
     if (widget.isCpuMode && _cpuGame != null) {
       _cpuGame!.onWazaFired =
           (waza, color) => _sendOjamaWithDelay(_playerGame, waza, color);
+    }
+
+    if (!_isOnlineMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_startBattleBgm());
+      });
     }
   }
 
@@ -228,6 +241,7 @@ class _GameScreenState extends State<GameScreen> {
   void dispose() {
     _clearAllPendingAttacks();
     _rankedAutoStartTimer?.cancel();
+    unawaited(_stopBattleBgm());
     if (widget.isOnlineMultiplayer) {
       unawaited(_multiplayerManager.leaveRoom());
     }
@@ -238,7 +252,7 @@ class _GameScreenState extends State<GameScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A1A),
+      backgroundColor: const Color(0xFF0F0F13),
       body: SafeArea(
         child: Stack(
           children: [
@@ -252,6 +266,21 @@ class _GameScreenState extends State<GameScreen> {
                   _buildScoreWidget(_playerGame),
                 Expanded(child: _buildPlayerArea(_playerGame)),
                 _buildControls(_playerGame),
+                // Ad Banner Placeholder
+                Container(
+                  height: 50,
+                  width: double.infinity,
+                  color: Colors.black,
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'AD BANNER SPACE',
+                    style: TextStyle(
+                      color: Colors.white24,
+                      fontSize: 12,
+                      letterSpacing: 2.0,
+                    ),
+                  ),
+                ),
               ],
             ),
             if (_isOnlineMode) _buildOnlineOverlay() else _buildGlobalOverlay(),
@@ -372,60 +401,42 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildPlayerArea(PuzzleGame game) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          flex: 4,
-          child: Column(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTapDown: (_) => game.hardDrop(),
-                  child: GameWidget(
-                    game: game,
-                    focusNode: _playerFocusNode,
-                    autofocus: true,
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTapDown: (_) => game.triggerHardDrop(),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Column(
+              children: [
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: _buildGameViewport(game, isPlayer: true),
                   ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              SizedBox(
-                height: 32,
-                child: ValueListenableBuilder<String?>(
-                  valueListenable: game.wazaNameNotifier,
-                  builder: (context, name, child) {
-                    if (name == null) return const SizedBox.shrink();
-                    return Center(
-                      child: Text(
-                        name,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          shadows: [Shadow(color: Colors.white, blurRadius: 4)],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        Expanded(
-          flex: 1,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildNameBadge(_myDisplayName, isCpu: false),
-              const SizedBox(height: 16),
-              _buildNextBadge(game, isCpu: false),
-            ],
+          Expanded(
+            flex: 1,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.center,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildNameBadge(_myDisplayName, isCpu: false),
+                  const SizedBox(height: 16),
+                  _buildNextBadge(game, isCpu: false),
+                ],
+              ),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -436,96 +447,153 @@ class _GameScreenState extends State<GameScreen> {
         Expanded(
           flex: 4,
           child: Padding(
-             padding: const EdgeInsets.all(8),
-             child: Column(
-               children: [
-                 Expanded(
-                   child: GameWidget(
-                     game: game,
-                   ),
-                 ),
-                 const SizedBox(height: 4),
-                 SizedBox(
-                   height: 24,
-                   child: ValueListenableBuilder<String?>(
-                     valueListenable: game.wazaNameNotifier,
-                     builder: (context, name, child) {
-                       if (name == null) return const SizedBox.shrink();
-                       return Center(
-                         child: Text(
-                           name,
-                           style: const TextStyle(
-                             fontSize: 16,
-                             fontWeight: FontWeight.bold,
-                             color: Colors.white,
-                             shadows: [Shadow(color: Colors.white, blurRadius: 4)],
-                           ),
-                         ),
-                       );
-                     },
-                   ),
-                 ),
-               ],
-             ),
+            padding: const EdgeInsets.all(8),
+            child: Column(
+              children: [
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: _buildGameViewport(game, isPlayer: false),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         Expanded(
           flex: 1,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildNameBadge(_opponentDisplayName, isCpu: true),
-              const SizedBox(height: 16),
-              _buildNextBadge(game, isCpu: true),
-              const SizedBox(height: 24),
-              IconButton(
-                tooltip: 'Settings',
-                onPressed: _showSettingsMenu,
-                icon: const Icon(Icons.settings, color: Colors.white54),
-              ),
-            ],
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildNameBadge(_opponentDisplayName, isCpu: true),
+                const SizedBox(height: 16),
+                _buildNextBadge(game, isCpu: true),
+                const SizedBox(height: 24),
+                IconButton(
+                  tooltip: 'Settings',
+                  onPressed: _showSettingsMenu,
+                  icon: const Icon(Icons.settings, color: Colors.white54),
+                ),
+              ],
+            ),
           ),
         ),
       ],
     );
   }
 
+  Widget _buildGameViewport(PuzzleGame game, {required bool isPlayer}) {
+    return SizedBox(
+      width: 320,
+      height: 480,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: GameWidget(
+              game: game,
+              focusNode: isPlayer ? _playerFocusNode : null,
+              autofocus: isPlayer,
+            ),
+          ),
+          _buildWazaNameInGrid(game),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWazaNameInGrid(PuzzleGame game) {
+    final gridTop = game.grid.offset.y;
+    final gridHeight = game.grid.floorY - gridTop;
+    final top = (gridTop + gridHeight * 0.4 - 24).clamp(0.0, 430.0);
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: top,
+      height: 48,
+      child: ValueListenableBuilder<String?>(
+        valueListenable: game.wazaNameNotifier,
+        builder: (context, name, child) {
+          if (name == null) {
+            return const SizedBox.shrink();
+          }
+          return Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: 1.5,
+                  shadows: [
+                    Shadow(color: Colors.white, blurRadius: 10),
+                    Shadow(color: Colors.amberAccent, blurRadius: 18),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildNameBadge(String name, {required bool isCpu}) {
+    final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
     return Container(
       constraints: const BoxConstraints(maxWidth: 130),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.black87,
+        color: const Color(0xFF1E1E28),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isCpu
-              ? Colors.redAccent.withValues(alpha: 0.35)
-              : Colors.blueAccent.withValues(alpha: 0.45),
+          color: neonColor.withValues(alpha: 0.8),
+          width: 1.5,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: neonColor.withValues(alpha: 0.3),
+            blurRadius: 8,
+          ),
+        ],
       ),
       child: Text(
         name,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: isCpu ? Colors.redAccent : Colors.white,
+          color: Colors.white,
           fontSize: 12,
           fontWeight: FontWeight.bold,
+          shadows: [Shadow(color: neonColor, blurRadius: 4)],
         ),
       ),
     );
   }
 
   Widget _buildNextBadge(PuzzleGame game, {required bool isCpu}) {
+    final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
     return Container(
       width: 48,
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white10,
+        color: const Color(0xFF1E1E28),
         border: Border.all(
-          color: isCpu ? Colors.redAccent.withValues(alpha: 0.3) : Colors.white24,
-          width: 1,
+          color: neonColor.withValues(alpha: 0.5),
+          width: 1.5,
         ),
         borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: neonColor.withValues(alpha: 0.15),
+            blurRadius: 4,
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -533,9 +601,10 @@ class _GameScreenState extends State<GameScreen> {
           Text(
             'NEXT',
             style: TextStyle(
-              color: isCpu ? Colors.redAccent : Colors.white54,
+              color: neonColor,
               fontSize: 10,
               fontWeight: FontWeight.bold,
+              shadows: [Shadow(color: neonColor, blurRadius: 2)],
             ),
           ),
           const SizedBox(height: 8),
@@ -614,6 +683,7 @@ class _GameScreenState extends State<GameScreen> {
                         if (_cpuGame != null) {
                           _cpuGame!.startGame();
                         }
+                        unawaited(_startBattleBgm());
                       },
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
@@ -637,6 +707,7 @@ class _GameScreenState extends State<GameScreen> {
                     ElevatedButton(
                       onPressed: () {
                         _clearAllPendingAttacks();
+                        unawaited(_stopBattleBgm());
                         Navigator.of(context).pushReplacement(
                           MaterialPageRoute(
                             builder: (_) => const HomeScreen(),
@@ -1131,6 +1202,7 @@ class _GameScreenState extends State<GameScreen> {
 
     _playerGame.startGame(newSeed: seed);
     _cpuGame?.startGame(newSeed: seed);
+    unawaited(_startBattleBgm());
 
     await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) {
@@ -1289,6 +1361,7 @@ class _GameScreenState extends State<GameScreen> {
       _onlineResultMessage = 'YOU WIN!!';
       _isWaitingForRematch = false;
     });
+    unawaited(_stopBattleBgm());
     unawaited(_applyRankedRatingResult(isWin: true));
     _playerGame.gameStateWrapper.value = GameState.gameover;
     if (_playerGame.activePiece != null) {
@@ -1378,6 +1451,31 @@ class _GameScreenState extends State<GameScreen> {
     });
     _playerGame.startGame(newSeed: newSeed);
     _cpuGame?.startGame(newSeed: newSeed);
+    unawaited(_startBattleBgm());
+  }
+
+  Future<void> _startBattleBgm() async {
+    if (_isBattleBgmPlaying) {
+      return;
+    }
+    _isBattleBgmPlaying = true;
+    try {
+      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.5);
+    } catch (_) {
+      _isBattleBgmPlaying = false;
+    }
+  }
+
+  Future<void> _stopBattleBgm() async {
+    if (!_isBattleBgmPlaying && !FlameAudio.bgm.isPlaying) {
+      return;
+    }
+    _isBattleBgmPlaying = false;
+    try {
+      await FlameAudio.bgm.stop();
+    } catch (_) {
+      // BGM停止失敗で画面遷移や破棄を止めない。
+    }
   }
 
   Future<void> _showErrorDialog(String title, String message) {
@@ -1444,6 +1542,7 @@ class _GameScreenState extends State<GameScreen> {
     _clearAllPendingAttacks();
     _playerGame.pauseEngine();
     _cpuGame?.pauseEngine();
+    await _stopBattleBgm();
 
     if (_isOnlineMode) {
       await _multiplayerManager.leaveRoom();
@@ -1478,6 +1577,7 @@ class _GameScreenState extends State<GameScreen> {
 
   void _leaveOnlineBattle() {
     _clearAllPendingAttacks();
+    unawaited(_stopBattleBgm());
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
@@ -1647,16 +1747,21 @@ class _GameScreenState extends State<GameScreen> {
       onTapDown: (_) => onDown(),
       onTapUp: onUp != null ? (_) => onUp() : null,
       onTapCancel: onUp,
-      child: Center(
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white10,
-            border: Border.all(color: Colors.white24, width: 1.5),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0x1100FFFF), // faint cyan highlight
+          border: Border(
+            top: BorderSide(color: Colors.cyanAccent, width: 2),
+            right: BorderSide(color: Color(0x3300FFFF), width: 1),
           ),
-          child: Icon(icon, color: Colors.white70, size: 32),
+        ),
+        child: Center(
+          child: Icon(
+            icon,
+            color: Colors.cyanAccent,
+            size: 32,
+            shadows: const [Shadow(color: Colors.cyan, blurRadius: 8)],
+          ),
         ),
       ),
     );

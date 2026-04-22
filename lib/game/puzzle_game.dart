@@ -210,7 +210,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         ? idealTop.clamp(minTop, maxTop).toDouble()
         : max(24.0 - virtualSpace, maxTop);
 
-    grid.offset = Vector2((size.x - _boardWidth) / 2 + _ballRadius, top + virtualSpace);
+    grid.offset =
+        Vector2((size.x - _boardWidth) / 2 + _ballRadius, top + virtualSpace);
     grid.updateBounds();
   }
 
@@ -269,6 +270,21 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   @override
   void render(Canvas canvas) {
+    canvas.save();
+
+    // The visual top is exactly 5 rows of hexes above the death line.
+    // rowHeight = _ballRadius * sqrt(3)
+    const rowHeight = _ballRadius * 1.73205;
+    final topClipY = grid.offset.y - (rowHeight * 5) - _ballRadius;
+
+    final clipRect = Rect.fromLTRB(
+      -1000, // Safe left boundless
+      topClipY,
+      10000,
+      10000,
+    );
+    canvas.clipRect(clipRect);
+
     if (wallColor != null) {
       final wallPaint = Paint()
         ..color = wallColor!.withValues(alpha: 0.8)
@@ -284,7 +300,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       path.lineTo(grid.leftWallX, grid.floorY);
       path.lineTo(grid.rightWallX, grid.floorY);
       path.lineTo(grid.rightWallX, deathLineY);
-      
+
       canvas.drawPath(path, wallPaint);
 
       final deathLinePaint = Paint()
@@ -294,8 +310,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       canvas.drawLine(Offset(grid.leftWallX, deathLineY),
           Offset(grid.rightWallX, deathLineY), deathLinePaint);
     }
-    
+
     super.render(canvas);
+    canvas.restore();
   }
 
   double _idleGlowTime = 0.0;
@@ -1169,6 +1186,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
   }
 
+  void triggerHardDrop() {
+    if (gameStateWrapper.value != GameState.playing || isRemotePlayerMode) {
+      return;
+    }
+    hardDrop();
+  }
+
   @override
   KeyEventResult onKeyEvent(
     KeyEvent event,
@@ -1190,7 +1214,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         startMovingRight();
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-        hardDrop();
+        triggerHardDrop();
         return KeyEventResult.handled;
       } else if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
         rotateRight();

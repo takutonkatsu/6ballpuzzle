@@ -172,7 +172,6 @@ class MultiplayerManager {
   bool _isLaunchingRematch = false;
   bool _isMatchFound = false;
   DateTime? _matchmakingStartedAt;
-  String? _activeMatchmakingLockKey;
 
   bool get isHost => myRoleId == 'host';
   bool get isGuest => myRoleId == 'guest';
@@ -554,21 +553,15 @@ class MultiplayerManager {
           return;
         }
 
-        final newRoomId = await _generateUniqueRoomId();
-        final lockAcquired =
-            await _tryAcquireMatchmakingLock(candidate.uid, newRoomId);
-        if (!lockAcquired) {
+        // 同時に待機した2人が互いを取り合わないよう、UID順で
+        // どちらがホストとして確保処理を行うかを一意に決める。
+        if (!_shouldHostRandomMatch(uid, candidate.uid)) {
           continue;
         }
 
-        if (_isMatchFound || completer.isCompleted) {
-          await _releaseMatchmakingLock();
-          return;
-        }
-
+        final newRoomId = await _generateUniqueRoomId();
         final invited = await _inviteOpponent(candidate.uid, newRoomId);
         if (!invited) {
-          await _releaseMatchmakingLock();
           continue;
         }
 
@@ -594,6 +587,10 @@ class MultiplayerManager {
     } catch (error, stackTrace) {
       _completeMatchmakingError(error, stackTrace);
     }
+  }
+
+  bool _shouldHostRandomMatch(String uid, String opponentUid) {
+    return uid.compareTo(opponentUid) > 0;
   }
 
   Future<bool> _joinRoomWhenReady(String roomId) async {
@@ -679,77 +676,30 @@ class MultiplayerManager {
   }
 
   Future<bool> _inviteOpponent(String opponentUid, String roomId) async {
-    final inviteResult = await _db
-        .child('matchmaking/$opponentUid/roomId')
-        .runTransaction((currentValue) {
-      if (currentValue == null || '$currentValue'.isEmpty) {
-        return Transaction.success(roomId);
-      }
-      return Transaction.abort();
-    });
-    return inviteResult.committed;
-  }
-
-  Future<bool> _tryAcquireMatchmakingLock(
-    String opponentUid,
-    String roomId,
-  ) async {
     final uid = myUid;
     if (uid == null) {
       return false;
     }
 
-    final lockKey = _matchmakingLockKey(uid, opponentUid);
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final result = await _db
-        .child('matchmakingLocks/$lockKey')
+    final inviteResult = await _db
+        .child('matchmaking/$opponentUid')
         .runTransaction((currentValue) {
-      if (currentValue is Map) {
-        final timestamp = _intValue(currentValue['timestamp']) ?? 0;
-        final isFresh = now - timestamp < 30000;
-        if (isFresh) {
-          return Transaction.abort();
-        }
+      if (currentValue is! Map) {
+        return Transaction.abort();
       }
 
-      return Transaction.success({
-        'ownerUid': uid,
-        'roomId': roomId,
-        'timestamp': now,
-      });
+      final currentRoomId = currentValue['roomId'];
+      if (currentRoomId != null && '$currentRoomId'.isNotEmpty) {
+        return Transaction.abort();
+      }
+
+      final nextValue = Map<Object?, Object?>.from(currentValue)
+        ..['roomId'] = roomId
+        ..['claimedBy'] = uid
+        ..['claimedAt'] = DateTime.now().millisecondsSinceEpoch;
+      return Transaction.success(nextValue);
     });
-
-    if (result.committed) {
-      _activeMatchmakingLockKey = lockKey;
-      return true;
-    }
-    return false;
-  }
-
-  Future<void> _releaseMatchmakingLock() async {
-    final lockKey = _activeMatchmakingLockKey;
-    final uid = myUid;
-    if (lockKey == null || uid == null) {
-      return;
-    }
-
-    try {
-      final lockRef = _db.child('matchmakingLocks/$lockKey');
-      final snapshot = await lockRef.get();
-      final value = snapshot.value;
-      if (value is Map && value['ownerUid'] == uid) {
-        await lockRef.remove();
-      }
-    } on FirebaseException {
-      // ロック解放の失敗は次回のTTLで自然回復させる。
-    } finally {
-      _activeMatchmakingLockKey = null;
-    }
-  }
-
-  String _matchmakingLockKey(String uidA, String uidB) {
-    final pair = [uidA, uidB]..sort();
-    return '${pair[0]}_${pair[1]}';
+    return inviteResult.committed;
   }
 
   int _currentMatchmakingRange() {
@@ -802,7 +752,6 @@ class MultiplayerManager {
       // クリーンアップ失敗は次回起動時の再登録で上書きする。
     }
 
-    await _releaseMatchmakingLock();
     _matchmakingStartedAt = null;
     _matchmakingCompleter = null;
   }

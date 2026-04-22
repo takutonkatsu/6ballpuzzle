@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../network/multiplayer_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
+import 'components/banner_ad_widget.dart';
 import 'game_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,7 +18,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   static const _playerNameKey = 'player_name';
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final TextEditingController _playerNameController = TextEditingController();
@@ -60,12 +63,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               child: Stack(
                 children: [
                   Positioned.fill(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _build3DRotatingBall(),
-                        _buildModeSelectionCutout(),
-                      ],
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        const ballHeight = 152.0;
+                        const spacing = 12.0;
+                        final modeHeight =
+                            (constraints.maxHeight - ballHeight - spacing)
+                                .clamp(200.0, 280.0);
+
+                        return Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _build3DRotatingBall(),
+                            const SizedBox(height: spacing),
+                            _buildModeSelectionCutout(height: modeHeight),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ],
@@ -91,11 +105,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               color: Colors.black54,
               border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)),
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [BoxShadow(color: Colors.cyanAccent.withOpacity(0.2), blurRadius: 8)],
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.cyanAccent.withOpacity(0.2), blurRadius: 8)
+              ],
             ),
             child: Row(
               children: [
-                const Text('Lv.12', style: TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
+                const Text('Lv.12',
+                    style: TextStyle(
+                        color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
                 const SizedBox(width: 8),
                 Container(
                   width: 50,
@@ -111,7 +130,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       decoration: BoxDecoration(
                         color: Colors.cyanAccent,
                         borderRadius: BorderRadius.circular(3),
-                        boxShadow: const [BoxShadow(color: Colors.cyanAccent, blurRadius: 4)],
+                        boxShadow: const [
+                          BoxShadow(color: Colors.cyanAccent, blurRadius: 4)
+                        ],
                       ),
                     ),
                   ),
@@ -127,7 +148,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 child: TextField(
                   controller: _playerNameController,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5, fontSize: 14),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                      fontSize: 14),
                   decoration: InputDecoration(
                     hintText: 'PLAYER NAME',
                     hintStyle: const TextStyle(color: Colors.white38),
@@ -137,7 +162,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     fillColor: Colors.black54,
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(18),
-                      borderSide: BorderSide(color: Colors.purpleAccent.withOpacity(0.5)),
+                      borderSide: BorderSide(
+                          color: Colors.purpleAccent.withOpacity(0.5)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(18),
@@ -155,13 +181,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               color: Colors.black54,
               border: Border.all(color: Colors.amberAccent.withOpacity(0.5)),
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [BoxShadow(color: Colors.amberAccent.withOpacity(0.2), blurRadius: 8)],
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.amberAccent.withOpacity(0.2), blurRadius: 8)
+              ],
             ),
             child: const Row(
               children: [
-                Icon(Icons.monetization_on, color: Colors.amberAccent, size: 16),
+                Icon(Icons.monetization_on,
+                    color: Colors.amberAccent, size: 16),
                 SizedBox(width: 4),
-                Text('1,250', style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold)),
+                Text('1,250',
+                    style: TextStyle(
+                        color: Colors.amberAccent,
+                        fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -188,8 +221,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('SEASON 3', style: TextStyle(color: Colors.pinkAccent, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                    Text(_isLoadingProfile ? 'RATE: ...' : 'RATE: $_rating', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                    const Text('SEASON 3',
+                        style: TextStyle(
+                            color: Colors.pinkAccent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1)),
+                    Text(_isLoadingProfile ? 'RATE: ...' : 'RATE: $_rating',
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold)),
                   ],
                 ),
                 const SizedBox(width: 12),
@@ -201,7 +243,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       color: Colors.pinkAccent.withOpacity(0.2),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.emoji_events, color: Colors.pinkAccent, size: 18),
+                    child: const Icon(Icons.emoji_events,
+                        color: Colors.pinkAccent, size: 18),
                   ),
                 ),
               ],
@@ -242,41 +285,55 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return AnimatedBuilder(
       animation: _animController,
       builder: (context, child) {
-        return Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()..setEntry(3, 2, 0.001)..rotateY(_animController.value * 2 * 3.14159),
-          child: child,
+        final rotation = _animController.value * math.pi * 2;
+        const baseSize = 76.0;
+        const centerX = 100.0;
+        const centerY = 76.0;
+        final triRadius = baseSize / math.sqrt(3);
+        final balls = [
+          (color: BallColor.blue, x: 0.0, y: -triRadius),
+          (color: BallColor.purple, x: -baseSize / 2, y: triRadius / 2),
+          (color: BallColor.red, x: baseSize / 2, y: triRadius / 2),
+        ].map((ball) {
+          final projectedX = ball.x * math.cos(rotation);
+          final depth = -ball.x * math.sin(rotation);
+          final scale = 0.92 + ((depth / (baseSize / 2)) + 1) * 0.06;
+          final size = baseSize * scale;
+          return (
+            color: ball.color,
+            depth: depth,
+            left: centerX + projectedX - size / 2,
+            top: centerY + ball.y - size / 2,
+            size: size,
+          );
+        }).toList()
+          ..sort((a, b) => a.depth.compareTo(b.depth));
+
+        return SizedBox(
+          width: 200,
+          height: 152,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              for (final ball in balls)
+                Positioned(
+                  left: ball.left,
+                  top: ball.top,
+                  child: MiniBallWidget(
+                    ballColor: ball.color,
+                    size: ball.size,
+                  ),
+                ),
+            ],
+          ),
         );
       },
-      child: SizedBox(
-        width: 80,
-        height: 74.64,
-        child: Stack(
-          children: const [
-            Positioned(
-              left: 20,
-              top: 0,
-              child: MiniBallWidget(ballColor: BallColor.blue, size: 40),
-            ),
-            Positioned(
-              left: 0,
-              top: 34.64,
-              child: MiniBallWidget(ballColor: BallColor.purple, size: 40),
-            ),
-            Positioned(
-              left: 40,
-              top: 34.64,
-              child: MiniBallWidget(ballColor: BallColor.red, size: 40),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
-  Widget _buildModeSelectionCutout() {
+  Widget _buildModeSelectionCutout({double height = 280}) {
     return SizedBox(
-      height: 280,
+      height: height,
       width: 320,
       child: Stack(
         children: [
@@ -285,9 +342,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               Expanded(
                 child: Row(
                   children: [
-                    Expanded(child: _buildGridButton('ENDLESS\nMODE', Colors.cyanAccent, () => _startGame(context, false))),
+                    Expanded(
+                        child: _buildGridButton(
+                            'ENDLESS\nMODE',
+                            Colors.cyanAccent,
+                            () => _startGame(context, false))),
                     const SizedBox(width: 8),
-                    Expanded(child: _buildGridButton('CPU VS\nMODE', Colors.purpleAccent, () => _startGame(context, true))),
+                    Expanded(
+                        child: _buildGridButton(
+                            'CPU VS\nMODE',
+                            Colors.purpleAccent,
+                            () => _startGame(context, true))),
                   ],
                 ),
               ),
@@ -295,9 +360,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               Expanded(
                 child: Row(
                   children: [
-                    Expanded(child: _buildGridButton('CREATE\nROOM', Colors.pinkAccent, _isBusy ? null : () => _createRoom(context))),
+                    Expanded(
+                        child: _buildGridButton(
+                            'CREATE\nROOM',
+                            Colors.pinkAccent,
+                            _isBusy ? null : () => _createRoom(context))),
                     const SizedBox(width: 8),
-                    Expanded(child: _buildGridButton('JOIN\nROOM', Colors.amberAccent, _isBusy ? null : () => _joinRoom(context))),
+                    Expanded(
+                        child: _buildGridButton(
+                            'JOIN\nROOM',
+                            Colors.amberAccent,
+                            _isBusy ? null : () => _joinRoom(context))),
                   ],
                 ),
               ),
@@ -306,7 +379,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           Align(
             alignment: Alignment.center,
             child: InkWell(
-              onTap: _isBusy || _isLoadingProfile ? null : () => _startRandomMatch(context),
+              onTap: _isBusy || _isLoadingProfile
+                  ? null
+                  : () => _startRandomMatch(context),
               borderRadius: BorderRadius.circular(60),
               child: Container(
                 width: 120,
@@ -314,14 +389,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: const Color(0xFF0F0F13),
-                  border: Border.all(color: const Color(0xFF0F0F13), width: 8), 
+                  border: Border.all(color: const Color(0xFF0F0F13), width: 8),
                 ),
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: Colors.pinkAccent.withOpacity(0.2),
                     border: Border.all(color: Colors.pinkAccent, width: 2),
-                    boxShadow: [BoxShadow(color: Colors.pinkAccent.withOpacity(0.6), blurRadius: 20)],
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.pinkAccent.withOpacity(0.6),
+                          blurRadius: 20)
+                    ],
                   ),
                   child: const Center(
                     child: Text(
@@ -332,7 +411,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
                         letterSpacing: 1.2,
-                        shadows: [Shadow(color: Colors.pinkAccent, blurRadius: 10)],
+                        shadows: [
+                          Shadow(color: Colors.pinkAccent, blurRadius: 10)
+                        ],
                       ),
                     ),
                   ),
@@ -345,7 +426,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildGridButton(String title, Color accentColor, VoidCallback? onTap) {
+  Widget _buildGridButton(
+      String title, Color accentColor, VoidCallback? onTap) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -405,7 +487,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         children: [
           Icon(icon, color: Colors.cyanAccent.withOpacity(0.7), size: 24),
           const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: Colors.cyanAccent.withOpacity(0.7), fontSize: 10, fontWeight: FontWeight.bold)),
+          Text(label,
+              style: TextStyle(
+                  color: Colors.cyanAccent.withOpacity(0.7),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -417,7 +503,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       height: 50,
       color: Colors.black,
       alignment: Alignment.center,
-      child: const Text('ADVERTISEMENT', style: TextStyle(color: Colors.white24, letterSpacing: 4, fontSize: 12)),
+      child: const BannerAdWidget(),
     );
   }
 
