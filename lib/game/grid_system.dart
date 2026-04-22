@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flame/components.dart';
+import 'package:flutter/material.dart';
 import 'components/ball_component.dart';
 import 'game_models.dart';
 import 'game_logic.dart';
@@ -29,6 +30,25 @@ class GridSystem {
 
     leftWallX = offset.x - ballRadius;
     rightWallX = offset.x + (10 * ballRadius * 2) - ballRadius;
+  }
+
+  void drawWallsAndFloor(Canvas canvas, Color color) {
+    final paint = Paint()
+      ..color = color.withValues(alpha: 0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 2);
+
+    final path = Path();
+    double minCenterY = hexToPixel(const HexCoordinate(0, 0)).y;
+    double topY = minCenterY - ballRadius;
+    
+    path.moveTo(leftWallX, topY);
+    path.lineTo(leftWallX, floorY);
+    path.lineTo(rightWallX, floorY);
+    path.lineTo(rightWallX, topY);
+    
+    canvas.drawPath(path, paint);
   }
 
   int getColumnsForRow(int row) {

@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../network/multiplayer_manager.dart';
+import '../game/game_models.dart';
+import '../game/components/ball_component.dart';
 import 'game_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -246,29 +248,28 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           child: child,
         );
       },
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildNeonBall(Colors.cyanAccent),
-          _buildNeonBall(Colors.purpleAccent),
-          _buildNeonBall(Colors.pinkAccent),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNeonBall(Color glowColor) {
-    return Container(
-      width: 40,
-      height: 40,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: glowColor.withOpacity(0.8),
-        boxShadow: [
-          BoxShadow(color: glowColor, blurRadius: 15, spreadRadius: 2),
-        ],
-        border: Border.all(color: Colors.white, width: 2),
+      child: SizedBox(
+        width: 80,
+        height: 74.64,
+        child: Stack(
+          children: const [
+            Positioned(
+              left: 20,
+              top: 0,
+              child: MiniBallWidget(ballColor: BallColor.blue, size: 40),
+            ),
+            Positioned(
+              left: 0,
+              top: 34.64,
+              child: MiniBallWidget(ballColor: BallColor.purple, size: 40),
+            ),
+            Positioned(
+              left: 40,
+              top: 34.64,
+              child: MiniBallWidget(ballColor: BallColor.red, size: 40),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -162,12 +162,15 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   @override
   Color backgroundColor() => const Color(0xFF101010);
 
+  final Color? wallColor;
+
   PuzzleGame({
     this.isCpuMode = false,
     this.seed,
     this.autoStart = true,
     this.isRemotePlayerMode = false,
     this.useConstantFallSpeed = false,
+    this.wallColor,
   }) {
     _rng = seed != null ? Random(seed) : Random();
     grid = GridSystem(ballRadius: _ballRadius);
@@ -198,14 +201,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void _updateGridLayout() {
     final rowHeight = _ballRadius * sqrt(3);
     final boardHeight = (grid.numRows - 1) * rowHeight + _ballRadius * 2;
-    final maxTop = size.y - boardHeight - 8;
-    final minTop = size.y < 420 ? 36.0 : 84.0;
-    final idealTop = (size.y - boardHeight) * 0.5 + 34;
+    // 5virtual rows of padding space above death line but bounded by physics
+    final virtualSpace = 5 * rowHeight;
+    final maxTop = size.y - boardHeight - 8 - virtualSpace;
+    final minTop = size.y < 420 ? 36.0 - virtualSpace : 84.0 - virtualSpace;
+    final idealTop = (size.y - boardHeight) * 0.5 + 34 - virtualSpace;
     final top = maxTop >= minTop
         ? idealTop.clamp(minTop, maxTop).toDouble()
-        : max(24.0, maxTop);
+        : max(24.0 - virtualSpace, maxTop);
 
-    grid.offset = Vector2((size.x - _boardWidth) / 2 + _ballRadius, top);
+    grid.offset = Vector2((size.x - _boardWidth) / 2 + _ballRadius, top + virtualSpace);
     grid.updateBounds();
   }
 
@@ -264,26 +269,33 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   @override
   void render(Canvas canvas) {
+    if (wallColor != null) {
+      final wallPaint = Paint()
+        ..color = wallColor!.withValues(alpha: 0.8)
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = 3.0
+        ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 2);
+
+      final deathLineY = grid.offset.y - _ballRadius;
+
+      final path = Path();
+      path.moveTo(grid.leftWallX, deathLineY);
+      path.lineTo(grid.leftWallX, grid.floorY);
+      path.lineTo(grid.rightWallX, grid.floorY);
+      path.lineTo(grid.rightWallX, deathLineY);
+      
+      canvas.drawPath(path, wallPaint);
+
+      final deathLinePaint = Paint()
+        ..color = Colors.orangeAccent.withValues(alpha: 0.8)
+        ..strokeWidth = 2.0;
+
+      canvas.drawLine(Offset(grid.leftWallX, deathLineY),
+          Offset(grid.rightWallX, deathLineY), deathLinePaint);
+    }
+    
     super.render(canvas);
-
-    final wallPaint = Paint()
-      ..color = Colors.red.withValues(alpha: 0.8)
-      ..strokeWidth = 2.0;
-
-    canvas.drawLine(Offset(grid.leftWallX, grid.floorY),
-        Offset(grid.rightWallX, grid.floorY), wallPaint);
-    canvas.drawLine(Offset(grid.leftWallX, -1000),
-        Offset(grid.leftWallX, grid.floorY), wallPaint);
-    canvas.drawLine(Offset(grid.rightWallX, -1000),
-        Offset(grid.rightWallX, grid.floorY), wallPaint);
-
-    final deathLineY = grid.offset.y - _ballRadius;
-    final deathLinePaint = Paint()
-      ..color = Colors.orangeAccent.withValues(alpha: 0.8)
-      ..strokeWidth = 2.0;
-
-    canvas.drawLine(Offset(grid.leftWallX, deathLineY),
-        Offset(grid.rightWallX, deathLineY), deathLinePaint);
   }
 
   double _idleGlowTime = 0.0;

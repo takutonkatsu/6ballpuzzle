@@ -91,6 +91,7 @@ class _GameScreenState extends State<GameScreen> {
       seed: gameSeed,
       autoStart: !widget.isOnlineMultiplayer,
       useConstantFallSpeed: widget.isOnlineMultiplayer,
+      wallColor: Colors.blueAccent,
     );
 
     if (_isOnlineMode) {
@@ -99,6 +100,7 @@ class _GameScreenState extends State<GameScreen> {
         seed: gameSeed,
         autoStart: false,
         isRemotePlayerMode: true,
+        wallColor: Colors.redAccent,
       );
     }
 
@@ -130,7 +132,7 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     if (widget.isCpuMode) {
-      _cpuGame = PuzzleGame(isCpuMode: true, seed: gameSeed);
+      _cpuGame = PuzzleGame(isCpuMode: true, seed: gameSeed, wallColor: Colors.redAccent);
       if (_cpuGame!.cpuAgent != null) {
         _cpuGame!.cpuAgent!.difficulty = CPUDifficulty.oni;
       }
@@ -240,43 +242,17 @@ class _GameScreenState extends State<GameScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final isLandscape =
-                    constraints.maxWidth > constraints.maxHeight;
-                if (_showsOpponentBoard && isLandscape) {
-                  return Column(
-                    children: [
-                      _buildGlobalHeader(),
-                      Expanded(
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _buildGameBox(_playerGame, isCpu: false),
-                            ),
-                            Expanded(
-                              child: _buildGameBox(_cpuGame!, isCpu: true),
-                            ),
-                          ],
-                        ),
-                      ),
-                      _buildControls(_playerGame),
-                    ],
-                  );
-                }
-
-                return Column(
-                  children: [
-                    _buildGlobalHeader(),
-                    if (_showsOpponentBoard)
-                      Expanded(child: _buildGameBox(_cpuGame!, isCpu: true)),
-                    if (!widget.isCpuMode && !_isOnlineMode)
-                      _buildScoreWidget(_playerGame),
-                    Expanded(child: _buildGameBox(_playerGame, isCpu: false)),
-                    _buildControls(_playerGame),
-                  ],
-                );
-              },
+            Column(
+              children: [
+                if (_showsOpponentBoard)
+                  Expanded(child: _buildOpponentArea(_cpuGame!))
+                else
+                  _buildGlobalHeader(),
+                if (!widget.isCpuMode && !_isOnlineMode)
+                  _buildScoreWidget(_playerGame),
+                Expanded(child: _buildPlayerArea(_playerGame)),
+                _buildControls(_playerGame),
+              ],
             ),
             if (_isOnlineMode) _buildOnlineOverlay() else _buildGlobalOverlay(),
             if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
@@ -395,115 +371,122 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildGameBox(PuzzleGame game, {required bool isCpu}) {
-    final displayName = isCpu ? _opponentDisplayName : _myDisplayName;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black,
-        border: Border.all(
-          color: isCpu
-              ? Colors.redAccent.withValues(alpha: 0.5)
-              : Colors.blueAccent.withValues(alpha: 0.8),
-          width: 2,
-        ),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: isCpu
-            ? []
-            : [
-                BoxShadow(
-                  color: Colors.blueAccent.withValues(alpha: 0.3),
-                  blurRadius: 10,
-                  spreadRadius: 1,
-                ),
-              ],
-      ),
-      clipBehavior: Clip.hardEdge,
-      child: Column(
-        children: [
-          Container(
-            height: 46,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            color: Colors.black87,
-            child: Row(
-              children: [
-                Expanded(child: _buildNameBadge(displayName, isCpu: isCpu)),
-                const SizedBox(width: 8),
-                _buildNextBadge(game, isCpu: isCpu),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: FittedBox(
-                    fit: BoxFit.contain,
-                    child: SizedBox(
-                      width: 320,
-                      height: 480,
-                      child: GameWidget(
-                        game: game,
-                        focusNode: isCpu ? null : _playerFocusNode,
-                        autofocus: !isCpu,
-                      ),
-                    ),
+  Widget _buildPlayerArea(PuzzleGame game) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          flex: 4,
+          child: Column(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTapDown: (_) => game.hardDrop(),
+                  child: GameWidget(
+                    game: game,
+                    focusNode: _playerFocusNode,
+                    autofocus: true,
                   ),
                 ),
-                if (!isCpu)
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTapDown: (_) => game.hardDrop(),
-                      child: Container(),
-                    ),
-                  ),
-                Positioned(
-                  bottom: 40,
-                  left: 0,
-                  right: 0,
-                  child: ValueListenableBuilder<String?>(
-                    valueListenable: game.wazaNameNotifier,
-                    builder: (context, name, child) {
-                      if (name == null) {
-                        return const SizedBox.shrink();
-                      }
-                      return Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.amberAccent,
-                              width: 2,
-                            ),
-                          ),
-                          child: Text(
-                            name,
-                            style: const TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.amberAccent,
-                              shadows: [
-                                Shadow(color: Colors.amber, blurRadius: 10),
-                              ],
-                            ),
-                          ),
+              ),
+              const SizedBox(height: 4),
+              SizedBox(
+                height: 32,
+                child: ValueListenableBuilder<String?>(
+                  valueListenable: game.wazaNameNotifier,
+                  builder: (context, name, child) {
+                    if (name == null) return const SizedBox.shrink();
+                    return Center(
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          shadows: [Shadow(color: Colors.white, blurRadius: 4)],
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        Expanded(
+          flex: 1,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildNameBadge(_myDisplayName, isCpu: false),
+              const SizedBox(height: 16),
+              _buildNextBadge(game, isCpu: false),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOpponentArea(PuzzleGame game) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          flex: 4,
+          child: Padding(
+             padding: const EdgeInsets.all(8),
+             child: Column(
+               children: [
+                 Expanded(
+                   child: GameWidget(
+                     game: game,
+                   ),
+                 ),
+                 const SizedBox(height: 4),
+                 SizedBox(
+                   height: 24,
+                   child: ValueListenableBuilder<String?>(
+                     valueListenable: game.wazaNameNotifier,
+                     builder: (context, name, child) {
+                       if (name == null) return const SizedBox.shrink();
+                       return Center(
+                         child: Text(
+                           name,
+                           style: const TextStyle(
+                             fontSize: 16,
+                             fontWeight: FontWeight.bold,
+                             color: Colors.white,
+                             shadows: [Shadow(color: Colors.white, blurRadius: 4)],
+                           ),
+                         ),
+                       );
+                     },
+                   ),
+                 ),
+               ],
+             ),
+          ),
+        ),
+        Expanded(
+          flex: 1,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildNameBadge(_opponentDisplayName, isCpu: true),
+              const SizedBox(height: 16),
+              _buildNextBadge(game, isCpu: true),
+              const SizedBox(height: 24),
+              IconButton(
+                tooltip: 'Settings',
+                onPressed: _showSettingsMenu,
+                icon: const Icon(Icons.settings, color: Colors.white54),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -534,19 +517,18 @@ class _GameScreenState extends State<GameScreen> {
 
   Widget _buildNextBadge(PuzzleGame game, {required bool isCpu}) {
     return Container(
-      width: 76,
-      height: 34,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      width: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white10,
         border: Border.all(
-          color:
-              isCpu ? Colors.redAccent.withValues(alpha: 0.3) : Colors.white24,
+          color: isCpu ? Colors.redAccent.withValues(alpha: 0.3) : Colors.white24,
           width: 1,
         ),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             'NEXT',
@@ -556,12 +538,12 @@ class _GameScreenState extends State<GameScreen> {
               fontWeight: FontWeight.bold,
             ),
           ),
-          const Spacer(),
+          const SizedBox(height: 8),
           ValueListenableBuilder<List<BallColor>>(
             valueListenable: game.nextPieceColors,
             builder: (context, colors, child) => _buildPieceIcon(
               colors,
-              size: 9,
+              size: 9, // This returns a small widget internally
             ),
           ),
         ],
@@ -1619,35 +1601,53 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildControls(PuzzleGame game) {
-    return Container(
+    return SizedBox(
       height: 90,
-      padding: const EdgeInsets.only(bottom: 16, top: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildControlButton(Icons.rotate_left, () => game.rotateLeft()),
-          _buildHoldButton(
-            Icons.arrow_left,
-            () => game.startMovingLeft(),
-            () => game.stopMovingLeft(),
+          Expanded(
+            child: _buildAreaButton(
+              icon: Icons.rotate_left,
+              onDown: () => game.rotateLeft(),
+            ),
           ),
-          _buildHoldButton(
-            Icons.arrow_right,
-            () => game.startMovingRight(),
-            () => game.stopMovingRight(),
+          Expanded(
+            child: _buildAreaButton(
+              icon: Icons.arrow_left,
+              onDown: () => game.startMovingLeft(),
+              onUp: () => game.stopMovingLeft(),
+            ),
           ),
-          _buildControlButton(Icons.rotate_right, () => game.rotateRight()),
+          Expanded(
+            child: _buildAreaButton(
+              icon: Icons.arrow_right,
+              onDown: () => game.startMovingRight(),
+              onUp: () => game.stopMovingRight(),
+            ),
+          ),
+          Expanded(
+            child: _buildAreaButton(
+              icon: Icons.rotate_right,
+              onDown: () => game.rotateRight(),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildControlButton(IconData icon, VoidCallback onPress) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPress,
-        borderRadius: BorderRadius.circular(35),
+  Widget _buildAreaButton({
+    required IconData icon,
+    required VoidCallback onDown,
+    VoidCallback? onUp,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => onDown(),
+      onTapUp: onUp != null ? (_) => onUp() : null,
+      onTapCancel: onUp,
+      child: Center(
         child: Container(
           width: 56,
           height: 56,
@@ -1658,28 +1658,6 @@ class _GameScreenState extends State<GameScreen> {
           ),
           child: Icon(icon, color: Colors.white70, size: 32),
         ),
-      ),
-    );
-  }
-
-  Widget _buildHoldButton(
-    IconData icon,
-    VoidCallback onDown,
-    VoidCallback onUp,
-  ) {
-    return GestureDetector(
-      onTapDown: (_) => onDown(),
-      onTapUp: (_) => onUp(),
-      onTapCancel: onUp,
-      child: Container(
-        width: 72,
-        height: 60,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: Colors.white10,
-          border: Border.all(color: Colors.white24, width: 1.5),
-        ),
-        child: Icon(icon, color: Colors.white70, size: 40),
       ),
     );
   }
