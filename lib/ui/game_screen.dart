@@ -577,9 +577,9 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildNextBadge(PuzzleGame game, {required bool isCpu}) {
     final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
     return Container(
-      width: 58,
-      height: 76,
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 8),
+      width: 76,
+      height: 100,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E28),
         border: Border.all(
@@ -611,7 +611,7 @@ class _GameScreenState extends State<GameScreen> {
             valueListenable: game.nextPieceColors,
             builder: (context, colors, child) => _buildPieceIcon(
               colors,
-              size: 18,
+              size: 30,
             ),
           ),
         ],
