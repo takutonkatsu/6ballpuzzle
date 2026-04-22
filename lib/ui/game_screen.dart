@@ -9,6 +9,7 @@ import '../game/components/ball_component.dart';
 import '../game/game_models.dart';
 import '../game/puzzle_game.dart';
 import '../network/multiplayer_manager.dart';
+import 'components/banner_ad_widget.dart';
 import 'home_screen.dart';
 
 class GameScreen extends StatefulWidget {
@@ -266,20 +267,10 @@ class _GameScreenState extends State<GameScreen> {
                   _buildScoreWidget(_playerGame),
                 Expanded(child: _buildPlayerArea(_playerGame)),
                 _buildControls(_playerGame),
-                // Ad Banner Placeholder
-                Container(
-                  height: 50,
+                const SizedBox(
+                  height: 50.0,
                   width: double.infinity,
-                  color: Colors.black,
-                  alignment: Alignment.center,
-                  child: const Text(
-                    'AD BANNER SPACE',
-                    style: TextStyle(
-                      color: Colors.white24,
-                      fontSize: 12,
-                      letterSpacing: 2.0,
-                    ),
-                  ),
+                  child: BannerAdWidget(),
                 ),
               ],
             ),
@@ -547,7 +538,8 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildNameBadge(String name, {required bool isCpu}) {
     final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
     return Container(
-      constraints: const BoxConstraints(maxWidth: 130),
+      width: 112,
+      height: 34,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E28),
@@ -563,14 +555,20 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ],
       ),
-      child: Text(
-        name,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          shadows: [Shadow(color: neonColor, blurRadius: 4)],
+      child: Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              shadows: [Shadow(color: neonColor, blurRadius: 4)],
+            ),
+          ),
         ),
       ),
     );
@@ -579,8 +577,9 @@ class _GameScreenState extends State<GameScreen> {
   Widget _buildNextBadge(PuzzleGame game, {required bool isCpu}) {
     final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
     return Container(
-      width: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      width: 58,
+      height: 76,
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFF1E1E28),
         border: Border.all(
@@ -612,7 +611,7 @@ class _GameScreenState extends State<GameScreen> {
             valueListenable: game.nextPieceColors,
             builder: (context, colors, child) => _buildPieceIcon(
               colors,
-              size: 9, // This returns a small widget internally
+              size: 18,
             ),
           ),
         ],

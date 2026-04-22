@@ -24,7 +24,6 @@ class _HomeScreenState extends State<HomeScreen>
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final TextEditingController _playerNameController = TextEditingController();
   bool _isBusy = false;
-  String _playerName = '';
   int _rating = MultiplayerManager.initialRating;
   bool _isLoadingProfile = true;
   String? _queuedPlayerName;
@@ -103,11 +102,13 @@ class _HomeScreenState extends State<HomeScreen>
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.black54,
-              border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)),
+              border:
+                  Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5)),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.cyanAccent.withOpacity(0.2), blurRadius: 8)
+                    color: Colors.cyanAccent.withValues(alpha: 0.2),
+                    blurRadius: 8)
               ],
             ),
             child: Row(
@@ -143,34 +144,50 @@ class _HomeScreenState extends State<HomeScreen>
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: SizedBox(
-                height: 36,
-                child: TextField(
-                  controller: _playerNameController,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                      fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'PLAYER NAME',
-                    hintStyle: const TextStyle(color: Colors.white38),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                    filled: true,
-                    fillColor: Colors.black54,
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      borderSide: BorderSide(
-                          color: Colors.purpleAccent.withOpacity(0.5)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      borderSide: const BorderSide(color: Colors.purpleAccent),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 132,
+                    maxWidth: 172,
+                  ),
+                  child: SizedBox(
+                    height: 36,
+                    child: TextField(
+                      controller: _playerNameController,
+                      maxLength: 10,
+                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                      inputFormatters: [
+                        LengthLimitingTextInputFormatter(10),
+                      ],
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.5,
+                          fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'PLAYER NAME',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        counterText: '',
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                        filled: true,
+                        fillColor: Colors.black54,
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: BorderSide(
+                              color:
+                                  Colors.purpleAccent.withValues(alpha: 0.5)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide:
+                              const BorderSide(color: Colors.purpleAccent),
+                        ),
+                      ),
+                      onChanged: _savePlayerName,
                     ),
                   ),
-                  onChanged: _savePlayerName,
                 ),
               ),
             ),
@@ -179,11 +196,13 @@ class _HomeScreenState extends State<HomeScreen>
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.black54,
-              border: Border.all(color: Colors.amberAccent.withOpacity(0.5)),
+              border:
+                  Border.all(color: Colors.amberAccent.withValues(alpha: 0.5)),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                    color: Colors.amberAccent.withOpacity(0.2), blurRadius: 8)
+                    color: Colors.amberAccent.withValues(alpha: 0.2),
+                    blurRadius: 8)
               ],
             ),
             child: const Row(
@@ -214,7 +233,8 @@ class _HomeScreenState extends State<HomeScreen>
             decoration: BoxDecoration(
               color: Colors.black54,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.pinkAccent.withOpacity(0.3)),
+              border:
+                  Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [
@@ -240,7 +260,7 @@ class _HomeScreenState extends State<HomeScreen>
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: Colors.pinkAccent.withOpacity(0.2),
+                      color: Colors.pinkAccent.withValues(alpha: 0.2),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.emoji_events,
@@ -272,9 +292,11 @@ class _HomeScreenState extends State<HomeScreen>
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: color.withOpacity(0.1),
-          border: Border.all(color: color.withOpacity(0.5)),
-          boxShadow: [BoxShadow(color: color.withOpacity(0.2), blurRadius: 4)],
+          color: color.withValues(alpha: 0.1),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+          boxShadow: [
+            BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 4)
+          ],
         ),
         child: Icon(icon, color: color, size: 20),
       ),
@@ -394,11 +416,11 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.pinkAccent.withOpacity(0.2),
+                    color: Colors.pinkAccent.withValues(alpha: 0.2),
                     border: Border.all(color: Colors.pinkAccent, width: 2),
                     boxShadow: [
                       BoxShadow(
-                          color: Colors.pinkAccent.withOpacity(0.6),
+                          color: Colors.pinkAccent.withValues(alpha: 0.6),
                           blurRadius: 20)
                     ],
                   ),
@@ -433,12 +455,13 @@ class _HomeScreenState extends State<HomeScreen>
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: accentColor.withOpacity(0.1),
+          color: accentColor.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: accentColor.withOpacity(0.3), width: 2),
+          border:
+              Border.all(color: accentColor.withValues(alpha: 0.3), width: 2),
           boxShadow: [
             BoxShadow(
-              color: accentColor.withOpacity(0.1),
+              color: accentColor.withValues(alpha: 0.1),
               blurRadius: 10,
               spreadRadius: 1,
             ),
@@ -485,11 +508,11 @@ class _HomeScreenState extends State<HomeScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Colors.cyanAccent.withOpacity(0.7), size: 24),
+          Icon(icon, color: Colors.cyanAccent.withValues(alpha: 0.7), size: 24),
           const SizedBox(height: 4),
           Text(label,
               style: TextStyle(
-                  color: Colors.cyanAccent.withOpacity(0.7),
+                  color: Colors.cyanAccent.withValues(alpha: 0.7),
                   fontSize: 10,
                   fontWeight: FontWeight.bold)),
         ],
@@ -522,7 +545,6 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     setState(() {
-      _playerName = savedName;
       _playerNameController.text = savedName;
     });
     _multiplayerManager.setPlayerName(savedName);
@@ -550,9 +572,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _savePlayerName(String value) {
     final nextName = value.trim();
-    setState(() {
-      _playerName = nextName;
-    });
     _multiplayerManager.setPlayerName(nextName);
     _queuePlayerNameSave(nextName);
   }
