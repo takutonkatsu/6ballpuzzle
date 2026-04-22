@@ -34,7 +34,15 @@ class GameScreen extends StatefulWidget {
     this.isHost = false,
     this.isRankedMode = false,
   })  : isCpuMode = false,
-        isOnlineMultiplayer = true;
+        isOnlineMultiplayer = true,
+        isRankedMode = false;
+
+  const GameScreen.ranked({super.key})
+      : isCpuMode = false,
+        isOnlineMultiplayer = true,
+        roomId = null,
+        isHost = false,
+        isRankedMode = true;
 
   @override
   State<GameScreen> createState() => _GameScreenState();
@@ -49,14 +57,9 @@ class _GameScreenState extends State<GameScreen> {
   bool _onlineGameStarted = false;
   bool _readySubmitting = false;
   String? _onlineResultMessage;
+  String? _ratingChangeText;
   bool _isWaitingForRematch = false;
   bool _isDisconnectDialogVisible = false;
-  bool _rankedRatingApplied = false;
-  RankedRatingChange? _rankedRatingChange;
-  Timer? _rankedAutoStartTimer;
-  bool _rankedAutoStartScheduled = false;
-  String? _readyGoOverlayText;
-  bool _isBattleBgmPlaying = false;
 
   final List<Timer> _pendingAttackTimers = [];
 
@@ -117,7 +120,11 @@ class _GameScreenState extends State<GameScreen> {
       _multiplayerManager.onOpponentGameOver = _handleOpponentGameOver;
       _multiplayerManager.onOpponentDisconnected = _handleOpponentDisconnected;
       _multiplayerManager.onRematchStarted = _handleRematchStarted;
-      if (_room == null && widget.roomId != null) {
+      if (widget.isRankedMode && _room == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _startRandomMatch();
+        });
+      } else if (_room == null && widget.roomId != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _restoreOnlineSession();
         });
@@ -180,7 +187,6 @@ class _GameScreenState extends State<GameScreen> {
           _onlineResultMessage = 'YOU LOSE...';
           _isWaitingForRematch = false;
         });
-        unawaited(_applyRankedRatingResult(isWin: false));
         unawaited(_multiplayerManager.declareGameOver());
       }
     };
@@ -305,9 +311,7 @@ class _GameScreenState extends State<GameScreen> {
           Flexible(
             child: Text(
               widget.isOnlineMultiplayer
-                  ? widget.isRankedMode
-                      ? 'RANDOM MATCH'
-                      : 'FRIEND BATTLE'
+                  ? 'FRIEND BATTLE'
                   : widget.isCpuMode
                       ? 'CPU LEVEL: GA-Optimized'
                       : '1P MODE',
@@ -742,6 +746,10 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildOnlineOverlay() {
+    if (widget.isRankedMode && _isFindingRandomMatch) {
+      return _buildMatchmakingOverlay();
+    }
+
     if (!_onlineGameStarted) {
       return _buildLobbyOverlay();
     }
@@ -770,31 +778,24 @@ class _GameScreenState extends State<GameScreen> {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              if (widget.isRankedMode) ...[
-                _buildRankedRatingChange(),
-                const SizedBox(height: 24),
-              ] else ...[
-                ElevatedButton(
-                  onPressed: _isWaitingForRematch ? null : _requestRematch,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 48,
-                      vertical: 16,
-                    ),
-                    backgroundColor: Colors.blueAccent,
-                  ),
-                  child: Text(
-                    _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH (再戦)',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1,
-                    ),
+              ElevatedButton(
+                onPressed: _isWaitingForRematch ? null : _requestRematch,
+                style: ElevatedButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                  backgroundColor: Colors.blueAccent,
+                ),
+                child: Text(
+                  _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH (再戦)',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
                   ),
                 ),
-                const SizedBox(height: 16),
-              ],
+              ),
+              const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
                   _leaveOnlineBattle();
@@ -805,7 +806,7 @@ class _GameScreenState extends State<GameScreen> {
                   backgroundColor: Colors.grey[800],
                 ),
                 child: const Text(
-                  'HOME',
+                  'ホームに戻る',
                   style: TextStyle(
                     fontSize: 20,
                     color: Colors.white,
@@ -815,85 +816,6 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRankedRatingChange() {
-    final change = _rankedRatingChange;
-    if (change == null) {
-      return const Text(
-        'Ratingを更新中...',
-        style: TextStyle(
-          color: Colors.white70,
-          fontSize: 18,
-          fontWeight: FontWeight.bold,
-        ),
-      );
-    }
-
-    final deltaText =
-        change.delta >= 0 ? '+${change.delta}' : '${change.delta}';
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 600),
-      builder: (context, value, child) {
-        final animatedRating = change.oldRating +
-            ((change.newRating - change.oldRating) * value).round();
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Rating: ${change.oldRating} → $animatedRating ($deltaText)',
-              style: const TextStyle(
-                color: Colors.amberAccent,
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${change.oldRating} → ${change.newRating}',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildReadyGoOverlay() {
-    final text = _readyGoOverlayText!;
-    final isGo = text == 'GO!';
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Container(
-          color: Colors.black.withValues(alpha: isGo ? 0.18 : 0.38),
-          child: Center(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              child: Text(
-                text,
-                key: ValueKey(text),
-                style: TextStyle(
-                  color: isGo ? Colors.amberAccent : Colors.white,
-                  fontSize: isGo ? 56 : 42,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 3,
-                  shadows: const [
-                    Shadow(color: Colors.black, blurRadius: 16),
-                  ],
-                ),
-              ),
-            ),
           ),
         ),
       ),
@@ -933,11 +855,7 @@ class _GameScreenState extends State<GameScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    widget.isRankedMode
-                        ? 'ランダムマッチが成立しました'
-                        : isHost
-                            ? 'フレンドバトルの部屋を作成しました'
-                            : 'フレンドバトルに参加しました',
+                    isHost ? 'フレンドバトルの部屋を作成しました' : 'フレンドバトルに参加しました',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
@@ -968,15 +886,11 @@ class _GameScreenState extends State<GameScreen> {
                     const SizedBox(height: 16),
                   ],
                   Text(
-                    widget.isRankedMode && canShowReady
-                        ? 'READYで開始準備をしてください。'
-                        : canShowReady && opponentName != null
-                            ? '$opponentName が参加しました。READYで開始準備をしてください。'
-                            : canShowReady
-                                ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
-                                : widget.isRankedMode
-                                    ? '対戦相手の接続を待っています...'
-                                    : '相手の入室を待っています…',
+                    canShowReady && opponentName != null
+                        ? '$opponentName が参加しました。READYで開始準備をしてください。'
+                        : canShowReady
+                            ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
+                            : '相手の入室を待っています…',
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 16,
@@ -1114,6 +1028,43 @@ class _GameScreenState extends State<GameScreen> {
           _readySubmitting = false;
         });
       }
+    }
+  }
+
+  Future<void> _startRandomMatch() async {
+    if (!mounted || _isFindingRandomMatch) {
+      return;
+    }
+
+    setState(() {
+      _isFindingRandomMatch = true;
+    });
+
+    try {
+      await _multiplayerManager.startRandomMatch();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isFindingRandomMatch = false;
+        _room = _multiplayerManager.currentRoom;
+      });
+
+      if (_room?.bothPlayersReady ?? false) {
+        _handleRoomUpdated(_room!);
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isFindingRandomMatch = false;
+      });
+      await _showErrorDialog('ランダムマッチに失敗しました', '$error');
+      if (!mounted) {
+        return;
+      }
+      _leaveOnlineBattle();
     }
   }
 
@@ -1360,37 +1311,9 @@ class _GameScreenState extends State<GameScreen> {
       _onlineResultMessage = 'YOU WIN!!';
       _isWaitingForRematch = false;
     });
-    unawaited(_stopBattleBgm());
-    unawaited(_applyRankedRatingResult(isWin: true));
     _playerGame.gameStateWrapper.value = GameState.gameover;
     if (_playerGame.activePiece != null) {
       _playerGame.activePiece!.isLocked = true;
-    }
-  }
-
-  Future<void> _applyRankedRatingResult({required bool isWin}) async {
-    if (!widget.isRankedMode || _rankedRatingApplied) {
-      return;
-    }
-
-    _rankedRatingApplied = true;
-    try {
-      final change = await _multiplayerManager.applyRankedResult(
-        isWin: isWin,
-      );
-      if (!mounted || change == null) {
-        return;
-      }
-      setState(() {
-        _rankedRatingChange = change;
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _rankedRatingChange = null;
-      });
     }
   }
 

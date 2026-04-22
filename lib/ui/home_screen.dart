@@ -24,12 +24,7 @@ class _HomeScreenState extends State<HomeScreen>
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final TextEditingController _playerNameController = TextEditingController();
   bool _isBusy = false;
-  int _rating = MultiplayerManager.initialRating;
-  bool _isLoadingProfile = true;
-  String? _queuedPlayerName;
-  String _lastPersistedPlayerName = '';
-  bool _isPersistingPlayerName = false;
-  late AnimationController _animController;
+  String _playerName = '';
 
   @override
   void initState() {
@@ -51,173 +46,66 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
-      body: SafeArea(
+      backgroundColor: const Color(0xFF0F0F1A),
+      body: Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildTopBanner1(),
-            const SizedBox(height: 12),
-            _buildTopBanner2(),
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        const ballHeight = 152.0;
-                        const spacing = 12.0;
-                        final modeHeight =
-                            (constraints.maxHeight - ballHeight - spacing)
-                                .clamp(200.0, 280.0);
-
-                        return Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _build3DRotatingBall(),
-                            const SizedBox(height: spacing),
-                            _buildModeSelectionCutout(height: modeHeight),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
+            const Text(
+              '6-BALL PUZZLE',
+              style: TextStyle(
+                fontSize: 40,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 4,
+                color: Colors.white,
+                shadows: [
+                  Shadow(color: Colors.blueAccent, blurRadius: 20),
                 ],
               ),
             ),
-            _buildBottomBannerTop(),
-            _buildBottomBannerAdPlaceholder(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTopBanner1() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              border:
-                  Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5)),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.cyanAccent.withValues(alpha: 0.2),
-                    blurRadius: 8)
-              ],
-            ),
-            child: Row(
-              children: [
-                const Text('Lv.12',
-                    style: TextStyle(
-                        color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
-                const SizedBox(width: 8),
-                Container(
-                  width: 50,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: 0.7,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.cyanAccent,
-                        borderRadius: BorderRadius.circular(3),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.cyanAccent, blurRadius: 4)
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minWidth: 132,
-                    maxWidth: 172,
-                  ),
-                  child: SizedBox(
-                    height: 36,
-                    child: TextField(
-                      controller: _playerNameController,
-                      maxLength: 10,
-                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                      inputFormatters: [
-                        LengthLimitingTextInputFormatter(10),
-                      ],
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.5,
-                          fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: 'PLAYER NAME',
-                        hintStyle: const TextStyle(color: Colors.white38),
-                        counterText: '',
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                        filled: true,
-                        fillColor: Colors.black54,
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: BorderSide(
-                              color:
-                                  Colors.purpleAccent.withValues(alpha: 0.5)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide:
-                              const BorderSide(color: Colors.purpleAccent),
-                        ),
-                      ),
-                      onChanged: _savePlayerName,
-                    ),
-                  ),
+            const SizedBox(height: 32),
+            _buildPlayerNameField(),
+            if (_playerName.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                _playerName,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
+            ],
+            const SizedBox(height: 40),
+            _buildMenuButton(
+              context,
+              'ENDLESS MODE',
+              Icons.loop,
+              () => _startGame(context, false),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              border:
-                  Border.all(color: Colors.amberAccent.withValues(alpha: 0.5)),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.amberAccent.withValues(alpha: 0.2),
-                    blurRadius: 8)
-              ],
+            const SizedBox(height: 24),
+            _buildMenuButton(
+              context,
+              'CPU VS MODE',
+              Icons.smart_toy,
+              () => _startGame(context, true),
             ),
-            child: const Row(
-              children: [
-                Icon(Icons.monetization_on,
-                    color: Colors.amberAccent, size: 16),
-                SizedBox(width: 4),
-                Text('1,250',
-                    style: TextStyle(
-                        color: Colors.amberAccent,
-                        fontWeight: FontWeight.bold)),
-              ],
+            const SizedBox(height: 24),
+            _buildMenuButton(
+              context,
+              'CREATE ROOM',
+              Icons.add_link,
+              _isBusy ? null : () => _createRoom(context),
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+            _buildMenuButton(
+              context,
+              'JOIN ROOM',
+              Icons.login,
+              _isBusy ? null : () => _joinRoom(context),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -548,61 +436,12 @@ class _HomeScreenState extends State<HomeScreen>
       _playerNameController.text = savedName;
     });
     _multiplayerManager.setPlayerName(savedName);
-    _lastPersistedPlayerName = savedName;
-
-    try {
-      final rating = await _multiplayerManager.initializeUser(name: savedName);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _rating = rating;
-        _isLoadingProfile = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _rating = _multiplayerManager.currentRating;
-        _isLoadingProfile = false;
-      });
-    }
   }
 
-  void _savePlayerName(String value) {
+  Future<void> _savePlayerName(String value) async {
     final nextName = value.trim();
     _multiplayerManager.setPlayerName(nextName);
-    _queuePlayerNameSave(nextName);
-  }
-
-  void _queuePlayerNameSave(String name) {
-    _queuedPlayerName = name;
-    if (_isPersistingPlayerName) {
-      return;
-    }
-    unawaited(_drainPlayerNameSaveQueue());
-  }
-
-  Future<void> _drainPlayerNameSaveQueue() async {
-    _isPersistingPlayerName = true;
-    try {
-      while (_queuedPlayerName != null) {
-        final nextName = _queuedPlayerName!;
-        _queuedPlayerName = null;
-        if (nextName == _lastPersistedPlayerName) {
-          continue;
-        }
-        await _writeSavedPlayerName(nextName);
-        _lastPersistedPlayerName = nextName;
-        await _multiplayerManager.updateUserName(nextName);
-      }
-    } finally {
-      _isPersistingPlayerName = false;
-      if (_queuedPlayerName != null) {
-        unawaited(_drainPlayerNameSaveQueue());
-      }
-    }
+    await _writeSavedPlayerName(nextName);
   }
 
   Future<String> _readSavedPlayerName() async {
@@ -699,92 +538,6 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) {
         setState(() {
           _isBusy = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _startRandomMatch(BuildContext context) async {
-    setState(() {
-      _isBusy = true;
-    });
-
-    var dialogOpen = false;
-    try {
-      dialogOpen = true;
-      unawaited(
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (dialogContext) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1E1E32),
-              title: const Text(
-                '対戦相手を検索中...',
-                style: TextStyle(color: Colors.white),
-              ),
-              content: const SizedBox(
-                height: 64,
-                child: Center(
-                  child: CircularProgressIndicator(
-                    color: Colors.amberAccent,
-                  ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    unawaited(_multiplayerManager.cancelMatchmaking());
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('キャンセル'),
-                ),
-              ],
-            );
-          },
-        ).then((_) {
-          dialogOpen = false;
-        }),
-      );
-
-      await Future<void>.delayed(Duration.zero);
-      final roomId = await _multiplayerManager.startRandomMatch(_rating);
-      if (!context.mounted) {
-        return;
-      }
-
-      if (dialogOpen) {
-        Navigator.of(context, rootNavigator: true).pop();
-        dialogOpen = false;
-      }
-
-      if (roomId == null) {
-        return;
-      }
-
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => GameScreen.online(
-            roomId: roomId,
-            isHost: _multiplayerManager.isHost,
-            isRankedMode: true,
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!context.mounted) {
-        return;
-      }
-      if (dialogOpen) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-      await _showAlert(context, 'ランダムマッチに失敗しました', '$error');
-    } finally {
-      await _multiplayerManager.cancelMatchmaking();
-      if (mounted) {
-        setState(() {
-          _isBusy = false;
-          _rating = _multiplayerManager.currentRating;
         });
       }
     }
