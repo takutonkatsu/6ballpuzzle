@@ -62,6 +62,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   static const double constantFallSpeed = 50.0;
   static const double _activePieceSyncInterval = 0.12;
+  static const double _ballRadius = 15.0;
+  static const double _boardWidth = _ballRadius * 20;
 
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
@@ -168,7 +170,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     this.useConstantFallSpeed = false,
   }) {
     _rng = seed != null ? Random(seed) : Random();
-    grid = GridSystem(ballRadius: 15.0);
+    grid = GridSystem(ballRadius: _ballRadius);
     if (isCpuMode && !isRemotePlayerMode) {
       cpuAgent = CPUAgent(this, difficulty: CPUDifficulty.hard);
     }
@@ -178,12 +180,37 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Future<void> onLoad() async {
     await super.onLoad();
 
-    grid.offset = Vector2((size.x - 300) / 2 + 15, 100);
-    grid.updateBounds();
+    _updateGridLayout();
 
     if (autoStart) {
       startGame();
     }
+  }
+
+  @override
+  void onGameResize(Vector2 size) {
+    super.onGameResize(size);
+    if (isLoaded) {
+      _updateGridLayout();
+    }
+  }
+
+  void _updateGridLayout() {
+    final rowHeight = _ballRadius * sqrt(3);
+    final boardHeight = (grid.numRows - 1) * rowHeight + _ballRadius * 2;
+    final maxTop = size.y - boardHeight - 8;
+    final minTop = size.y < 420 ? 36.0 : 84.0;
+    final idealTop = (size.y - boardHeight) * 0.5 + 34;
+    final top = maxTop >= minTop
+        ? idealTop.clamp(minTop, maxTop).toDouble()
+        : max(24.0, maxTop);
+
+    grid.offset = Vector2((size.x - _boardWidth) / 2 + _ballRadius, top);
+    grid.updateBounds();
+  }
+
+  Vector2 get _pieceSpawnPosition {
+    return Vector2(size.x / 2, max(32.0, grid.offset.y - 50));
   }
 
   List<BallColor> _generatePieceColors() {
@@ -215,16 +242,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     activePiece = ActivePieceComponent(
-      position: Vector2(size.x / 2, 50),
-      ballRadius: 15.0,
+      position: _pieceSpawnPosition,
+      ballRadius: _ballRadius,
       fallSpeed: currentFallSpeed,
       presetColors: currentColors,
     )..priority = 10;
     add(activePiece!);
 
     ghostPiece = ActivePieceComponent(
-      position: Vector2(size.x / 2, 50),
-      ballRadius: 15.0,
+      position: _pieceSpawnPosition,
+      ballRadius: _ballRadius,
       isGhost: true,
       fallSpeed: currentFallSpeed,
       presetColors: currentColors,
@@ -250,7 +277,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     canvas.drawLine(Offset(grid.rightWallX, -1000),
         Offset(grid.rightWallX, grid.floorY), wallPaint);
 
-    final deathLineY = grid.offset.y - 15.0;
+    final deathLineY = grid.offset.y - _ballRadius;
     final deathLinePaint = Paint()
       ..color = Colors.orangeAccent.withValues(alpha: 0.8)
       ..strokeWidth = 2.0;
@@ -659,16 +686,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     clearRemoteActivePiece();
 
     activePiece = ActivePieceComponent(
-      position: Vector2(size.x / 2, 50),
-      ballRadius: 15.0,
+      position: _pieceSpawnPosition,
+      ballRadius: _ballRadius,
       fallSpeed: currentFallSpeed,
       presetColors: colors,
     )..priority = 10;
     add(activePiece!);
 
     ghostPiece = ActivePieceComponent(
-      position: Vector2(size.x / 2, 50),
-      ballRadius: 15.0,
+      position: _pieceSpawnPosition,
+      ballRadius: _ballRadius,
       isGhost: true,
       fallSpeed: currentFallSpeed,
       presetColors: colors,

@@ -51,6 +51,9 @@ class _GameScreenState extends State<GameScreen> {
   bool _isDisconnectDialogVisible = false;
   bool _rankedRatingApplied = false;
   RankedRatingChange? _rankedRatingChange;
+  Timer? _rankedAutoStartTimer;
+  bool _rankedAutoStartScheduled = false;
+  String? _readyGoOverlayText;
 
   final List<Timer> _pendingAttackTimers = [];
 
@@ -117,8 +120,11 @@ class _GameScreenState extends State<GameScreen> {
       if (_room?.bothPlayersReady ?? false) {
         _onlineGameStarted = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _playerGame.startGame(newSeed: _room?.seed);
-          _cpuGame?.startGame(newSeed: _room?.seed);
+          unawaited(_startOnlineBattleWithReadyGo(_room!.seed));
+        });
+      } else if (widget.isRankedMode && (_room?.bothPlayersJoined ?? false)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scheduleRankedAutoStart(_room!);
         });
       }
     }
@@ -219,6 +225,7 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void dispose() {
     _clearAllPendingAttacks();
+    _rankedAutoStartTimer?.cancel();
     if (widget.isOnlineMultiplayer) {
       unawaited(_multiplayerManager.leaveRoom());
     }
@@ -272,6 +279,7 @@ class _GameScreenState extends State<GameScreen> {
               },
             ),
             if (_isOnlineMode) _buildOnlineOverlay() else _buildGlobalOverlay(),
+            if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
           ],
         ),
       ),
@@ -388,7 +396,6 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildGameBox(PuzzleGame game, {required bool isCpu}) {
-    final panelLabel = isCpu ? 'NEXT' : 'NEXT';
     final displayName = isCpu ? _opponentDisplayName : _myDisplayName;
 
     return Container(
@@ -413,110 +420,86 @@ class _GameScreenState extends State<GameScreen> {
               ],
       ),
       clipBehavior: Clip.hardEdge,
-      child: Stack(
+      child: Column(
         children: [
-          Positioned(
-            top: 8,
-            left: 8,
-            child: _buildNameBadge(displayName, isCpu: isCpu),
-          ),
-          Positioned.fill(
-            child: FittedBox(
-              fit: BoxFit.contain,
-              child: SizedBox(
-                width: 320,
-                height: 480,
-                child: GameWidget(
-                  game: game,
-                  focusNode: isCpu ? null : _playerFocusNode,
-                  autofocus: !isCpu,
-                ),
-              ),
+          Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            color: Colors.black87,
+            child: Row(
+              children: [
+                Expanded(child: _buildNameBadge(displayName, isCpu: isCpu)),
+                const SizedBox(width: 8),
+                _buildNextBadge(game, isCpu: isCpu),
+              ],
             ),
           ),
-          if (!isCpu)
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTapDown: (_) => game.hardDrop(),
-                child: Container(),
-              ),
-            ),
-          Positioned(
-            top: 8,
-            right: 8,
-            child: Container(
-              width: 60,
-              height: 80,
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.black87,
-                border: Border.all(
-                  color: isCpu
-                      ? Colors.redAccent.withValues(alpha: 0.3)
-                      : Colors.white24,
-                  width: 1,
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  Text(
-                    panelLabel,
-                    style: TextStyle(
-                      color: isCpu ? Colors.redAccent : Colors.white54,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Expanded(
-                    child: ValueListenableBuilder<List<BallColor>>(
-                      valueListenable: game.nextPieceColors,
-                      builder: (context, colors, child) => Center(
-                        child: _buildPieceIcon(colors, size: 16),
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: SizedBox(
+                      width: 320,
+                      height: 480,
+                      child: GameWidget(
+                        game: game,
+                        focusNode: isCpu ? null : _playerFocusNode,
+                        autofocus: !isCpu,
                       ),
                     ),
                   ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 40,
-            left: 0,
-            right: 0,
-            child: ValueListenableBuilder<String?>(
-              valueListenable: game.wazaNameNotifier,
-              builder: (context, name, child) {
-                if (name == null) {
-                  return const SizedBox.shrink();
-                }
-                return Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black87,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.amberAccent, width: 2),
-                    ),
-                    child: Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.amberAccent,
-                        shadows: [
-                          Shadow(color: Colors.amber, blurRadius: 10),
-                        ],
-                      ),
+                ),
+                if (!isCpu)
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTapDown: (_) => game.hardDrop(),
+                      child: Container(),
                     ),
                   ),
-                );
-              },
+                Positioned(
+                  bottom: 40,
+                  left: 0,
+                  right: 0,
+                  child: ValueListenableBuilder<String?>(
+                    valueListenable: game.wazaNameNotifier,
+                    builder: (context, name, child) {
+                      if (name == null) {
+                        return const SizedBox.shrink();
+                      }
+                      return Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.amberAccent,
+                              width: 2,
+                            ),
+                          ),
+                          child: Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amberAccent,
+                              shadows: [
+                                Shadow(color: Colors.amber, blurRadius: 10),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -545,6 +528,43 @@ class _GameScreenState extends State<GameScreen> {
           fontSize: 12,
           fontWeight: FontWeight.bold,
         ),
+      ),
+    );
+  }
+
+  Widget _buildNextBadge(PuzzleGame game, {required bool isCpu}) {
+    return Container(
+      width: 76,
+      height: 34,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white10,
+        border: Border.all(
+          color:
+              isCpu ? Colors.redAccent.withValues(alpha: 0.3) : Colors.white24,
+          width: 1,
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Text(
+            'NEXT',
+            style: TextStyle(
+              color: isCpu ? Colors.redAccent : Colors.white54,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Spacer(),
+          ValueListenableBuilder<List<BallColor>>(
+            valueListenable: game.nextPieceColors,
+            builder: (context, colors, child) => _buildPieceIcon(
+              colors,
+              size: 9,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -798,6 +818,36 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  Widget _buildReadyGoOverlay() {
+    final text = _readyGoOverlayText!;
+    final isGo = text == 'GO!';
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Container(
+          color: Colors.black.withValues(alpha: isGo ? 0.18 : 0.38),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              child: Text(
+                text,
+                key: ValueKey(text),
+                style: TextStyle(
+                  color: isGo ? Colors.amberAccent : Colors.white,
+                  fontSize: isGo ? 56 : 42,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 3,
+                  shadows: const [
+                    Shadow(color: Colors.black, blurRadius: 16),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLobbyOverlay() {
     final room = _room;
     final isHost = _multiplayerManager.isHost;
@@ -887,15 +937,35 @@ class _GameScreenState extends State<GameScreen> {
                     'HOST',
                     _displayNameForRole('host') ?? 'Player',
                     hostReady,
+                    rating: widget.isRankedMode
+                        ? room.players['host']?.rating
+                        : null,
                   ),
                   const SizedBox(height: 12),
                   _buildLobbyStatusRow(
                     'GUEST',
                     _displayNameForRole('guest') ?? 'Player',
                     guestReady,
+                    rating: widget.isRankedMode
+                        ? room.players['guest']?.rating
+                        : null,
                   ),
                   const SizedBox(height: 28),
-                  if (canShowReady)
+                  if (widget.isRankedMode && canShowReady)
+                    const SizedBox(
+                      height: 56,
+                      child: Center(
+                        child: Text(
+                          'まもなく開始します...',
+                          style: TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (canShowReady)
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -935,7 +1005,12 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildLobbyStatusRow(String label, String name, bool isReady) {
+  Widget _buildLobbyStatusRow(
+    String label,
+    String name,
+    bool isReady, {
+    int? rating,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -944,15 +1019,18 @@ class _GameScreenState extends State<GameScreen> {
       ),
       child: Row(
         children: [
-          Text(
-            '$label  $name',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+          Expanded(
+            child: Text(
+              rating == null ? '$label  $name' : '$label  $name  /  R$rating',
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 12),
           Text(
             isReady ? 'READY' : 'WAITING',
             style: TextStyle(
@@ -1021,13 +1099,64 @@ class _GameScreenState extends State<GameScreen> {
       _room = room;
     });
 
-    if (!_onlineGameStarted && room.bothPlayersReady) {
-      setState(() {
-        _onlineGameStarted = true;
-      });
-      _playerGame.startGame(newSeed: room.seed);
-      _cpuGame?.startGame(newSeed: room.seed);
+    if (_onlineGameStarted) {
+      return;
     }
+
+    if (widget.isRankedMode && room.bothPlayersJoined) {
+      _scheduleRankedAutoStart(room);
+      return;
+    }
+
+    if (!widget.isRankedMode && room.bothPlayersReady) {
+      unawaited(_startOnlineBattleWithReadyGo(room.seed));
+    }
+  }
+
+  void _scheduleRankedAutoStart(MultiplayerRoom room) {
+    if (_rankedAutoStartScheduled || _onlineGameStarted) {
+      return;
+    }
+
+    _rankedAutoStartScheduled = true;
+    _rankedAutoStartTimer?.cancel();
+    _rankedAutoStartTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || _onlineGameStarted) {
+        return;
+      }
+      unawaited(_startOnlineBattleWithReadyGo(room.seed));
+    });
+  }
+
+  Future<void> _startOnlineBattleWithReadyGo(int? seed) async {
+    if (!mounted) {
+      return;
+    }
+
+    _rankedAutoStartTimer?.cancel();
+    setState(() {
+      _onlineGameStarted = true;
+      _readyGoOverlayText = 'READY...';
+    });
+
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _readyGoOverlayText = 'GO!';
+    });
+
+    _playerGame.startGame(newSeed: seed);
+    _cpuGame?.startGame(newSeed: seed);
+
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _readyGoOverlayText = null;
+    });
   }
 
   String? _displayNameForRole(String? roleId) {
@@ -1212,6 +1341,12 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _handleOpponentDisconnected() {
+    final resultAlreadyShown = _onlineResultMessage != null ||
+        _playerGame.gameStateWrapper.value == GameState.gameover;
+    if (resultAlreadyShown) {
+      return;
+    }
+
     if (!mounted || _isDisconnectDialogVisible) {
       return;
     }
