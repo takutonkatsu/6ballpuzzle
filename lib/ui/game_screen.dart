@@ -478,7 +478,7 @@ class _GameScreenState extends State<GameScreen> {
 
   Widget _buildGameViewport(PuzzleGame game, {required bool isPlayer}) {
     return SizedBox(
-      width: 320,
+      width: 308,
       height: 480,
       child: Stack(
         clipBehavior: Clip.none,
