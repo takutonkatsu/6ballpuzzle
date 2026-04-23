@@ -27,8 +27,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const String _landingSfx = 'カーソル移動12_落下.mp3';
   static const String _rotationSfx = 'キャンセル1＿回転01.mp3';
   static const String _ojamaSpawnSfx = 'データ表示3_おじゃまボール.mp3';
-  static const String _ojamaBlockSpawnSfx =
-      '決定、ボタン押下34_おじゃまスポーン01.mp3';
+  static const String _ojamaBlockSpawnSfx = '決定、ボタン押下34_おじゃまスポーン01.mp3';
   static const String _wazaChargeSfx = 'メニューを開く4_ワザ.mp3';
   static const String _clearSfx = '決定ボタンを押す42_消去03.mp3';
   static const double _sfxVolumeMultiplier = 2.0;
@@ -109,6 +108,25 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       await FlameAudio.play(fileName, volume: volume);
     } catch (_) {
       // SE再生失敗でゲーム進行を止めない。
+    }
+  }
+
+  bool get _shouldPlayHaptics => !isCpuMode && !isRemotePlayerMode;
+
+  void _triggerHapticFeedback(Future<void> Function() action) {
+    if (!_shouldPlayHaptics) {
+      return;
+    }
+    unawaited(_triggerHapticFeedbackSafely(action));
+  }
+
+  Future<void> _triggerHapticFeedbackSafely(
+    Future<void> Function() action,
+  ) async {
+    try {
+      await action();
+    } catch (_) {
+      // バイブ非対応環境でもゲーム進行を止めない。
     }
   }
 
@@ -652,7 +670,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           } else if (activePiece == null) {
             _isSpawning = true;
             await Future.delayed(const Duration(milliseconds: 500));
-            if (gameStateWrapper.value != GameState.playing || activePiece != null) {
+            if (gameStateWrapper.value != GameState.playing ||
+                activePiece != null) {
               _isSpawning = false;
               return;
             }
@@ -1121,6 +1140,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (_playsBoardSfx) {
       _playSfx(_wazaChargeSfx, volume: 0.9);
     }
+    _triggerHapticFeedback(HapticFeedback.heavyImpact);
     for (var group in matchResult.wazaPattern) {
       for (var hex in group) {
         final ball = grid.lockedBalls[hex];
@@ -1264,6 +1284,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       if (_playsBoardSfx) {
         _playSfx(_hardDropSfx, volume: 0.85);
       }
+      _triggerHapticFeedback(HapticFeedback.mediumImpact);
       _notifyActivePieceState(force: true, action: 'hard_drop');
     }
   }
