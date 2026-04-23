@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen>
   String _lastPersistedPlayerName = '';
   bool _isPersistingPlayerName = false;
   late AnimationController _animController;
+  bool _isHomeBgmPlaying = false;
 
   @override
   void initState() {
@@ -39,13 +41,39 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat();
+    unawaited(_startHomeBgm());
   }
 
   @override
   void dispose() {
+    unawaited(_stopHomeBgm());
     _animController.dispose();
     _playerNameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _startHomeBgm() async {
+    if (_isHomeBgmPlaying) {
+      return;
+    }
+    _isHomeBgmPlaying = true;
+    try {
+      await FlameAudio.bgm.play('home_screen_bgm01.mp3', volume: 0.18);
+    } catch (_) {
+      _isHomeBgmPlaying = false;
+    }
+  }
+
+  Future<void> _stopHomeBgm() async {
+    if (!_isHomeBgmPlaying && !FlameAudio.bgm.isPlaying) {
+      return;
+    }
+    _isHomeBgmPlaying = false;
+    try {
+      await FlameAudio.bgm.stop();
+    } catch (_) {
+      // BGM停止失敗で画面遷移や破棄を止めない。
+    }
   }
 
   @override
@@ -365,16 +393,16 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Row(
                   children: [
                     Expanded(
-                        child: _buildGridButton(
-                            'ENDLESS\nMODE',
-                            Colors.cyanAccent,
+                        child: _buildGridButton('ENDLESS', Colors.greenAccent,
                             () => _startGame(context, false))),
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
-                            'CPU VS\nMODE',
-                            Colors.purpleAccent,
-                            () => _startGame(context, true))),
+                            'CPU\nBATTLE',
+                            Colors.yellowAccent,
+                            _isBusy
+                                ? null
+                                : () => _showCpuDifficultyDialog(context))),
                   ],
                 ),
               ),
@@ -385,13 +413,13 @@ class _HomeScreenState extends State<HomeScreen>
                     Expanded(
                         child: _buildGridButton(
                             'CREATE\nROOM',
-                            Colors.pinkAccent,
+                            Colors.redAccent,
                             _isBusy ? null : () => _createRoom(context))),
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
                             'JOIN\nROOM',
-                            Colors.amberAccent,
+                            Colors.lightBlueAccent,
                             _isBusy ? null : () => _joinRoom(context))),
                   ],
                 ),
@@ -400,47 +428,88 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           Align(
             alignment: Alignment.center,
-            child: InkWell(
-              onTap: _isBusy || _isLoadingProfile
-                  ? null
-                  : () => _startRandomMatch(context),
-              borderRadius: BorderRadius.circular(60),
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: const Color(0xFF0F0F13),
-                  border: Border.all(color: const Color(0xFF0F0F13), width: 8),
-                ),
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.pinkAccent.withValues(alpha: 0.2),
-                    border: Border.all(color: Colors.pinkAccent, width: 2),
-                    boxShadow: [
-                      BoxShadow(
-                          color: Colors.pinkAccent.withValues(alpha: 0.6),
-                          blurRadius: 20)
-                    ],
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'RANDOM\nMATCH',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        letterSpacing: 1.2,
-                        shadows: [
-                          Shadow(color: Colors.pinkAccent, blurRadius: 10)
-                        ],
+            child: AnimatedBuilder(
+              animation: _animController,
+              builder: (context, child) {
+                final pulse =
+                    (math.sin(_animController.value * math.pi * 2) + 1) / 2;
+                final glowAlpha = 0.34 + (pulse * 0.16);
+                final glowBlur = 24.0 + (pulse * 8.0);
+                final scale = 1.0 + (pulse * 0.018);
+
+                return Transform.scale(
+                  scale: scale,
+                  child: InkWell(
+                    onTap: _isBusy || _isLoadingProfile
+                        ? null
+                        : () => _startRandomMatch(context),
+                    borderRadius: BorderRadius.circular(74),
+                    child: Container(
+                      width: 132,
+                      height: 132,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF0F0F13),
+                        border: Border.all(
+                          color: const Color(0xFF0F0F13),
+                          width: 10,
+                        ),
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.purpleAccent.withValues(
+                            alpha: 0.16 + (pulse * 0.04),
+                          ),
+                          border: Border.all(
+                            color: Colors.purpleAccent,
+                            width: 3,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.purpleAccent.withValues(
+                                alpha: glowAlpha,
+                              ),
+                              blurRadius: glowBlur,
+                              spreadRadius: 2 + (pulse * 1.5),
+                            ),
+                            BoxShadow(
+                              color: Colors.pinkAccent.withValues(
+                                alpha: 0.14 + (pulse * 0.08),
+                              ),
+                              blurRadius: 16,
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            'RANDOM\nMATCH',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                              letterSpacing: 1.4,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.purpleAccent,
+                                  blurRadius: 9 + (pulse * 4),
+                                ),
+                                Shadow(
+                                  color: Colors.pinkAccent.withValues(
+                                    alpha: 0.45,
+                                  ),
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ),
         ],
@@ -458,12 +527,16 @@ class _HomeScreenState extends State<HomeScreen>
           color: accentColor.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(16),
           border:
-              Border.all(color: accentColor.withValues(alpha: 0.3), width: 2),
+              Border.all(color: accentColor.withValues(alpha: 0.58), width: 2),
           boxShadow: [
             BoxShadow(
-              color: accentColor.withValues(alpha: 0.1),
-              blurRadius: 10,
+              color: accentColor.withValues(alpha: 0.18),
+              blurRadius: 12,
               spreadRadius: 1,
+            ),
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.08),
+              blurRadius: 22,
             ),
           ],
         ),
@@ -475,10 +548,16 @@ class _HomeScreenState extends State<HomeScreen>
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: accentColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+                fontWeight: FontWeight.w900,
+                fontSize: 18,
                 letterSpacing: 2,
-                shadows: [Shadow(color: accentColor, blurRadius: 10)],
+                shadows: [
+                  Shadow(color: accentColor, blurRadius: 8),
+                  Shadow(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    blurRadius: 2,
+                  ),
+                ],
               ),
             ),
           ),
@@ -530,10 +609,136 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _startGame(BuildContext context, bool isCpuMode) {
+  void _startGame(
+    BuildContext context,
+    bool isCpuMode, {
+    CPUDifficulty cpuDifficulty = CPUDifficulty.hard,
+  }) {
+    unawaited(_stopHomeBgm());
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (context) => GameScreen(isCpuMode: isCpuMode),
+        builder: (context) => GameScreen(
+          isCpuMode: isCpuMode,
+          cpuDifficulty: cpuDifficulty,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCpuDifficultyDialog(BuildContext context) {
+    const options = [
+      (
+        label: '弱い',
+        subtitle: 'ゆっくり考えて、よく迷う',
+        difficulty: CPUDifficulty.easy,
+        color: Colors.greenAccent
+      ),
+      (
+        label: '普通',
+        subtitle: 'ほどよく考える標準CPU',
+        difficulty: CPUDifficulty.normal,
+        color: Colors.cyanAccent
+      ),
+      (
+        label: '強い',
+        subtitle: '速く読んでミスが少ない',
+        difficulty: CPUDifficulty.hard,
+        color: Colors.yellowAccent
+      ),
+      (
+        label: '鬼',
+        subtitle: '最速でほぼ最適解を狙う',
+        difficulty: CPUDifficulty.oni,
+        color: Colors.redAccent
+      ),
+    ];
+
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.yellowAccent,
+          title: 'CPU BATTLE',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final option in options) ...[
+                _buildCpuDifficultyTile(
+                  label: option.label,
+                  subtitle: option.subtitle,
+                  accentColor: option.color,
+                  onTap: () {
+                    Navigator.of(dialogContext).pop();
+                    _startGame(
+                      context,
+                      true,
+                      cpuDifficulty: option.difficulty,
+                    );
+                  },
+                ),
+                if (option != options.last) const SizedBox(height: 10),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCpuDifficultyTile({
+    required String label,
+    required String subtitle,
+    required Color accentColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: accentColor.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: accentColor.withValues(alpha: 0.55)),
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.16),
+              blurRadius: 12,
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: accentColor,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.4,
+                      shadows: [Shadow(color: accentColor, blurRadius: 8)],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: accentColor),
+          ],
+        ),
       ),
     );
   }
@@ -635,6 +840,7 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
+      unawaited(_stopHomeBgm());
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => GameScreen.online(
@@ -682,6 +888,7 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
+      unawaited(_stopHomeBgm());
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => GameScreen.online(
@@ -775,6 +982,7 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
+      unawaited(_stopHomeBgm());
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => GameScreen.online(

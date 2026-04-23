@@ -60,14 +60,13 @@ class OjamaBlockComponent extends PositionComponent
       add(ball);
     }
 
-    // Top row (9 balls, Y = -rh)
-    int topStartIdx = Random().nextInt(loopColors.length);
+    // Top row (9 balls, Y = -rh). Keep index 0 synchronized with bottom row.
     for (int i = 0; i < 9; i++) {
       final colorIndex = 10 + i;
       BallColor color =
           providedColors != null && providedColors.length > colorIndex
               ? providedColors[colorIndex]
-              : loopColors[(topStartIdx + i) % loopColors.length];
+              : loopColors[(startIdx + i) % loopColors.length];
       var ball = BallComponent(
           position: Vector2(i * 30.0 + 15.0, -rh),
           radius: 15.0,

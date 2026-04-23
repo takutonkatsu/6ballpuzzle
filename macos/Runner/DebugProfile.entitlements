@@ -4,6 +4,7 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Required for Firebase Realtime Database matchmaking on macOS. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.cs.allow-jit</key>

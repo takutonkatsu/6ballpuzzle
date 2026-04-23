@@ -979,14 +979,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (bottomStart == -1) {
       bottomStart = 0;
     }
-    final topStart = _rng.nextInt(loopColors.length);
     final colors = <BallColor>[];
 
     for (var i = 0; i < 10; i++) {
       colors.add(loopColors[(bottomStart + i) % loopColors.length]);
     }
     for (var i = 0; i < 9; i++) {
-      colors.add(loopColors[(topStart + i) % loopColors.length]);
+      colors.add(loopColors[(bottomStart + i) % loopColors.length]);
     }
 
     return colors;

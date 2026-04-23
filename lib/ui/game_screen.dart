@@ -18,6 +18,7 @@ class GameScreen extends StatefulWidget {
   final String? roomId;
   final bool isHost;
   final bool isRankedMode;
+  final CPUDifficulty cpuDifficulty;
 
   const GameScreen({
     super.key,
@@ -26,6 +27,7 @@ class GameScreen extends StatefulWidget {
     this.roomId,
     this.isHost = false,
     this.isRankedMode = false,
+    this.cpuDifficulty = CPUDifficulty.hard,
   });
 
   const GameScreen.online({
@@ -33,7 +35,8 @@ class GameScreen extends StatefulWidget {
     this.roomId,
     this.isHost = false,
     this.isRankedMode = false,
-  })  : isCpuMode = false,
+  })  : cpuDifficulty = CPUDifficulty.hard,
+        isCpuMode = false,
         isOnlineMultiplayer = true;
 
   @override
@@ -150,7 +153,7 @@ class _GameScreenState extends State<GameScreen> {
         wallColor: Colors.redAccent,
       );
       if (_cpuGame!.cpuAgent != null) {
-        _cpuGame!.cpuAgent!.difficulty = CPUDifficulty.oni;
+        _cpuGame!.cpuAgent!.setDifficulty(widget.cpuDifficulty);
       }
       _cpuGame!.onGameOverTriggered = () {
         unawaited(_stopBattleBgm());
@@ -1794,14 +1797,13 @@ class _GameScreenState extends State<GameScreen> {
       BallColor.green,
     ];
     final bottomStart = loopColors.indexOf(startColor);
-    final topStart = DateTime.now().microsecondsSinceEpoch % loopColors.length;
     final colors = <BallColor>[];
 
     for (var i = 0; i < 10; i++) {
       colors.add(loopColors[(bottomStart + i) % loopColors.length]);
     }
     for (var i = 0; i < 9; i++) {
-      colors.add(loopColors[(topStart + i) % loopColors.length]);
+      colors.add(loopColors[(bottomStart + i) % loopColors.length]);
     }
 
     return colors;

@@ -12,8 +12,13 @@ import 'ui/home_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _initializeMobileAds();
+  final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
+  if (firebaseOptions.databaseURL == null ||
+      firebaseOptions.databaseURL!.isEmpty) {
+    throw StateError('Firebase Realtime Database URL is not configured.');
+  }
   await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+    options: firebaseOptions,
   );
   await FlameAudio.bgm.initialize();
   runApp(const MyApp());
