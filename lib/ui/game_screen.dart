@@ -53,6 +53,11 @@ class _GameScreenState extends State<GameScreen> {
   static const double _gameViewportWidth = 308;
   static const double _gameViewportHeight = 480;
   static const double _gridBallDiameter = 30;
+  static const Duration _postReadyGoBoardPause =
+      Duration(milliseconds: 350);
+  static const Duration _battleBgmStartDelay =
+      Duration(milliseconds: 1000);
+  static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final ArenaManager _arenaManager = ArenaManager.instance;
@@ -66,6 +71,7 @@ class _GameScreenState extends State<GameScreen> {
   String? _onlineResultMessage;
   bool _isWaitingForRematch = false;
   bool _isDisconnectDialogVisible = false;
+  bool _isReturningToHome = false;
   bool _rankedRatingApplied = false;
   RankedRatingChange? _rankedRatingChange;
   Timer? _rankedAutoStartTimer;
@@ -274,8 +280,10 @@ class _GameScreenState extends State<GameScreen> {
   void dispose() {
     _clearAllPendingAttacks();
     _rankedAutoStartTimer?.cancel();
-    unawaited(_stopBattleBgm());
-    if (widget.isOnlineMultiplayer) {
+    if (!_isReturningToHome) {
+      unawaited(_stopBattleBgm());
+    }
+    if (widget.isOnlineMultiplayer && !_isReturningToHome) {
       unawaited(_multiplayerManager.leaveRoom());
     }
     _playerFocusNode.dispose();
@@ -832,11 +840,11 @@ class _GameScreenState extends State<GameScreen> {
                     ElevatedButton(
                       onPressed: () {
                         _clearAllPendingAttacks();
-                        _playerGame.startGame();
-                        if (_cpuGame != null) {
-                          _cpuGame!.startGame();
-                        }
-                        unawaited(_startBattleBgm());
+                        unawaited(
+                          _startLocalBattleWithReadyGo(
+                            DateTime.now().millisecondsSinceEpoch,
+                          ),
+                        );
                       },
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
@@ -1163,18 +1171,18 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                   const SizedBox(height: 20),
                   _buildLobbyStatusRow(
-                    'HOST',
                     _displayNameForRole('host') ?? 'Player',
                     hostReady,
+                    isOccupied: room.players['host'] != null,
                     rating: widget.isRankedMode
                         ? room.players['host']?.rating
                         : null,
                   ),
                   const SizedBox(height: 12),
                   _buildLobbyStatusRow(
-                    'GUEST',
-                    _displayNameForRole('guest') ?? 'Player',
+                    _displayNameForRole('guest') ?? 'Waiting for player...',
                     guestReady,
+                    isOccupied: room.players['guest'] != null,
                     rating: widget.isRankedMode
                         ? room.players['guest']?.rating
                         : null,
@@ -1271,25 +1279,40 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildLobbyStatusRow(
-    String label,
     String name,
     bool isReady, {
+    required bool isOccupied,
     int? rating,
   }) {
+    final backgroundColor = isOccupied
+        ? Colors.white10
+        : const Color(0xFF0D0D15).withValues(alpha: 0.92);
+    final borderColor = isOccupied
+        ? Colors.cyanAccent.withValues(alpha: 0.18)
+        : Colors.white.withValues(alpha: 0.08);
+    final nameColor = isOccupied ? Colors.white : Colors.white54;
+    final statusText = isOccupied ? (isReady ? 'READY' : 'WAITING') : 'NOT JOINED';
+    final statusColor = !isOccupied
+        ? Colors.white38
+        : isReady
+            ? Colors.greenAccent
+            : Colors.white70;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white10,
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor, width: 1.2),
       ),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              rating == null ? '$label  $name' : '$label  $name  /  R$rating',
+              rating == null || !isOccupied ? name : '$name  /  R$rating',
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: nameColor,
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
@@ -1297,9 +1320,9 @@ class _GameScreenState extends State<GameScreen> {
           ),
           const SizedBox(width: 12),
           Text(
-            isReady ? 'READY' : 'WAITING',
+            statusText,
             style: TextStyle(
-              color: isReady ? Colors.greenAccent : Colors.white70,
+              color: statusColor,
               fontSize: 16,
               fontWeight: FontWeight.bold,
             ),
@@ -1401,6 +1424,7 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _readyGoOverlayText = 'READY...';
     });
+    unawaited(FlameAudio.play(_readySfx, volume: 0.8));
 
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) {
@@ -1409,10 +1433,7 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _readyGoOverlayText = 'GO!';
     });
-
-    _playerGame.startGame(newSeed: seed);
-    _cpuGame?.startGame(newSeed: seed);
-    unawaited(_startBattleBgm());
+    unawaited(_startBattleBgmAfterDelay());
 
     await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) {
@@ -1421,6 +1442,13 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _readyGoOverlayText = null;
     });
+    await Future<void>.delayed(_postReadyGoBoardPause);
+    if (!mounted) {
+      return;
+    }
+
+    _playerGame.startGame(newSeed: seed);
+    _cpuGame?.startGame(newSeed: seed);
   }
 
   Future<void> _startOnlineBattleWithReadyGo(int? seed) async {
@@ -1433,6 +1461,7 @@ class _GameScreenState extends State<GameScreen> {
       _onlineGameStarted = true;
       _readyGoOverlayText = 'READY...';
     });
+    unawaited(FlameAudio.play(_readySfx, volume: 0.8));
 
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) {
@@ -1441,10 +1470,7 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _readyGoOverlayText = 'GO!';
     });
-
-    _playerGame.startGame(newSeed: seed);
-    _cpuGame?.startGame(newSeed: seed);
-    unawaited(_startBattleBgm());
+    unawaited(_startBattleBgmAfterDelay());
 
     await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) {
@@ -1453,6 +1479,13 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _readyGoOverlayText = null;
     });
+    await Future<void>.delayed(_postReadyGoBoardPause);
+    if (!mounted) {
+      return;
+    }
+
+    _playerGame.startGame(newSeed: seed);
+    _cpuGame?.startGame(newSeed: seed);
   }
 
   String? _displayNameForRole(String? roleId) {
@@ -1664,6 +1697,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Future<void> _returnHomeAfterMatch() async {
+    _isReturningToHome = true;
     await _stopBattleBgm();
     if (_isOnlineMode) {
       await _multiplayerManager.leaveRoom();
@@ -1715,13 +1749,21 @@ class _GameScreenState extends State<GameScreen> {
     unawaited(_startBattleBgm());
   }
 
+  Future<void> _startBattleBgmAfterDelay() async {
+    await Future<void>.delayed(_battleBgmStartDelay);
+    if (!mounted) {
+      return;
+    }
+    await _startBattleBgm();
+  }
+
   Future<void> _startBattleBgm() async {
     if (_isBattleBgmPlaying) {
       return;
     }
     _isBattleBgmPlaying = true;
     try {
-      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.17);
+      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.085);
     } catch (_) {
       _isBattleBgmPlaying = false;
     }
@@ -1804,6 +1846,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Future<void> _returnHomeFromSettings() async {
+    _isReturningToHome = true;
     _clearAllPendingAttacks();
     _playerGame.pauseEngine();
     _cpuGame?.pauseEngine();

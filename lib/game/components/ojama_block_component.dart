@@ -1,5 +1,7 @@
 import 'dart:math';
 import 'package:flame/components.dart';
+import 'package:flame/effects.dart';
+import 'package:flutter/material.dart';
 import '../puzzle_game.dart';
 import '../game_models.dart';
 import 'ball_component.dart';
@@ -24,6 +26,17 @@ class OjamaBlockComponent extends PositionComponent
   @override
   Future<void> onLoad() async {
     await super.onLoad();
+    
+    scale = Vector2.zero();
+    add(
+      ScaleEffect.to(
+        Vector2.all(1.0),
+        EffectController(
+          duration: 0.25,
+          curve: Curves.easeOutBack,
+        ),
+      ),
+    );
     if (ojamaType == OjamaType.straightSet) {
       _buildStraight();
     } else if (ojamaType == OjamaType.pyramidSet) {

@@ -25,7 +25,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _playerNameKey = 'player_name';
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadPlayerName();
     unawaited(_loadPlayerEconomy());
     _animController = AnimationController(
@@ -60,17 +61,28 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     unawaited(_stopHomeBgm());
+    WidgetsBinding.instance.removeObserver(this);
     _animController.dispose();
     _playerNameController.dispose();
     super.dispose();
   }
 
-  Future<void> _startHomeBgm() async {
-    if (_isHomeBgmPlaying) {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_startHomeBgm(forceRestart: true));
+    }
+  }
+
+  Future<void> _startHomeBgm({bool forceRestart = false}) async {
+    if (_isHomeBgmPlaying && !forceRestart) {
       return;
     }
-    _isHomeBgmPlaying = true;
     try {
+      if (forceRestart || FlameAudio.bgm.isPlaying) {
+        await FlameAudio.bgm.stop();
+      }
+      _isHomeBgmPlaying = true;
       await FlameAudio.bgm.play('home_screen_bgm01.mp3', volume: 0.18);
     } catch (_) {
       _isHomeBgmPlaying = false;

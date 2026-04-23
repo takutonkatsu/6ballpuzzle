@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flame/components.dart';
+import 'package:flame/effects.dart';
 import 'package:flutter/material.dart';
 import 'ball_component.dart';
 import '../game_models.dart';
@@ -49,6 +50,23 @@ class ActivePieceComponent extends PositionComponent {
           ballColor: c,
           isGhost: isGhost,
         )..state = BallState.locked);
+    }
+  }
+
+  @override
+  Future<void> onLoad() async {
+    await super.onLoad();
+    if (!isGhost) {
+      scale = Vector2.zero();
+      add(
+        ScaleEffect.to(
+          Vector2.all(1.0),
+          EffectController(
+            duration: 0.25,
+            curve: Curves.easeOutBack,
+          ),
+        ),
+      );
     }
   }
 

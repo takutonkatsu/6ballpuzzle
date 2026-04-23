@@ -25,8 +25,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const String _spawnSfx = '決定ボタンを押す33_スポーン02.mp3';
   static const String _hardDropSfx = 'カーソル移動5_落下02.mp3';
   static const String _landingSfx = 'カーソル移動12_落下.mp3';
+  static const String _rotationSfx = 'キャンセル1＿回転01.mp3';
+  static const String _ojamaSpawnSfx = 'データ表示3_おじゃまボール.mp3';
+  static const String _ojamaBlockSpawnSfx =
+      '決定、ボタン押下34_おじゃまスポーン01.mp3';
   static const String _wazaChargeSfx = 'メニューを開く4_ワザ.mp3';
-  static const String _wazaClearSfx = '決定ボタンを押す13_ワザ消去.mp3';
+  static const String _clearSfx = '決定ボタンを押す42_消去03.mp3';
   static const double _sfxVolumeMultiplier = 2.0;
 
   final bool isCpuMode;
@@ -73,11 +77,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const double _activePieceSyncInterval = 0.12;
   static const double _ballRadius = 15.0;
   static const double _boardWidth = _ballRadius * 20;
+  static const double _ojamaSpawnYOffset = 120 - (_ballRadius * 1.73205);
 
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
   bool isReadyGoText = false;
   double _activePieceSyncCooldown = 0.0;
+  bool _suppressNextLandingSfx = false;
   bool _hasRemoteOjamaInFlight = false;
   DateTime? _remoteOjamaSpawnedAt;
   async.Timer? _deferredRemoteBoardTimer;
@@ -91,7 +97,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           ? constantFallSpeed
           : scoreManager.currentFallSpeed;
 
-  bool get _isPlayerControlledBoard => !isCpuMode && !isRemotePlayerMode;
+  bool get _playsBoardSfx => true;
 
   void _playSfx(String fileName, {double volume = 1.0}) {
     final adjustedVolume = (volume * _sfxVolumeMultiplier).clamp(0.0, 1.0);
@@ -289,7 +295,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     add(ghostPiece!);
 
     nextPieceColors.value = _generatePieceColors();
-    if (_isPlayerControlledBoard) {
+    if (_playsBoardSfx) {
       _playSfx(_spawnSfx, volume: 0.8);
     }
     _notifyActivePieceState(force: true, action: 'spawn');
@@ -476,7 +482,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   }
 
   Future<void> _executeLogicDrop(
-      List<Vector2> positions, List<BallColor> colors) async {
+    List<Vector2> positions,
+    List<BallColor> colors,
+  ) async {
     _clearHints();
     for (int i = 0; i < 3; i++) {
       var hex = grid.pixelToHex(positions[i]);
@@ -492,9 +500,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       grid.lockedBalls[hex] = newBall;
     }
 
-    if (_isPlayerControlledBoard) {
-      _playSfx(_landingSfx, volume: 0.78);
+    if (_playsBoardSfx && !_suppressNextLandingSfx) {
+      _playSfx(_landingSfx, volume: 0.33);
     }
+    _suppressNextLandingSfx = false;
 
     await _processGravityAndMatches();
   }
@@ -514,6 +523,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         _needsGravityRetry = false;
         bool hasMatches = true;
         while (hasMatches && gameStateWrapper.value == GameState.playing) {
+          var hadGravitySequence = false;
           bool changed = true;
           while (changed) {
             if (gameStateWrapper.value != GameState.playing) return;
@@ -534,6 +544,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
               if (next != curr) {
                 changed = true;
+                hadGravitySequence = true;
                 grid.lockedBalls[next] = comp;
                 Vector2 targetPx = grid.hexToPixel(next);
 
@@ -550,6 +561,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
             if (changed) {
               await Future.delayed(const Duration(milliseconds: 155));
             }
+          }
+
+          if (_playsBoardSfx &&
+              gameStateWrapper.value == GameState.playing &&
+              hadGravitySequence) {
+            _playSfx(_landingSfx, volume: 0.33);
           }
 
           if (gameStateWrapper.value != GameState.playing) return;
@@ -575,6 +592,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                 await _playWazaAnimation(matchResult);
               }
 
+              if (_playsBoardSfx) {
+                _playSfx(_clearSfx, volume: 1.0);
+              }
               for (var hex in validTargets) {
                 BallComponent? comp = grid.lockedBalls.remove(hex);
                 if (comp == null) continue;
@@ -631,6 +651,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
             return;
           } else if (activePiece == null) {
             _isSpawning = true;
+            await Future.delayed(const Duration(milliseconds: 500));
+            if (gameStateWrapper.value != GameState.playing || activePiece != null) {
+              _isSpawning = false;
+              return;
+            }
             _spawnNewPiece();
             _isSpawning = false;
           }
@@ -776,6 +801,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     prepareSyncedOjamaDrop(dropSeed);
     clearRemoteActivePiece();
     var spawnedAny = false;
+    var playedInitialOjamaSfx = false;
 
     for (final item in ojamaData) {
       if (item is! Map) {
@@ -815,6 +841,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       );
       activeOjamaBlocks.add(block);
       add(block);
+      if (!playedInitialOjamaSfx && _playsBoardSfx) {
+        _playSfx(_ojamaSpawnSfx, volume: 0.9);
+        playedInitialOjamaSfx = true;
+      }
+      if (_playsBoardSfx) {
+        _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+      }
       spawnedAny = true;
     }
 
@@ -949,7 +982,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         }
 
         final colors = _colorsForOjamaSet(task);
-        final spawnY = grid.offset.y - 120;
+        final spawnY = grid.offset.y - _ojamaSpawnYOffset;
         var block = OjamaBlockComponent(
           ojamaType: task.type,
           position: Vector2(spawnX, spawnY),
@@ -959,6 +992,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         );
         activeOjamaBlocks.add(block);
         add(block);
+        if (i == 0 && _playsBoardSfx) {
+          _playSfx(_ojamaSpawnSfx, volume: 0.9);
+        }
+        if (_playsBoardSfx) {
+          _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+        }
         final dropSeed = _rng.nextInt(999999);
         syncDropRng = Random(dropSeed);
 
@@ -1079,7 +1118,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       }
     }
 
-    if (_isPlayerControlledBoard) {
+    if (_playsBoardSfx) {
       _playSfx(_wazaChargeSfx, volume: 0.9);
     }
     for (var group in matchResult.wazaPattern) {
@@ -1093,10 +1132,6 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     await Future.delayed(const Duration(milliseconds: 350));
-
-    if (_isPlayerControlledBoard && sameColorBalls.isNotEmpty) {
-      _playSfx(_wazaClearSfx, volume: 0.92);
-    }
 
     for (var ball in sameColorBalls) {
       ball.isWazaSameColor = false;
@@ -1182,6 +1217,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (activePiece == null || activePiece!.isLocked) return;
     activePiece!.rotateLeft();
     _enforceBounds();
+    if (_playsBoardSfx) {
+      _playSfx(_rotationSfx, volume: 0.14);
+    }
     _notifyActivePieceState(force: true, action: 'rotate_left');
   }
 
@@ -1189,6 +1227,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (activePiece == null || activePiece!.isLocked) return;
     activePiece!.rotateRight();
     _enforceBounds();
+    if (_playsBoardSfx) {
+      _playSfx(_rotationSfx, volume: 0.14);
+    }
     _notifyActivePieceState(force: true, action: 'rotate_right');
   }
 
@@ -1219,7 +1260,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       activePiece!.position = ghostPiece!.position.clone();
       activePiece!.position.y += 5.0;
-      if (_isPlayerControlledBoard) {
+      _suppressNextLandingSfx = true;
+      if (_playsBoardSfx) {
         _playSfx(_hardDropSfx, volume: 0.85);
       }
       _notifyActivePieceState(force: true, action: 'hard_drop');
