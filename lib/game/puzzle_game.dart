@@ -91,7 +91,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const Duration _minimumRemoteOjamaVisibleDuration =
       Duration(milliseconds: 180);
 
-  double get currentFallSpeed => isCpuMode || isRemotePlayerMode
+  double get currentFallSpeed => isCpuMode
       ? constantFallSpeed
       : useConstantFallSpeed
           ? constantFallSpeed
@@ -255,6 +255,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   }
 
   void _spawnNewPiece() {
+    if (gameStateWrapper.value != GameState.playing) {
+      return;
+    }
     if (activePiece != null) {
       if (activePiece!.parent != null) remove(activePiece!);
       activePiece = null;
@@ -652,7 +655,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           } else if (activePiece == null) {
             _isSpawning = true;
             await Future.delayed(const Duration(milliseconds: 500));
-            if (gameStateWrapper.value != GameState.playing || activePiece != null) {
+            if (gameStateWrapper.value != GameState.playing ||
+                activePiece != null ||
+                pendingOjamaSpawns > 0 ||
+                activeOjamaBlocks.isNotEmpty) {
               _isSpawning = false;
               return;
             }

@@ -10,11 +10,13 @@ import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/mission_manager.dart';
 import '../network/multiplayer_manager.dart';
+import '../network/ranking_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'game_screen.dart';
+import 'ranking_screen.dart';
 import 'shop_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -28,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _playerNameKey = 'player_name';
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
+  final RankingManager _rankingManager = RankingManager.instance;
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
   final ArenaManager _arenaManager = ArenaManager.instance;
   final MissionManager _missionManager = MissionManager.instance;
@@ -160,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen>
                         const spacing = 12.0;
                         final modeHeight =
                             (constraints.maxHeight - ballHeight - spacing)
-                                .clamp(200.0, 280.0);
+                                .clamp(192.0, 280.0);
 
                         return Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -321,42 +324,54 @@ class _HomeScreenState extends State<HomeScreen>
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: Colors.black54,
               borderRadius: BorderRadius.circular(12),
               border:
                   Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.pinkAccent.withValues(alpha: 0.14),
+                  blurRadius: 14,
+                ),
+              ],
             ),
             child: Row(
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('SEASON 3',
+                    const Text('SEASON 0',
                         style: TextStyle(
                             color: Colors.pinkAccent,
-                            fontSize: 10,
+                            fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            letterSpacing: 1)),
+                            letterSpacing: 1.2)),
                     Text(_isLoadingProfile ? 'RATE: ...' : 'RATE: $_rating',
                         style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 14,
+                            fontSize: 16,
                             fontWeight: FontWeight.bold)),
                   ],
                 ),
                 const SizedBox(width: 12),
                 InkWell(
-                  onTap: () {},
+                  onTap: _openRankingScreen,
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
                       color: Colors.pinkAccent.withValues(alpha: 0.2),
                       shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.amberAccent.withValues(alpha: 0.22),
+                          blurRadius: 10,
+                        ),
+                      ],
                     ),
                     child: const Icon(Icons.emoji_events,
-                        color: Colors.pinkAccent, size: 18),
+                        color: Colors.amberAccent, size: 18),
                   ),
                 ),
               ],
@@ -444,6 +459,19 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _openRankingScreen() {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 240),
+        reverseTransitionDuration: const Duration(milliseconds: 180),
+        pageBuilder: (_, animation, __) => FadeTransition(
+          opacity: animation,
+          child: const RankingScreen(),
         ),
       ),
     );
@@ -1275,6 +1303,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     try {
       final rating = await _multiplayerManager.initializeUser(name: savedName);
+      unawaited(_rankingManager.updateMyRating(rating: rating));
       if (!mounted) {
         return;
       }
