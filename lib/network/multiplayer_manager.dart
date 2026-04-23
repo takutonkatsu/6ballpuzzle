@@ -21,50 +21,25 @@ typedef OpponentGameOverCallback = void Function();
 typedef OpponentDisconnectedCallback = void Function();
 typedef RematchStartedCallback = void Function(int newSeed);
 
-class RatingChange {
-  const RatingChange({
-    required this.oldRating,
-    required this.newRating,
-  });
-
-  final int oldRating;
-  final int newRating;
-
-  int get delta => newRating - oldRating;
-}
-
-class RandomMatchResult {
-  const RandomMatchResult({
-    required this.roomId,
-    required this.isHost,
-  });
-
-  final String roomId;
-  final bool isHost;
-}
-
-class _MatchCandidate {
-  const _MatchCandidate({
-    required this.userId,
-    required this.name,
-    required this.rating,
-  });
-
-  final String userId;
-  final String name;
-  final int rating;
-}
-
 class MultiplayerPlayer {
-  const MultiplayerPlayer({required this.status, this.name = 'Player'});
+  const MultiplayerPlayer({
+    required this.status,
+    this.name = 'Player',
+    this.uid,
+    this.rating,
+  });
 
   final String status;
   final String name;
+  final String? uid;
+  final int? rating;
 
   factory MultiplayerPlayer.fromMap(Map<dynamic, dynamic>? data) {
     return MultiplayerPlayer(
       status: (data?['status'] as String?) ?? 'waiting',
       name: _normalizePlayerName(data?['name'] as String?),
+      uid: data?['uid'] as String?,
+      rating: _intValue(data?['rating']),
     );
   }
 
@@ -115,6 +90,7 @@ class MultiplayerRoom {
       status: (map['status'] as String?) ?? 'waiting',
       seed: (map['seed'] as num?)?.toInt() ??
           DateTime.now().millisecondsSinceEpoch,
+      isRanked: map['mode'] == 'ranked' || map['ranked'] == true,
       players: {
         for (final entry in playersRaw.entries)
           entry.key.toString(): MultiplayerPlayer.fromMap(
@@ -170,6 +146,8 @@ class MultiplayerManager {
   String? myUid;
   MultiplayerRoom? currentRoom;
   String playerName = 'Player';
+  int currentRating = initialRating;
+  bool isRankedMode = false;
 
   StreamSubscription<DatabaseEvent>? _roomSubscription;
   StreamSubscription<DatabaseEvent>? _opponentBoardSubscription;
@@ -177,6 +155,9 @@ class MultiplayerManager {
   StreamSubscription<DatabaseEvent>? _attackSubscription;
   StreamSubscription<DatabaseEvent>? _opponentOjamaSpawnSubscription;
   StreamSubscription<DatabaseEvent>? _opponentStatusSubscription;
+  StreamSubscription<DatabaseEvent>? _matchmakingInviteSubscription;
+  Timer? _matchmakingPollTimer;
+  Completer<String?>? _matchmakingCompleter;
   RoomUpdateCallback? onRoomUpdated;
   OpponentBoardUpdateCallback? onOpponentBoardUpdated;
   OpponentPieceUpdateCallback? onOpponentPieceUpdated;
@@ -189,6 +170,9 @@ class MultiplayerManager {
   String? _lastRoomStatus;
   bool _hadOpponentPresent = false;
   bool _isLaunchingRematch = false;
+  bool _isMatchFound = false;
+  bool _opponentDisconnectNotified = false;
+  DateTime? _matchmakingStartedAt;
 
   bool get isHost => myRoleId == 'host';
   bool get isGuest => myRoleId == 'guest';
@@ -199,70 +183,6 @@ class MultiplayerManager {
   void setPlayerName(String name) {
     final nextName = name.trim();
     playerName = nextName.isEmpty ? 'Player' : nextName;
-  }
-
-  Future<void> initializeUser({String? name}) async {
-    if (name != null) {
-      setPlayerName(name);
-    }
-
-    final id = await _loadOrCreateUserId();
-    userId = id;
-
-    final userRef = _db.child('users/$id');
-    final snapshot = await userRef.get();
-    if (snapshot.value is Map<dynamic, dynamic>) {
-      final data = snapshot.value as Map<dynamic, dynamic>;
-      final remoteName = data['name'] as String?;
-      playerRating = (data['rating'] as num?)?.toInt() ?? initialRating;
-      if ((remoteName == null || remoteName.trim().isEmpty) ||
-          data['rating'] == null ||
-          remoteName != displayPlayerName) {
-        await userRef.update({
-          'name': displayPlayerName,
-          'rating': playerRating,
-        });
-      }
-      return;
-    }
-
-    playerRating = initialRating;
-    await userRef.set({
-      'name': displayPlayerName,
-      'rating': playerRating,
-      'createdAt': ServerValue.timestamp,
-    });
-  }
-
-  Future<void> syncUserName() async {
-    final id = userId;
-    if (id == null) {
-      return;
-    }
-    await _db.child('users/$id/name').set(displayPlayerName);
-  }
-
-  Future<int> refreshMyRating() async {
-    final id = userId ?? await _loadOrCreateUserId();
-    userId = id;
-    final snapshot = await _db.child('users/$id/rating').get();
-    playerRating = (snapshot.value as num?)?.toInt() ?? initialRating;
-    return playerRating;
-  }
-
-  int calculateNewRating(
-    int myRating,
-    int opponentRating,
-    bool isWin,
-  ) {
-    final expected = 1 / (1 + pow(10, (opponentRating - myRating) / 400));
-    var delta = (100 * ((isWin ? 1 : 0) - expected)).round();
-    if (isWin) {
-      delta = delta.clamp(5, 95).toInt();
-    } else {
-      delta = delta.clamp(-95, -5).toInt();
-    }
-    return myRating + delta;
   }
 
   DatabaseReference get _db {
@@ -377,7 +297,6 @@ class MultiplayerManager {
   Future<String> createRoom() async {
     try {
       await leaveRoom();
-      isRankedMode = false;
 
       for (int attempt = 0; attempt < 10; attempt++) {
         final roomId = (_random.nextInt(9000) + 1000).toString();
@@ -396,7 +315,6 @@ class MultiplayerManager {
             'host': {
               'status': 'waiting',
               'name': displayPlayerName,
-              'userId': userId,
             },
           },
         });
@@ -413,12 +331,12 @@ class MultiplayerManager {
             'host': MultiplayerPlayer(
               status: 'waiting',
               name: displayPlayerName,
-              userId: userId,
             ),
           },
         );
         _lastRoomStatus = currentRoom!.status;
         _hadOpponentPresent = false;
+        _opponentDisconnectNotified = false;
         await _setupPresence();
         _listenRoom();
         _listenGameplayChannels();
@@ -434,7 +352,6 @@ class MultiplayerManager {
   Future<bool> joinRoom(String roomId) async {
     try {
       await leaveRoom();
-      isRankedMode = false;
 
       final roomRef = _db.child('rooms/$roomId');
       final snapshot = await roomRef.get();
@@ -450,7 +367,13 @@ class MultiplayerManager {
       final guestData = <String, Object?>{
         'status': 'waiting',
         'name': displayPlayerName,
-      });
+      };
+      if (room.isRanked) {
+        guestData['uid'] = myUid;
+        guestData['rating'] = currentRating;
+      }
+
+      await roomRef.child('players/guest').set(guestData);
 
       currentRoomId = roomId;
       myRoleId = 'guest';
@@ -465,11 +388,14 @@ class MultiplayerManager {
           'guest': MultiplayerPlayer(
             status: 'waiting',
             name: displayPlayerName,
+            uid: room.isRanked ? myUid : null,
+            rating: room.isRanked ? currentRating : null,
           ),
         },
       );
       _lastRoomStatus = currentRoom!.status;
       _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
+      _opponentDisconnectNotified = false;
       await _setupPresence();
       _listenRoom();
       _listenGameplayChannels();
@@ -736,6 +662,7 @@ class MultiplayerManager {
     );
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = false;
+    _opponentDisconnectNotified = false;
     await _setupPresence();
     _listenRoom();
     _listenGameplayChannels();
@@ -844,15 +771,14 @@ class MultiplayerManager {
 
     currentRoomId = roomId;
     myRoleId = roleId;
-    final room = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
-    isRankedMode = room.isRanked;
     await _db.child('rooms/$roomId/players/$roleId').update({
       'name': displayPlayerName,
-      'userId': userId,
     });
     currentRoom = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
+    isRankedMode = currentRoom?.isRanked ?? false;
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
+    _opponentDisconnectNotified = false;
     await _setupPresence();
     _listenRoom();
     _listenGameplayChannels();
@@ -989,10 +915,6 @@ class MultiplayerManager {
   }
 
   Future<void> requestRematch() async {
-    if (isRankedMode) {
-      throw StateError('ランクマッチでは再戦できません。');
-    }
-
     final roomId = currentRoomId;
     final roleId = myRoleId;
     if (roomId == null || roleId == null) {
@@ -1008,131 +930,6 @@ class MultiplayerManager {
     }
   }
 
-  Future<RandomMatchResult> startRandomMatch() async {
-    try {
-      await initializeUser();
-      await cancelRandomMatch();
-      isRankedMode = true;
-
-      final id = userId;
-      if (id == null) {
-        throw StateError('ユーザーIDを生成できませんでした。');
-      }
-
-      final completer = Completer<RandomMatchResult>();
-      _matchmakingStartedAt = DateTime.now();
-      await _registerInMatchmaking();
-      _listenForRandomMatchInvite(completer);
-
-      _matchmakingPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-        unawaited(_pollForRandomMatchOpponent(completer));
-      });
-      unawaited(_pollForRandomMatchOpponent(completer));
-
-      return await completer.future;
-    } on FirebaseException catch (error) {
-      await cancelRandomMatch();
-      throw StateError(_firebaseErrorMessage('ランダムマッチ', error));
-    }
-  }
-
-  Future<void> cancelRandomMatch() async {
-    _matchmakingPollTimer?.cancel();
-    _matchmakingPollTimer = null;
-    _matchmakingSubscription?.cancel();
-    _matchmakingSubscription = null;
-    _isMatchmakingPolling = false;
-    _matchmakingStartedAt = null;
-    final id = userId;
-    if (id != null) {
-      try {
-        await _db.child('matchmaking/$id').onDisconnect().cancel();
-        await _db.child('matchmaking/$id').remove();
-      } on FirebaseException {
-        // キャンセル失敗は画面遷移を止めない。
-      }
-    }
-  }
-
-  Future<RatingChange?> finalizeRankedMatch({
-    required bool isWin,
-  }) async {
-    final roomId = currentRoomId;
-    final roleId = myRoleId;
-    if (!isRankedMode || roomId == null || roleId == null) {
-      return null;
-    }
-
-    final roomSnapshot = await _db.child('rooms/$roomId').get();
-    if (!roomSnapshot.exists) {
-      return null;
-    }
-
-    final room = MultiplayerRoom.fromSnapshot(roomId, roomSnapshot.value);
-    currentRoom = room;
-    final myPlayer = room.players[roleId];
-    final opponentPlayer = room.players[opponentRoleId];
-    if (myPlayer == null || opponentPlayer == null) {
-      return null;
-    }
-
-    final myOldRating = myPlayer.rating ?? playerRating;
-    final opponentOldRating = opponentPlayer.rating ?? initialRating;
-    final myNewRating = calculateNewRating(
-      myOldRating,
-      opponentOldRating,
-      isWin,
-    );
-    final opponentNewRating = calculateNewRating(
-      opponentOldRating,
-      myOldRating,
-      !isWin,
-    );
-    final winnerRole = isWin ? roleId : opponentRoleId;
-
-    final resultRef = _db.child('rooms/$roomId/rankedResult');
-    final transactionResult = await resultRef.runTransaction((current) {
-      if (current != null) {
-        return Transaction.abort();
-      }
-      return Transaction.success({
-        'winnerRole': winnerRole,
-        'createdBy': roleId,
-        'createdAt': ServerValue.timestamp,
-        'ratings': {
-          roleId: {
-            'userId': myPlayer.userId,
-            'old': myOldRating,
-            'new': myNewRating,
-            'delta': myNewRating - myOldRating,
-          },
-          opponentRoleId: {
-            'userId': opponentPlayer.userId,
-            'old': opponentOldRating,
-            'new': opponentNewRating,
-            'delta': opponentNewRating - opponentOldRating,
-          },
-        },
-      });
-    }, applyLocally: false);
-
-    final resultData = transactionResult.committed
-        ? transactionResult.snapshot.value
-        : (await resultRef.get()).value;
-    final change = _ratingChangeFromResult(resultData, roleId);
-
-    if (transactionResult.committed) {
-      await _applyRankedRatingsFromResult(resultData);
-    }
-
-    if (change != null) {
-      playerRating = change.newRating;
-    } else {
-      await refreshMyRating();
-    }
-    return change;
-  }
-
   void _listenRoom() {
     _roomSubscription?.cancel();
 
@@ -1144,7 +941,7 @@ class MultiplayerManager {
     _roomSubscription = _db.child('rooms/$roomId').onValue.listen((event) {
       if (event.snapshot.value == null) {
         if (_hadOpponentPresent) {
-          onOpponentDisconnected?.call();
+          _notifyOpponentDisconnected();
         }
         currentRoom = null;
         _lastRoomStatus = null;
@@ -1154,8 +951,9 @@ class MultiplayerManager {
 
       final room = MultiplayerRoom.fromSnapshot(roomId, event.snapshot.value);
       final opponentPresent = room.players.containsKey(opponentRoleId);
-      if (_hadOpponentPresent && !opponentPresent) {
-        onOpponentDisconnected?.call();
+      final opponentLeft = room.players[opponentRoleId]?.status == 'left';
+      if (_hadOpponentPresent && (!opponentPresent || opponentLeft)) {
+        _notifyOpponentDisconnected();
       }
       _hadOpponentPresent = opponentPresent;
 
@@ -1287,396 +1085,25 @@ class MultiplayerManager {
       final status = event.snapshot.value as String?;
       if (status == 'dead') {
         onOpponentGameOver?.call();
+      } else if (status == 'left') {
+        _notifyOpponentDisconnected();
       }
     });
   }
 
-  void _listenForRandomMatchInvite(Completer<RandomMatchResult> completer) {
-    final id = userId;
-    if (id == null) {
+  void _notifyOpponentDisconnected() {
+    if (_opponentDisconnectNotified) {
       return;
     }
-
-    _matchmakingSubscription?.cancel();
-    _matchmakingSubscription =
-        _db.child('matchmaking/$id/roomId').onValue.listen((event) async {
-      final rawRoomId = event.snapshot.value;
-      final roomId = rawRoomId == null ? null : '$rawRoomId';
-      if (roomId == null || roomId.isEmpty || completer.isCompleted) {
-        return;
-      }
-
-      _matchmakingPollTimer?.cancel();
-      _matchmakingPollTimer = null;
-
-      try {
-        final result = await _joinRankedRoomAsGuest(roomId);
-        await _cleanupMatchmakingEntry();
-        if (!completer.isCompleted) {
-          completer.complete(result);
-        }
-      } catch (error, stackTrace) {
-        await cancelRandomMatch();
-        if (!completer.isCompleted) {
-          completer.completeError(error, stackTrace);
-        }
-      }
-    });
+    _opponentDisconnectNotified = true;
+    onOpponentDisconnected?.call();
   }
 
-  Future<void> _pollForRandomMatchOpponent(
-    Completer<RandomMatchResult> completer,
-  ) async {
-    if (completer.isCompleted || _isMatchmakingPolling) {
-      return;
-    }
-
-    final id = userId;
-    if (id == null) {
-      return;
-    }
-
-    _isMatchmakingPolling = true;
-    try {
-      final myEntrySnapshot = await _db.child('matchmaking/$id/roomId').get();
-      if (myEntrySnapshot.value != null) {
-        return;
-      }
-
-      final ratingRange = _currentRandomMatchRatingRange();
-      final snapshot = await _db.child('matchmaking').get();
-      final candidate = _findCandidateFromMatchmakingSnapshot(
-        snapshot.value,
-        ratingRange,
-      );
-      if (candidate == null || completer.isCompleted) {
-        return;
-      }
-
-      _matchmakingPollTimer?.cancel();
-      _matchmakingPollTimer = null;
-
-      final result = await _inviteCandidateAsRankedHost(
-        candidate,
-        ratingRange,
-      );
-      if (result == null) {
-        _restartRandomMatchPolling(completer);
-        return;
-      }
-
-      await _cleanupMatchmakingEntry();
-      if (!completer.isCompleted) {
-        completer.complete(result);
-      }
-    } catch (error, stackTrace) {
-      _restartRandomMatchPolling(completer);
-      if (error is FirebaseException && !completer.isCompleted) {
-        await cancelRandomMatch();
-        completer.completeError(
-          StateError(_firebaseErrorMessage('ランダムマッチ検索', error)),
-          stackTrace,
-        );
-      }
-    } finally {
-      _isMatchmakingPolling = false;
-    }
-  }
-
-  int _currentRandomMatchRatingRange() {
-    final startedAt = _matchmakingStartedAt;
-    if (startedAt == null) {
-      return 100;
-    }
-    final elapsed = DateTime.now().difference(startedAt);
-    return elapsed >= const Duration(seconds: 15) ? 300 : 100;
-  }
-
-  _MatchCandidate? _findCandidateFromMatchmakingSnapshot(
-    Object? value,
-    int ratingRange,
-  ) {
-    final id = userId;
-    if (id == null) {
-      return null;
-    }
-
-    if (value is! Map<dynamic, dynamic>) {
-      return null;
-    }
-
-    final candidates = <_MatchCandidate>[];
-    for (final entry in value.entries) {
-      final candidateId = entry.key.toString();
-      if (candidateId == id || entry.value is! Map<dynamic, dynamic>) {
-        continue;
-      }
-
-      // Deterministic host election prevents two equally timed clients from
-      // reserving each other and both becoming hosts.
-      if (candidateId.compareTo(id) <= 0) {
-        continue;
-      }
-
-      final data = entry.value as Map<dynamic, dynamic>;
-      if (data['roomId'] != null) {
-        continue;
-      }
-
-      final rating = (data['rating'] as num?)?.toInt();
-      if (rating == null || (rating - playerRating).abs() > ratingRange) {
-        continue;
-      }
-
-      candidates.add(
-        _MatchCandidate(
-          userId: candidateId,
-          name: MultiplayerPlayer._normalizePlayerName(data['name'] as String?),
-          rating: rating,
-        ),
-      );
-    }
-
-    if (candidates.isEmpty) {
-      return null;
-    }
-
-    candidates.sort((a, b) {
-      final ratingCompare = (a.rating - playerRating)
-          .abs()
-          .compareTo((b.rating - playerRating).abs());
-      if (ratingCompare != 0) {
-        return ratingCompare;
-      }
-      return a.userId.compareTo(b.userId);
-    });
-    return candidates.first;
-  }
-
-  Future<RandomMatchResult?> _inviteCandidateAsRankedHost(
-    _MatchCandidate candidate,
-    int ratingRange,
-  ) async {
-    final roomId = await _generateRankedRoomId();
-    final candidateRef = _db.child('matchmaking/${candidate.userId}');
-    final transaction = await candidateRef.runTransaction((current) {
-      if (current is! Map<dynamic, dynamic>) {
-        return Transaction.abort();
-      }
-      if (current['roomId'] != null) {
-        return Transaction.abort();
-      }
-      final latestRating = (current['rating'] as num?)?.toInt();
-      if (latestRating == null ||
-          (latestRating - playerRating).abs() > ratingRange) {
-        return Transaction.abort();
-      }
-      return Transaction.success({
-        ...current,
-        'roomId': roomId,
-        'matchedAt': ServerValue.timestamp,
-      });
-    }, applyLocally: false);
-
-    if (!transaction.committed) {
-      return null;
-    }
-
-    try {
-      await _createRankedRoomAsHost(roomId, candidate);
-    } catch (_) {
-      await candidateRef.update({
-        'roomId': null,
-        'matchedAt': null,
-      });
-      rethrow;
-    }
-    return RandomMatchResult(roomId: roomId, isHost: true);
-  }
-
-  Future<void> _registerInMatchmaking() async {
-    final id = userId;
-    if (id == null) {
-      throw StateError('ユーザーIDを生成できませんでした。');
-    }
-
-    final entryRef = _db.child('matchmaking/$id');
-    await entryRef.set({
-      'name': displayPlayerName,
-      'rating': playerRating,
-      'roomId': null,
-      'timestamp': ServerValue.timestamp,
-    });
-    await entryRef.onDisconnect().remove();
-  }
-
-  Future<String> _generateRankedRoomId() async {
-    for (var attempt = 0; attempt < 30; attempt++) {
-      final roomId = (_random.nextInt(9000) + 1000).toString();
-      final existing = await _db.child('rooms/$roomId').get();
-      if (!existing.exists) {
-        return roomId;
-      }
-    }
-    throw StateError('ルームIDの生成に失敗しました。もう一度お試しください。');
-  }
-
-  Future<void> _createRankedRoomAsHost(
-    String roomId,
-    _MatchCandidate candidate,
-  ) async {
-    final id = userId;
-    if (id == null) {
-      throw StateError('ユーザーIDを生成できませんでした。');
-    }
-
-    final seed = DateTime.now().millisecondsSinceEpoch;
-    await _db.child('rooms/$roomId').set({
-      'status': 'waiting',
-      'seed': seed,
-      'mode': 'ranked',
-      'createdAt': ServerValue.timestamp,
-      'players': {
-        'host': {
-          'status': 'waiting',
-          'name': displayPlayerName,
-          'userId': id,
-          'rating': playerRating,
-        },
-        'guest': {
-          'status': 'waiting',
-          'name': candidate.name,
-          'userId': candidate.userId,
-          'rating': candidate.rating,
-        },
-      },
-    });
-
-    currentRoomId = roomId;
-    myRoleId = 'host';
-    isRankedMode = true;
-    currentRoom = MultiplayerRoom(
-      roomId: roomId,
-      status: 'waiting',
-      seed: seed,
-      isRanked: true,
-      players: {
-        'host': MultiplayerPlayer(
-          status: 'waiting',
-          name: displayPlayerName,
-          userId: id,
-          rating: playerRating,
-        ),
-        'guest': MultiplayerPlayer(
-          status: 'waiting',
-          name: candidate.name,
-          userId: candidate.userId,
-          rating: candidate.rating,
-        ),
-      },
-    );
-    _lastRoomStatus = currentRoom!.status;
-    _hadOpponentPresent = true;
-    await _setupPresence();
-    _listenRoom();
-    _listenGameplayChannels();
-  }
-
-  Future<RandomMatchResult> _joinRankedRoomAsGuest(String roomId) async {
-    final id = userId;
-    if (id == null) {
-      throw StateError('ユーザーIDを生成できませんでした。');
-    }
-
-    DataSnapshot? roomSnapshot;
-    for (var attempt = 0; attempt < 20; attempt++) {
-      final snapshot = await _db.child('rooms/$roomId').get();
-      if (snapshot.exists) {
-        roomSnapshot = snapshot;
-        break;
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-    }
-
-    if (roomSnapshot == null || !roomSnapshot.exists) {
-      throw StateError('マッチしたルームが見つかりません。');
-    }
-
-    final room = MultiplayerRoom.fromSnapshot(roomId, roomSnapshot.value);
-    if (room.status != 'waiting') {
-      throw StateError('マッチしたルームはすでに開始されています。');
-    }
-
-    await _db.child('rooms/$roomId/players/guest').update({
-      'status': 'waiting',
-      'name': displayPlayerName,
-      'userId': id,
-      'rating': playerRating,
-    });
-
-    currentRoomId = roomId;
-    myRoleId = 'guest';
-    isRankedMode = true;
-    currentRoom = MultiplayerRoom(
-      roomId: room.roomId,
-      status: room.status,
-      seed: room.seed,
-      isRanked: true,
-      players: {
-        ...room.players,
-        'guest': MultiplayerPlayer(
-          status: 'waiting',
-          name: displayPlayerName,
-          userId: id,
-          rating: playerRating,
-        ),
-      },
-    );
-    _lastRoomStatus = currentRoom!.status;
-    _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
-    await _setupPresence();
-    _listenRoom();
-    _listenGameplayChannels();
-    return RandomMatchResult(roomId: roomId, isHost: false);
-  }
-
-  void _restartRandomMatchPolling(Completer<RandomMatchResult> completer) {
-    if (completer.isCompleted || _matchmakingPollTimer != null) {
-      return;
-    }
-    _matchmakingPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      unawaited(_pollForRandomMatchOpponent(completer));
-    });
-  }
-
-  Future<void> _cleanupMatchmakingEntry() async {
-    _matchmakingPollTimer?.cancel();
-    _matchmakingPollTimer = null;
-    await _matchmakingSubscription?.cancel();
-    _matchmakingSubscription = null;
-    _isMatchmakingPolling = false;
-    _matchmakingStartedAt = null;
-    final id = userId;
-    if (id == null) {
-      return;
-    }
-    try {
-      await _db.child('matchmaking/$id').onDisconnect().cancel();
-      await _db.child('matchmaking/$id').remove();
-    } on FirebaseException {
-      // マッチ成立後の掃除失敗は対戦開始を止めない。
-    }
-  }
+  Future<void> cancelLobby() => leaveRoom();
 
   Future<void> leaveRoom() async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
-    final wasRanked = isRankedMode;
-    final shouldForfeitRanked = wasRanked &&
-        roomId != null &&
-        roleId != null &&
-        currentRoom?.status == 'playing' &&
-        currentRoom?.statusFor(roleId) != 'dead';
 
     _roomSubscription?.cancel();
     _opponentBoardSubscription?.cancel();
@@ -1684,28 +1111,19 @@ class MultiplayerManager {
     _attackSubscription?.cancel();
     _opponentOjamaSpawnSubscription?.cancel();
     _opponentStatusSubscription?.cancel();
-    _matchmakingSubscription?.cancel();
     _roomSubscription = null;
     _opponentBoardSubscription = null;
     _opponentPieceSubscription = null;
     _attackSubscription = null;
     _opponentOjamaSpawnSubscription = null;
     _opponentStatusSubscription = null;
-    _matchmakingSubscription = null;
 
     try {
       if (roomId != null && roleId != null) {
         final roomRef = _db.child('rooms/$roomId');
         await roomRef.child('players/$roleId').onDisconnect().cancel();
-        await roomRef.child('players/$roleId/status').onDisconnect().cancel();
-        await roomRef.child('status').onDisconnect().cancel();
 
-        if (shouldForfeitRanked) {
-          await roomRef.child('players/$roleId/status').set('dead');
-          await roomRef.update({'status': 'game_over'});
-        } else if (wasRanked) {
-          await roomRef.child('players/$roleId/status').set('left');
-        } else if (roleId == 'host') {
+        if (roleId == 'host') {
           await roomRef.remove();
         } else {
           await roomRef.child('players/$roleId').remove();
@@ -1716,7 +1134,6 @@ class MultiplayerManager {
       // 退出処理の失敗は画面遷移を止めない。
     }
 
-    await cancelRandomMatch();
     currentRoomId = null;
     myRoleId = null;
     currentRoom = null;
@@ -1724,6 +1141,7 @@ class MultiplayerManager {
     _lastRoomStatus = null;
     _hadOpponentPresent = false;
     _isLaunchingRematch = false;
+    _opponentDisconnectNotified = false;
     onRoomUpdated = null;
     onOpponentBoardUpdated = null;
     onOpponentPieceUpdated = null;
@@ -1799,16 +1217,16 @@ class MultiplayerManager {
       return;
     }
 
-    if (isRankedMode) {
-      await _db
-          .child('rooms/$roomId/players/$roleId/status')
-          .onDisconnect()
-          .set('dead');
-      await _db.child('rooms/$roomId/status').onDisconnect().set('game_over');
-      return;
+    final isRanked = isRankedMode || (currentRoom?.isRanked ?? false);
+    final playerRef = _db.child('rooms/$roomId/players/$roleId');
+    if (isRanked) {
+      await playerRef.onDisconnect().update({
+        'status': 'left',
+        'disconnectedAt': ServerValue.timestamp,
+      });
+    } else {
+      await playerRef.onDisconnect().remove();
     }
-
-    await _db.child('rooms/$roomId/players/$roleId').onDisconnect().remove();
   }
 
   Future<void> _startRematch(String roomId) async {
@@ -1845,85 +1263,5 @@ class MultiplayerManager {
       return entries.map((entry) => entry.value).toList();
     }
     return const [];
-  }
-
-  Future<String> _loadOrCreateUserId() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getString(_userIdKey);
-      if (saved != null && saved.isNotEmpty) {
-        return saved;
-      }
-      final created = _createUuidV4();
-      await prefs.setString(_userIdKey, created);
-      return created;
-    } on MissingPluginException {
-      userId ??= _createUuidV4();
-      return userId!;
-    }
-  }
-
-  String _createUuidV4() {
-    final bytes = List<int>.generate(16, (_) => _random.nextInt(256));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    final hex = bytes.map((byte) => byte.toRadixString(16).padLeft(2, '0'));
-    final value = hex.join();
-    return '${value.substring(0, 8)}-'
-        '${value.substring(8, 12)}-'
-        '${value.substring(12, 16)}-'
-        '${value.substring(16, 20)}-'
-        '${value.substring(20)}';
-  }
-
-  RatingChange? _ratingChangeFromResult(Object? resultData, String roleId) {
-    if (resultData is! Map<dynamic, dynamic>) {
-      return null;
-    }
-    final ratings = resultData['ratings'];
-    if (ratings is! Map<dynamic, dynamic>) {
-      return null;
-    }
-    final roleRating = ratings[roleId];
-    if (roleRating is! Map<dynamic, dynamic>) {
-      return null;
-    }
-    final oldRating = (roleRating['old'] as num?)?.toInt();
-    final newRating = (roleRating['new'] as num?)?.toInt();
-    if (oldRating == null || newRating == null) {
-      return null;
-    }
-    return RatingChange(oldRating: oldRating, newRating: newRating);
-  }
-
-  Future<void> _applyRankedRatingsFromResult(Object? resultData) async {
-    if (resultData is! Map<dynamic, dynamic>) {
-      return;
-    }
-    final ratings = resultData['ratings'];
-    if (ratings is! Map<dynamic, dynamic>) {
-      return;
-    }
-
-    final updates = <String, Object?>{};
-    for (final entry in ratings.entries) {
-      if (entry.value is! Map<dynamic, dynamic>) {
-        continue;
-      }
-      final ratingData = entry.value as Map<dynamic, dynamic>;
-      final targetUserId = ratingData['userId'] as String?;
-      final newRating = (ratingData['new'] as num?)?.toInt();
-      if (targetUserId == null || newRating == null) {
-        continue;
-      }
-      updates['users/$targetUserId/rating'] = newRating;
-      updates['users/$targetUserId/name'] = entry.key == myRoleId
-          ? displayPlayerName
-          : currentRoom?.players[entry.key.toString()]?.name ?? 'Player';
-    }
-
-    if (updates.isNotEmpty) {
-      await _db.update(updates);
-    }
   }
 }
