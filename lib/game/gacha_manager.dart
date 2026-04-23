@@ -32,78 +32,18 @@ class GachaManager {
   GameItem _drawItem() {
     final roll = _random.nextDouble();
     if (roll < 0.60) {
-      return _randomFrom(_commonStamps);
+      return _randomFrom(GameItemCatalog.commonStamps);
     }
     if (roll < 0.90) {
-      return _randomFrom(_rareData);
+      return _randomFrom(GameItemCatalog.rareData);
     }
     if (roll < 0.99) {
-      return _randomFrom(_epicSkins);
+      return _randomFrom(GameItemCatalog.epicSkins);
     }
-    return _randomFrom(_legendaryVfx);
+    return _randomFrom(GameItemCatalog.legendaryVfx);
   }
 
   GameItem _randomFrom(List<GameItem> items) {
     return items[_random.nextInt(items.length)];
   }
-
-  static const List<GameItem> _commonStamps = [
-    GameItem(
-      id: 'stamp_good_game',
-      name: 'GOOD GAME',
-      type: ItemType.stamp,
-      rarity: ItemRarity.common,
-    ),
-    GameItem(
-      id: 'stamp_nice_chain',
-      name: 'NICE CHAIN',
-      type: ItemType.stamp,
-      rarity: ItemRarity.common,
-    ),
-    GameItem(
-      id: 'stamp_too_fast',
-      name: 'TOO FAST',
-      type: ItemType.stamp,
-      rarity: ItemRarity.common,
-    ),
-  ];
-
-  static const List<GameItem> _rareData = [
-    GameItem(
-      id: 'stamp_data_burst',
-      name: 'DATA BURST',
-      type: ItemType.stamp,
-      rarity: ItemRarity.rare,
-    ),
-    GameItem(
-      id: 'vfx_low_bit_glitch',
-      name: 'LOW BIT GLITCH',
-      type: ItemType.vfx,
-      rarity: ItemRarity.rare,
-    ),
-  ];
-
-  static const List<GameItem> _epicSkins = [
-    GameItem(
-      id: 'skin_neon_chrome',
-      name: 'NEON CHROME',
-      type: ItemType.skin,
-      rarity: ItemRarity.epic,
-    ),
-    GameItem(
-      id: 'skin_black_ice',
-      name: 'BLACK ICE',
-      type: ItemType.skin,
-      rarity: ItemRarity.epic,
-    ),
-  ];
-
-  static const List<GameItem> _legendaryVfx = [
-    GameItem(
-      id: 'vfx_overdrive_hex',
-      name: 'OVERDRIVE HEX',
-      type: ItemType.vfx,
-      rarity: ItemRarity.legendary,
-    ),
-  ];
 }

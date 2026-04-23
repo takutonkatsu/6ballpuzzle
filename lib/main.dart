@@ -11,6 +11,9 @@ import 'ui/home_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
   await _initializeMobileAds();
   final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
   if (firebaseOptions.databaseURL == null ||

@@ -8,15 +8,21 @@ class ArenaReward {
     required this.exp,
     required this.gachaTickets,
     required this.cyberScrap,
+    this.title,
   });
 
   final int coins;
   final int exp;
   final int gachaTickets;
   final int cyberScrap;
+  final String? title;
 
   bool get hasAnyReward =>
-      coins > 0 || exp > 0 || gachaTickets > 0 || cyberScrap > 0;
+      coins > 0 ||
+      exp > 0 ||
+      gachaTickets > 0 ||
+      cyberScrap > 0 ||
+      title != null;
 }
 
 class ArenaMatchResult {
@@ -29,6 +35,7 @@ class ArenaMatchResult {
       exp: 0,
       gachaTickets: 0,
       cyberScrap: 0,
+      title: null,
     ),
   });
 
@@ -121,8 +128,18 @@ class ArenaManager {
   }
 
   ArenaReward _calculateReward(int wins) {
+    final coins = switch (wins) {
+      <= 1 => 500,
+      2 => 1500,
+      3 => 3000,
+      4 || 5 => 5000,
+      6 || 7 || 8 => 8000,
+      9 || 10 || 11 => 15000,
+      _ => 30000,
+    };
+
     return ArenaReward(
-      coins: wins * 700 + (wins >= maxWins ? 8000 : 0),
+      coins: coins,
       exp: wins * 120,
       gachaTickets: wins >= 12
           ? 3
@@ -132,6 +149,7 @@ class ArenaManager {
                   ? 1
                   : 0,
       cyberScrap: wins * 5,
+      title: wins >= maxWins ? 'ARENA LEGEND' : null,
     );
   }
 

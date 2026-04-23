@@ -8,9 +8,11 @@ import 'package:flutter/material.dart';
 import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
 import '../game/game_models.dart';
+import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
 import '../network/multiplayer_manager.dart';
 import 'components/banner_ad_widget.dart';
+import 'components/interstitial_ad_manager.dart';
 import 'home_screen.dart';
 
 class GameScreen extends StatefulWidget {
@@ -54,6 +56,7 @@ class _GameScreenState extends State<GameScreen> {
 
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final ArenaManager _arenaManager = ArenaManager.instance;
+  final MissionManager _missionManager = MissionManager.instance;
   late final PuzzleGame _playerGame;
   PuzzleGame? _cpuGame;
   final FocusNode _playerFocusNode = FocusNode();
@@ -203,6 +206,7 @@ class _GameScreenState extends State<GameScreen> {
     _playerGame.onGameOverTriggered = () {
       unawaited(_stopBattleBgm());
       if (_isOnlineMode) {
+        unawaited(_missionManager.recordEvent('play_match'));
         setState(() {
           _onlineResultMessage = 'YOU LOSE...';
           _isWaitingForRematch = false;
@@ -404,7 +408,9 @@ class _GameScreenState extends State<GameScreen> {
     final reward = result?.reward;
 
     final rewardText = result?.isCompleted == true && reward != null
-        ? 'REWARD  COIN +${reward.coins} / EXP +${reward.exp} / TICKET +${reward.gachaTickets}'
+        ? reward.title == null
+            ? 'REWARD  COIN +${reward.coins} / EXP +${reward.exp} / TICKET +${reward.gachaTickets}'
+            : 'REWARD  COIN +${reward.coins} / EXP +${reward.exp} / TITLE ${reward.title}'
         : 'RUN  $wins WINS / $losses LOSSES';
 
     return Container(
@@ -854,12 +860,7 @@ class _GameScreenState extends State<GameScreen> {
                     ElevatedButton(
                       onPressed: () {
                         _clearAllPendingAttacks();
-                        unawaited(_stopBattleBgm());
-                        Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                            builder: (_) => const HomeScreen(),
-                          ),
-                        );
+                        unawaited(_returnHomeAfterMatch());
                       },
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
@@ -1607,6 +1608,8 @@ class _GameScreenState extends State<GameScreen> {
       _isWaitingForRematch = false;
     });
     unawaited(_stopBattleBgm());
+    unawaited(_missionManager.recordEvent('play_match'));
+    unawaited(_missionManager.recordEvent('win_match'));
     unawaited(_applyRankedRatingResult(isWin: true));
     unawaited(_recordArenaResult(isWin: true));
     _playerGame.gameStateWrapper.value = GameState.gameover;
@@ -1658,6 +1661,20 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _arenaMatchResult = result;
     });
+  }
+
+  Future<void> _returnHomeAfterMatch() async {
+    await _stopBattleBgm();
+    if (_isOnlineMode) {
+      await _multiplayerManager.leaveRoom();
+    }
+    await InterstitialAdManager.instance.showIfNeeded();
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    );
   }
 
   void _handleOpponentDisconnected() {
@@ -1791,15 +1808,12 @@ class _GameScreenState extends State<GameScreen> {
     _playerGame.pauseEngine();
     _cpuGame?.pauseEngine();
     await _stopBattleBgm();
-
     if (_isOnlineMode) {
       await _multiplayerManager.leaveRoom();
     }
-
     if (!mounted) {
       return;
     }
-
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
@@ -1825,10 +1839,7 @@ class _GameScreenState extends State<GameScreen> {
 
   void _leaveOnlineBattle() {
     _clearAllPendingAttacks();
-    unawaited(_stopBattleBgm());
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
+    unawaited(_returnHomeAfterMatch());
   }
 
   void _queueOjamaTask(PuzzleGame targetGame, OjamaTask task) {

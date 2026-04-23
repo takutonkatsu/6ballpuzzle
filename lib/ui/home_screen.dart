@@ -6,15 +6,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
-import '../game/gacha_manager.dart';
+import '../game/mission_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
+import 'components/rewarded_ad_manager.dart';
 import 'game_screen.dart';
+import 'shop_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,14 +29,15 @@ class _HomeScreenState extends State<HomeScreen>
   static const _playerNameKey = 'player_name';
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
-  final GachaManager _gachaManager = GachaManager.instance;
   final ArenaManager _arenaManager = ArenaManager.instance;
+  final MissionManager _missionManager = MissionManager.instance;
   final TextEditingController _playerNameController = TextEditingController();
   bool _isBusy = false;
   int _rating = MultiplayerManager.initialRating;
+  int _level = 1;
   int _coins = PlayerDataManager.initialCoins;
-  int _cyberScrap = 0;
-  int _gachaTickets = 0;
+  int _claimableMissionCount = 0;
+  int _completedMissionCount = 0;
   bool _isLoadingProfile = true;
   String? _queuedPlayerName;
   String _lastPersistedPlayerName = '';
@@ -90,14 +92,19 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _loadPlayerEconomy() async {
     try {
       await _playerDataManager.load();
+      await _playerDataManager.checkDailyReset();
+      await _missionManager.load();
       await _arenaManager.load();
       if (!mounted) {
         return;
       }
       setState(() {
+        _level = _playerDataManager.level;
         _coins = _playerDataManager.coins;
-        _cyberScrap = _playerDataManager.cyberScrap;
-        _gachaTickets = _playerDataManager.gachaTickets;
+        _claimableMissionCount = _missionManager.claimableCount;
+        _completedMissionCount = _playerDataManager.currentMissions
+            .where((mission) => (mission['claimed'] as bool? ?? false))
+            .length;
       });
     } catch (_) {
       // ローカルデータ読込に失敗してもホーム表示は継続する。
@@ -106,13 +113,18 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _refreshPlayerEconomy() async {
     await _playerDataManager.load();
+    await _playerDataManager.checkDailyReset();
+    await _missionManager.load();
     if (!mounted) {
       return;
     }
     setState(() {
+      _level = _playerDataManager.level;
       _coins = _playerDataManager.coins;
-      _cyberScrap = _playerDataManager.cyberScrap;
-      _gachaTickets = _playerDataManager.gachaTickets;
+      _claimableMissionCount = _missionManager.claimableCount;
+      _completedMissionCount = _playerDataManager.currentMissions
+          .where((mission) => (mission['claimed'] as bool? ?? false))
+          .length;
     });
   }
 
@@ -181,8 +193,8 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             child: Row(
               children: [
-                const Text('Lv.12',
-                    style: TextStyle(
+                Text('Lv.$_level',
+                    style: const TextStyle(
                         color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
                 const SizedBox(width: 8),
                 Container(
@@ -340,11 +352,27 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           Row(
             children: [
-              _buildRoundIcon(Icons.notifications, Colors.cyanAccent, () {}),
+              _buildRoundIcon(
+                Icons.notifications,
+                Colors.cyanAccent,
+                () => unawaited(_showAlert(context, 'お知らせ', '現在のお知らせはありません。')),
+                tooltip: 'お知らせ',
+              ),
               const SizedBox(width: 8),
-              _buildRoundIcon(Icons.store, Colors.purpleAccent, () {}),
+              _buildRoundIcon(
+                Icons.settings,
+                Colors.purpleAccent,
+                () => unawaited(_showAlert(context, '設定', '設定画面は準備中です。')),
+                tooltip: '設定',
+              ),
               const SizedBox(width: 8),
-              _buildRoundIcon(Icons.assignment, Colors.amberAccent, () {}),
+              _buildRoundIcon(
+                Icons.assignment_turned_in,
+                Colors.amberAccent,
+                () => unawaited(_showDailyMissionsDialog(context)),
+                tooltip: 'DAILY MISSIONS',
+                badgeCount: _claimableMissionCount,
+              ),
             ],
           ),
         ],
@@ -352,21 +380,59 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildRoundIcon(IconData icon, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color.withValues(alpha: 0.1),
-          border: Border.all(color: color.withValues(alpha: 0.5)),
-          boxShadow: [
-            BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 4)
+  Widget _buildRoundIcon(
+    IconData icon,
+    Color color,
+    VoidCallback onTap, {
+    required String tooltip,
+    int badgeCount = 0,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withValues(alpha: 0.1),
+                border: Border.all(color: color.withValues(alpha: 0.5)),
+                boxShadow: [
+                  BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 4)
+                ],
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            if (badgeCount > 0)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.pinkAccent,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.pinkAccent, blurRadius: 8),
+                    ],
+                  ),
+                  child: Text(
+                    '$badgeCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
-        child: Icon(icon, color: color, size: 20),
       ),
     );
   }
@@ -459,8 +525,10 @@ class _HomeScreenState extends State<HomeScreen>
                                 : () => _showCpuDifficultyDialog(context))),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: _buildGridButton('ARENA', Colors.lightBlueAccent,
-                            _isBusy ? null : () => _startArena(context))),
+                        child: _buildGridButton(
+                            _arenaButtonLabel(),
+                            Colors.lightBlueAccent,
+                            _isBusy ? null : () => _startArenaMatch(context))),
                   ],
                 ),
               ),
@@ -606,6 +674,13 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  String _arenaButtonLabel() {
+    if (_arenaManager.isArenaActive) {
+      return 'ARENA\n${_arenaManager.currentWins}W ${_arenaManager.currentLosses}L';
+    }
+    return 'ARENA\n未エントリー';
+  }
+
   Widget _buildBottomBannerTop() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -613,17 +688,31 @@ class _HomeScreenState extends State<HomeScreen>
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _buildBottomTextButton(
-            Icons.data_object,
-            'SHOP / GACHA',
-            () => _showGachaDialog(context),
+            Icons.storefront,
+            'DAILY SHOP',
+            () => _openDailyShop(context),
           ),
           _buildBottomTextButton(
-            Icons.emoji_events,
-            'ARENA',
-            () => _showArenaStatusDialog(context),
+            Icons.bar_chart,
+            'RECORDS',
+            () => unawaited(
+              _showAlert(context, 'RECORDS', 'レコード画面は準備中です。'),
+            ),
           ),
-          _buildBottomTextButton(Icons.bar_chart, 'RECORDS', () {}),
-          _buildBottomTextButton(Icons.help_outline, 'HOW TO', () {}),
+          _buildBottomTextButton(
+            Icons.help_outline,
+            'HOW TO',
+            () => unawaited(
+              _showAlert(context, 'HOW TO', '遊び方は準備中です。'),
+            ),
+          ),
+          _buildBottomTextButton(
+            Icons.block,
+            '広告消',
+            () => unawaited(
+              _showAlert(context, '広告消', '広告削除機能は準備中です。'),
+            ),
+          ),
         ],
       ),
     );
@@ -666,6 +755,11 @@ class _HomeScreenState extends State<HomeScreen>
     bool isCpuMode, {
     CPUDifficulty cpuDifficulty = CPUDifficulty.hard,
   }) {
+    if (isCpuMode) {
+      unawaited(_missionManager.recordEvent('play_match'));
+    } else {
+      unawaited(_missionManager.recordEvent('play_endless'));
+    }
     unawaited(_stopHomeBgm());
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
@@ -843,7 +937,14 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _showGachaDialog(BuildContext context) async {
+  Future<void> _openDailyShop(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ShopScreen()),
+    );
+    await _refreshPlayerEconomy();
+  }
+
+  Future<void> _showDailyMissionsDialog(BuildContext context) async {
     await _refreshPlayerEconomy();
     if (!context.mounted) {
       return;
@@ -852,188 +953,300 @@ class _HomeScreenState extends State<HomeScreen>
     return showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return _buildCyberDialog(
-          accentColor: Colors.purpleAccent,
-          title: 'DATA DECODE',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildEconomyLine('COIN', _coins, Colors.amberAccent),
-              const SizedBox(height: 8),
-              _buildEconomyLine('CYBER SCRAP', _cyberScrap, Colors.cyanAccent),
-              const SizedBox(height: 8),
-              _buildEconomyLine('TICKET', _gachaTickets, Colors.greenAccent),
-              const SizedBox(height: 18),
-              _buildCyberDialogButton(
-                label: 'ROLL 1000 COIN',
-                accentColor: Colors.purpleAccent,
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  unawaited(_rollGacha(context));
-                },
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> refreshDialogState() async {
+              await _refreshPlayerEconomy();
+              setDialogState(() {});
+            }
+
+            final dialogMissions = _playerDataManager.currentMissions;
+            return _buildCyberDialog(
+              accentColor: Colors.amberAccent,
+              title: 'DAILY MISSIONS',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$_completedMissionCount / ${dialogMissions.length} COMPLETE',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  for (var index = 0;
+                      index < dialogMissions.length;
+                      index++) ...[
+                    _buildMissionTile(
+                      mission: dialogMissions[index],
+                      onClaim: () async {
+                        try {
+                          final rewarded = await RewardedAdManager.instance
+                              .showDoubleRewardAd();
+                          final reward = await _missionManager.claimMission(
+                            index,
+                            boosted: rewarded,
+                          );
+                          if (!mounted) {
+                            return;
+                          }
+                          await refreshDialogState();
+                          if (!mounted) {
+                            return;
+                          }
+                          await _showAlert(
+                            this.context,
+                            rewarded
+                                ? 'MISSION x2 COMPLETE'
+                                : 'MISSION COMPLETE',
+                            'COIN +$reward',
+                          );
+                        } catch (error) {
+                          if (!mounted) {
+                            return;
+                          }
+                          await _showAlert(
+                            this.context,
+                            'MISSION CLAIM FAILED',
+                            '$error',
+                          );
+                        }
+                      },
+                      onReroll: () async {
+                        try {
+                          await _missionManager.rerollMission(index);
+                          await refreshDialogState();
+                        } catch (error) {
+                          if (!mounted) {
+                            return;
+                          }
+                          await _showAlert(
+                            this.context,
+                            'REROLL FAILED',
+                            '$error',
+                          );
+                        }
+                      },
+                    ),
+                    if (index != dialogMissions.length - 1)
+                      const SizedBox(height: 10),
+                  ],
+                  const SizedBox(height: 14),
+                  _buildCyberDialogButton(
+                    label: 'CLOSE',
+                    accentColor: Colors.white54,
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              _buildCyberDialogButton(
-                label: 'CLOSE',
-                accentColor: Colors.white54,
-                onPressed: () => Navigator.of(dialogContext).pop(),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildEconomyLine(String label, int value, Color color) {
+  Widget _buildMissionTile({
+    required Map<String, dynamic> mission,
+    required Future<void> Function() onClaim,
+    required Future<void> Function() onReroll,
+  }) {
+    final progress = (mission['progress'] as num?)?.toInt() ?? 0;
+    final target = (mission['target'] as num?)?.toInt() ?? 0;
+    final reward = (mission['rewardCoins'] as num?)?.toInt() ?? 0;
+    final claimed = mission['claimed'] as bool? ?? false;
+    final claimable = !claimed && progress >= target;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.38)),
+        color: Colors.amberAccent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.45)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label,
-            style: TextStyle(
-              color: color,
+            mission['title']?.toString() ?? 'MISSION',
+            style: const TextStyle(
+              color: Colors.amberAccent,
               fontWeight: FontWeight.bold,
-              letterSpacing: 1.2,
             ),
           ),
-          const Spacer(),
+          const SizedBox(height: 4),
           Text(
-            '$value',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.0,
-            ),
+            mission['description']?.toString() ?? '',
+            style: const TextStyle(color: Colors.white70, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: LinearProgressIndicator(
+                  value: target == 0 ? 0 : (progress / target).clamp(0, 1),
+                  color: Colors.amberAccent,
+                  backgroundColor: Colors.white12,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '$progress / $target',
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Text(
+                'REWARD $reward',
+                style: const TextStyle(
+                  color: Colors.greenAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: claimed ? null : onReroll,
+                child: const Text('REROLL 500C'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: claimable ? () => unawaited(onClaim()) : null,
+                child: Text(claimed ? 'CLAIMED' : 'CLAIM x2'),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Future<void> _rollGacha(BuildContext context) async {
-    try {
-      final result = await _gachaManager.rollGacha();
-      await _refreshPlayerEconomy();
-      if (!context.mounted) {
-        return;
-      }
-
-      final grant = result.grantResult;
-      final item = grant.item;
-      final detail = grant.convertedToScrap
-          ? 'ダブり変換: CYBER SCRAP +${grant.cyberScrapAdded}'
-          : grant.leveledUp
-              ? '限界突破: Lv.${item.level}'
-              : 'NEW DATA UNLOCKED';
-      await _showAlert(
-        context,
-        '${_rarityLabel(result.item.rarity)} / ${_typeLabel(result.item.type)}',
-        '${result.item.name}\n$detail',
-      );
-    } catch (error) {
-      if (!context.mounted) {
-        return;
-      }
-      await _showAlert(context, 'DATA DECODE FAILED', '$error');
-    }
-  }
-
-  Future<void> _showArenaStatusDialog(BuildContext context) async {
-    await _arenaManager.load();
-    await _refreshPlayerEconomy();
-    if (!context.mounted) {
-      return;
-    }
-
-    final status = _arenaManager.isArenaActive
-        ? '${_arenaManager.currentWins}勝 ${_arenaManager.currentLosses}敗で挑戦中'
-        : '未挑戦 / 入場料 ${ArenaManager.entryCost} COIN';
-
-    return showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return _buildCyberDialog(
-          accentColor: Colors.lightBlueAccent,
-          title: 'ARENA',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                status,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.bold,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 18),
-              _buildCyberDialogButton(
-                label: _arenaManager.isArenaActive ? 'CONTINUE' : 'ENTER',
-                accentColor: Colors.lightBlueAccent,
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  unawaited(_startArena(context));
-                },
-              ),
-              const SizedBox(height: 12),
-              _buildCyberDialogButton(
-                label: 'CLOSE',
-                accentColor: Colors.white54,
-                onPressed: () => Navigator.of(dialogContext).pop(),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _startArena(BuildContext context) async {
+  Future<void> _startArenaMatch(BuildContext context) async {
     if (_isBusy) {
       return;
     }
 
+    setState(() {
+      _isBusy = true;
+    });
+
+    var dialogOpen = false;
     try {
       await _arenaManager.load();
       if (!_arenaManager.isArenaActive) {
-        await _arenaManager.enterArena();
+        try {
+          await _arenaManager.enterArena();
+          await _missionManager.recordEvent('enter_arena');
+        } catch (error) {
+          if (!context.mounted) {
+            return;
+          }
+          await _showAlert(context, 'コインが足りません', '$error');
+          return;
+        }
         await _refreshPlayerEconomy();
       }
       if (!context.mounted) {
         return;
       }
-      await _startRandomMatch(context, isArenaMode: true);
+
+      final currentWins = _arenaManager.currentWins;
+      dialogOpen = true;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) {
+            return _buildCyberDialog(
+              accentColor: Colors.lightBlueAccent,
+              title: 'ARENA',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${_arenaManager.currentWins}W ${_arenaManager.currentLosses}L / 対戦相手を検索中...',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    height: 56,
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.lightBlueAccent,
+                        backgroundColor:
+                            Colors.lightBlueAccent.withValues(alpha: 0.12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _buildCyberDialogButton(
+                    label: 'CANCEL',
+                    accentColor: Colors.lightBlueAccent,
+                    onPressed: () {
+                      unawaited(_multiplayerManager.cancelArenaMatchmaking());
+                      Navigator.of(dialogContext).pop();
+                    },
+                  ),
+                ],
+              ),
+            );
+          },
+        ).then((_) {
+          dialogOpen = false;
+        }),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      final roomId = await _multiplayerManager.startArenaMatch(currentWins);
+      if (!context.mounted) {
+        return;
+      }
+
+      if (dialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogOpen = false;
+      }
+
+      if (roomId == null) {
+        return;
+      }
+
+      unawaited(_stopHomeBgm());
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => GameScreen.online(
+            roomId: roomId,
+            isHost: _multiplayerManager.isHost,
+            isRankedMode: true,
+            isArenaMode: true,
+          ),
+        ),
+      );
     } catch (error) {
       if (!context.mounted) {
         return;
       }
-      await _showAlert(context, 'ARENA ENTRY FAILED', '$error');
+      if (dialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      await _showAlert(context, 'ARENA MATCH FAILED', '$error');
+    } finally {
+      await _multiplayerManager.cancelArenaMatchmaking();
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+        });
+      }
     }
-  }
-
-  String _rarityLabel(ItemRarity rarity) {
-    return switch (rarity) {
-      ItemRarity.common => 'COMMON',
-      ItemRarity.rare => 'RARE',
-      ItemRarity.epic => 'EPIC',
-      ItemRarity.legendary => 'LEGEND',
-    };
-  }
-
-  String _typeLabel(ItemType type) {
-    return switch (type) {
-      ItemType.stamp => 'STAMP',
-      ItemType.skin => 'SKIN',
-      ItemType.vfx => 'VFX',
-    };
   }
 
   Future<void> _loadPlayerName() async {
@@ -1264,6 +1477,7 @@ class _HomeScreenState extends State<HomeScreen>
       );
 
       await Future<void>.delayed(Duration.zero);
+      await _missionManager.recordEvent('start_ranked_match');
       final roomId = await _multiplayerManager.startRandomMatch(_rating);
       if (!context.mounted) {
         return;
