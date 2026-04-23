@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/models/game_item.dart';
+import '../data/player_data_manager.dart';
+import '../game/arena_manager.dart';
+import '../game/gacha_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
@@ -23,9 +27,15 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   static const _playerNameKey = 'player_name';
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
+  final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
+  final GachaManager _gachaManager = GachaManager.instance;
+  final ArenaManager _arenaManager = ArenaManager.instance;
   final TextEditingController _playerNameController = TextEditingController();
   bool _isBusy = false;
   int _rating = MultiplayerManager.initialRating;
+  int _coins = PlayerDataManager.initialCoins;
+  int _cyberScrap = 0;
+  int _gachaTickets = 0;
   bool _isLoadingProfile = true;
   String? _queuedPlayerName;
   String _lastPersistedPlayerName = '';
@@ -37,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     _loadPlayerName();
+    unawaited(_loadPlayerEconomy());
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
@@ -74,6 +85,35 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {
       // BGM停止失敗で画面遷移や破棄を止めない。
     }
+  }
+
+  Future<void> _loadPlayerEconomy() async {
+    try {
+      await _playerDataManager.load();
+      await _arenaManager.load();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _coins = _playerDataManager.coins;
+        _cyberScrap = _playerDataManager.cyberScrap;
+        _gachaTickets = _playerDataManager.gachaTickets;
+      });
+    } catch (_) {
+      // ローカルデータ読込に失敗してもホーム表示は継続する。
+    }
+  }
+
+  Future<void> _refreshPlayerEconomy() async {
+    await _playerDataManager.load();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _coins = _playerDataManager.coins;
+      _cyberScrap = _playerDataManager.cyberScrap;
+      _gachaTickets = _playerDataManager.gachaTickets;
+    });
   }
 
   @override
@@ -233,13 +273,13 @@ class _HomeScreenState extends State<HomeScreen>
                     blurRadius: 8)
               ],
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.monetization_on,
+                const Icon(Icons.monetization_on,
                     color: Colors.amberAccent, size: 16),
-                SizedBox(width: 4),
-                Text('1,250',
-                    style: TextStyle(
+                const SizedBox(width: 4),
+                Text('$_coins',
+                    style: const TextStyle(
                         color: Colors.amberAccent,
                         fontWeight: FontWeight.bold)),
               ],
@@ -398,11 +438,11 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
-                            'CPU\nBATTLE',
-                            Colors.yellowAccent,
+                            'FRIEND\nBATTLE',
+                            Colors.redAccent,
                             _isBusy
                                 ? null
-                                : () => _showCpuDifficultyDialog(context))),
+                                : () => _showFriendBattleDialog(context))),
                   ],
                 ),
               ),
@@ -412,15 +452,15 @@ class _HomeScreenState extends State<HomeScreen>
                   children: [
                     Expanded(
                         child: _buildGridButton(
-                            'CREATE\nROOM',
-                            Colors.redAccent,
-                            _isBusy ? null : () => _createRoom(context))),
+                            'CPU\nBATTLE',
+                            Colors.yellowAccent,
+                            _isBusy
+                                ? null
+                                : () => _showCpuDifficultyDialog(context))),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: _buildGridButton(
-                            'JOIN\nROOM',
-                            Colors.lightBlueAccent,
-                            _isBusy ? null : () => _joinRoom(context))),
+                        child: _buildGridButton('ARENA', Colors.lightBlueAccent,
+                            _isBusy ? null : () => _startArena(context))),
                   ],
                 ),
               ),
@@ -572,18 +612,30 @@ class _HomeScreenState extends State<HomeScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildBottomTextButton(Icons.settings, 'SETTINGS'),
-          _buildBottomTextButton(Icons.bar_chart, 'RECORDS'),
-          _buildBottomTextButton(Icons.help_outline, 'HOW TO'),
-          _buildBottomTextButton(Icons.do_not_disturb_alt, 'NO ADS'),
+          _buildBottomTextButton(
+            Icons.data_object,
+            'SHOP / GACHA',
+            () => _showGachaDialog(context),
+          ),
+          _buildBottomTextButton(
+            Icons.emoji_events,
+            'ARENA',
+            () => _showArenaStatusDialog(context),
+          ),
+          _buildBottomTextButton(Icons.bar_chart, 'RECORDS', () {}),
+          _buildBottomTextButton(Icons.help_outline, 'HOW TO', () {}),
         ],
       ),
     );
   }
 
-  Widget _buildBottomTextButton(IconData icon, String label) {
+  Widget _buildBottomTextButton(
+    IconData icon,
+    String label,
+    VoidCallback onTap,
+  ) {
     return InkWell(
-      onTap: () {},
+      onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -741,6 +793,247 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _showFriendBattleDialog(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.redAccent,
+          title: 'FRIEND BATTLE',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'CREATE',
+                      accentColor: Colors.redAccent,
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        unawaited(_createRoom(context));
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'JOIN',
+                      accentColor: Colors.lightBlueAccent,
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        unawaited(_joinRoom(context));
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _buildCyberDialogButton(
+                label: 'CANCEL',
+                accentColor: Colors.white54,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showGachaDialog(BuildContext context) async {
+    await _refreshPlayerEconomy();
+    if (!context.mounted) {
+      return;
+    }
+
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.purpleAccent,
+          title: 'DATA DECODE',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildEconomyLine('COIN', _coins, Colors.amberAccent),
+              const SizedBox(height: 8),
+              _buildEconomyLine('CYBER SCRAP', _cyberScrap, Colors.cyanAccent),
+              const SizedBox(height: 8),
+              _buildEconomyLine('TICKET', _gachaTickets, Colors.greenAccent),
+              const SizedBox(height: 18),
+              _buildCyberDialogButton(
+                label: 'ROLL 1000 COIN',
+                accentColor: Colors.purpleAccent,
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  unawaited(_rollGacha(context));
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildCyberDialogButton(
+                label: 'CLOSE',
+                accentColor: Colors.white54,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEconomyLine(String label, int value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            '$value',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _rollGacha(BuildContext context) async {
+    try {
+      final result = await _gachaManager.rollGacha();
+      await _refreshPlayerEconomy();
+      if (!context.mounted) {
+        return;
+      }
+
+      final grant = result.grantResult;
+      final item = grant.item;
+      final detail = grant.convertedToScrap
+          ? 'ダブり変換: CYBER SCRAP +${grant.cyberScrapAdded}'
+          : grant.leveledUp
+              ? '限界突破: Lv.${item.level}'
+              : 'NEW DATA UNLOCKED';
+      await _showAlert(
+        context,
+        '${_rarityLabel(result.item.rarity)} / ${_typeLabel(result.item.type)}',
+        '${result.item.name}\n$detail',
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      await _showAlert(context, 'DATA DECODE FAILED', '$error');
+    }
+  }
+
+  Future<void> _showArenaStatusDialog(BuildContext context) async {
+    await _arenaManager.load();
+    await _refreshPlayerEconomy();
+    if (!context.mounted) {
+      return;
+    }
+
+    final status = _arenaManager.isArenaActive
+        ? '${_arenaManager.currentWins}勝 ${_arenaManager.currentLosses}敗で挑戦中'
+        : '未挑戦 / 入場料 ${ArenaManager.entryCost} COIN';
+
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.lightBlueAccent,
+          title: 'ARENA',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                status,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _buildCyberDialogButton(
+                label: _arenaManager.isArenaActive ? 'CONTINUE' : 'ENTER',
+                accentColor: Colors.lightBlueAccent,
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  unawaited(_startArena(context));
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildCyberDialogButton(
+                label: 'CLOSE',
+                accentColor: Colors.white54,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _startArena(BuildContext context) async {
+    if (_isBusy) {
+      return;
+    }
+
+    try {
+      await _arenaManager.load();
+      if (!_arenaManager.isArenaActive) {
+        await _arenaManager.enterArena();
+        await _refreshPlayerEconomy();
+      }
+      if (!context.mounted) {
+        return;
+      }
+      await _startRandomMatch(context, isArenaMode: true);
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      await _showAlert(context, 'ARENA ENTRY FAILED', '$error');
+    }
+  }
+
+  String _rarityLabel(ItemRarity rarity) {
+    return switch (rarity) {
+      ItemRarity.common => 'COMMON',
+      ItemRarity.rare => 'RARE',
+      ItemRarity.epic => 'EPIC',
+      ItemRarity.legendary => 'LEGEND',
+    };
+  }
+
+  String _typeLabel(ItemType type) {
+    return switch (type) {
+      ItemType.stamp => 'STAMP',
+      ItemType.skin => 'SKIN',
+      ItemType.vfx => 'VFX',
+    };
   }
 
   Future<void> _loadPlayerName() async {
@@ -911,7 +1204,10 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Future<void> _startRandomMatch(BuildContext context) async {
+  Future<void> _startRandomMatch(
+    BuildContext context, {
+    bool isArenaMode = false,
+  }) async {
     setState(() {
       _isBusy = true;
     });
@@ -989,6 +1285,7 @@ class _HomeScreenState extends State<HomeScreen>
             roomId: roomId,
             isHost: _multiplayerManager.isHost,
             isRankedMode: true,
+            isArenaMode: isArenaMode,
           ),
         ),
       );

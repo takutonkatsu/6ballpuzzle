@@ -5,6 +5,7 @@ import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 
+import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
 import '../game/game_models.dart';
 import '../game/puzzle_game.dart';
@@ -18,6 +19,7 @@ class GameScreen extends StatefulWidget {
   final String? roomId;
   final bool isHost;
   final bool isRankedMode;
+  final bool isArenaMode;
   final CPUDifficulty cpuDifficulty;
 
   const GameScreen({
@@ -27,6 +29,7 @@ class GameScreen extends StatefulWidget {
     this.roomId,
     this.isHost = false,
     this.isRankedMode = false,
+    this.isArenaMode = false,
     this.cpuDifficulty = CPUDifficulty.hard,
   });
 
@@ -35,6 +38,7 @@ class GameScreen extends StatefulWidget {
     this.roomId,
     this.isHost = false,
     this.isRankedMode = false,
+    this.isArenaMode = false,
   })  : cpuDifficulty = CPUDifficulty.hard,
         isCpuMode = false,
         isOnlineMultiplayer = true;
@@ -49,6 +53,7 @@ class _GameScreenState extends State<GameScreen> {
   static const double _gridBallDiameter = 30;
 
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
+  final ArenaManager _arenaManager = ArenaManager.instance;
   late final PuzzleGame _playerGame;
   PuzzleGame? _cpuGame;
   final FocusNode _playerFocusNode = FocusNode();
@@ -64,6 +69,8 @@ class _GameScreenState extends State<GameScreen> {
   bool _rankedAutoStartScheduled = false;
   String? _readyGoOverlayText;
   bool _isBattleBgmPlaying = false;
+  bool _arenaResultApplied = false;
+  ArenaMatchResult? _arenaMatchResult;
 
   final List<Timer> _pendingAttackTimers = [];
 
@@ -95,6 +102,11 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_arenaManager.load().then((_) {
+      if (mounted) {
+        setState(() {});
+      }
+    }));
     final gameSeed = widget.isOnlineMultiplayer
         ? _multiplayerManager.currentRoom?.seed
         : DateTime.now().millisecondsSinceEpoch;
@@ -196,6 +208,7 @@ class _GameScreenState extends State<GameScreen> {
           _isWaitingForRematch = false;
         });
         unawaited(_applyRankedRatingResult(isWin: false));
+        unawaited(_recordArenaResult(isWin: false));
         unawaited(_multiplayerManager.declareGameOver());
       }
     };
@@ -295,6 +308,7 @@ class _GameScreenState extends State<GameScreen> {
                 _buildOnlineOverlay()
               else
                 _buildGlobalOverlay(),
+              if (widget.isArenaMode) _buildArenaRecordBadge(),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
             ],
           ),
@@ -326,9 +340,11 @@ class _GameScreenState extends State<GameScreen> {
           Flexible(
             child: Text(
               widget.isOnlineMultiplayer
-                  ? widget.isRankedMode
-                      ? 'RANDOM MATCH'
-                      : 'FRIEND BATTLE'
+                  ? widget.isArenaMode
+                      ? 'ARENA'
+                      : widget.isRankedMode
+                          ? 'RANDOM MATCH'
+                          : 'FRIEND BATTLE'
                   : widget.isCpuMode
                       ? 'CPU LEVEL: GA-Optimized'
                       : '1P MODE',
@@ -341,6 +357,74 @@ class _GameScreenState extends State<GameScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildArenaRecordBadge() {
+    final wins = _arenaMatchResult?.wins ?? _arenaManager.currentWins;
+    final losses = _arenaMatchResult?.losses ?? _arenaManager.currentLosses;
+    return Positioned(
+      top: 8,
+      right: 12,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Colors.lightBlueAccent.withValues(alpha: 0.72),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.lightBlueAccent.withValues(alpha: 0.22),
+                blurRadius: 12,
+              ),
+            ],
+          ),
+          child: Text(
+            'ARENA  $wins勝 $losses敗',
+            style: const TextStyle(
+              color: Colors.lightBlueAccent,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildArenaResultSummary() {
+    final result = _arenaMatchResult;
+    final wins = result?.wins ?? _arenaManager.currentWins;
+    final losses = result?.losses ?? _arenaManager.currentLosses;
+    final reward = result?.reward;
+
+    final rewardText = result?.isCompleted == true && reward != null
+        ? 'REWARD  COIN +${reward.coins} / EXP +${reward.exp} / TICKET +${reward.gachaTickets}'
+        : 'RUN  $wins WINS / $losses LOSSES';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Colors.lightBlueAccent.withValues(alpha: 0.65),
+        ),
+      ),
+      child: Text(
+        rewardText,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.lightBlueAccent,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.1,
+        ),
       ),
     );
   }
@@ -837,6 +921,10 @@ class _GameScreenState extends State<GameScreen> {
               if (widget.isRankedMode) ...[
                 _buildRankedRatingChange(),
                 const SizedBox(height: 24),
+                if (widget.isArenaMode) ...[
+                  _buildArenaResultSummary(),
+                  const SizedBox(height: 24),
+                ],
               ] else ...[
                 ElevatedButton(
                   onPressed: _isWaitingForRematch ? null : _requestRematch,
@@ -1520,6 +1608,7 @@ class _GameScreenState extends State<GameScreen> {
     });
     unawaited(_stopBattleBgm());
     unawaited(_applyRankedRatingResult(isWin: true));
+    unawaited(_recordArenaResult(isWin: true));
     _playerGame.gameStateWrapper.value = GameState.gameover;
     if (_playerGame.activePiece != null) {
       _playerGame.activePiece!.isLocked = true;
@@ -1554,6 +1643,21 @@ class _GameScreenState extends State<GameScreen> {
         _rankedRatingChange = null;
       });
     }
+  }
+
+  Future<void> _recordArenaResult({required bool isWin}) async {
+    if (!widget.isArenaMode || _arenaResultApplied) {
+      return;
+    }
+
+    _arenaResultApplied = true;
+    final result = await _arenaManager.recordArenaMatch(isWin);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _arenaMatchResult = result;
+    });
   }
 
   void _handleOpponentDisconnected() {

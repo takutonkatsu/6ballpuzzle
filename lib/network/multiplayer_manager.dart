@@ -157,7 +157,9 @@ class MultiplayerManager {
   StreamSubscription<DatabaseEvent>? _opponentOjamaSpawnSubscription;
   StreamSubscription<DatabaseEvent>? _opponentStatusSubscription;
   StreamSubscription<DatabaseEvent>? _matchmakingInviteSubscription;
+  StreamSubscription<DatabaseEvent>? _matchmakingQueueSubscription;
   Timer? _matchmakingPollTimer;
+  Timer? _matchmakingTimeoutTimer;
   Completer<String?>? _matchmakingCompleter;
   RoomUpdateCallback? onRoomUpdated;
   OpponentBoardUpdateCallback? onOpponentBoardUpdated;
@@ -443,6 +445,22 @@ class MultiplayerManager {
         },
       );
 
+      _matchmakingQueueSubscription = _db.child('matchmaking').onValue.listen(
+        (_) => unawaited(_tryRandomMatch(myRating)),
+        onError: (Object error, StackTrace stackTrace) {
+          _completeMatchmakingError(error, stackTrace);
+        },
+      );
+
+      _matchmakingTimeoutTimer = Timer(const Duration(seconds: 15), () {
+        final activeCompleter = _matchmakingCompleter;
+        if (!_isMatchFound &&
+            activeCompleter != null &&
+            !activeCompleter.isCompleted) {
+          activeCompleter.complete(null);
+        }
+      });
+
       unawaited(_tryRandomMatch(myRating));
       _matchmakingPollTimer = Timer.periodic(
         const Duration(seconds: 1),
@@ -477,7 +495,8 @@ class MultiplayerManager {
 
     final roomId = _nonEmptyString(data['roomId']);
     final role = data['role']?.toString();
-    if (roomId == null || role == 'host') {
+    final status = _matchmakingStatus(data);
+    if (status != 'matched' || roomId == null || role == 'host') {
       return;
     }
 
@@ -491,6 +510,7 @@ class MultiplayerManager {
 
     _isMatchFound = true;
     _matchmakingPollTimer?.cancel();
+    _matchmakingTimeoutTimer?.cancel();
 
     try {
       final joined = await _joinRoomWhenReady(roomId);
@@ -600,6 +620,14 @@ class MultiplayerManager {
           continue;
         }
 
+        final hostClaimed = await _claimOwnMatchmakingHost(
+          uid: uid,
+          opponentUid: candidate.uid,
+        );
+        if (!hostClaimed) {
+          return;
+        }
+
         _isMatchmakingAttemptInProgress = true;
         String? newRoomId;
         try {
@@ -701,7 +729,31 @@ class MultiplayerManager {
   }
 
   bool _shouldHostRandomMatch(String uid, String opponentUid) {
-    return uid.compareTo(opponentUid) > 0;
+    return uid.compareTo(opponentUid) < 0;
+  }
+
+  Future<bool> _claimOwnMatchmakingHost({
+    required String uid,
+    required String opponentUid,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final result = await _db.child('matchmaking/$uid').runTransaction((
+      currentValue,
+    ) {
+      if (currentValue is! Map ||
+          _matchmakingStatus(currentValue) != 'waiting' ||
+          _nonEmptyString(currentValue['roomId']) != null) {
+        return Transaction.abort();
+      }
+
+      final nextValue = Map<Object?, Object?>.from(currentValue)
+        ..['status'] = 'matching'
+        ..['role'] = 'host'
+        ..['guestUid'] = opponentUid
+        ..['timestamp'] = now;
+      return Transaction.success(nextValue);
+    });
+    return result.committed;
   }
 
   Future<bool> _joinRoomWhenReady(String roomId) async {
@@ -748,7 +800,7 @@ class MultiplayerManager {
       }
 
       final nextValue = Map<Object?, Object?>.from(currentValue)
-        ..['status'] = 'assigned'
+        ..['status'] = 'matched'
         ..['role'] = 'guest'
         ..['roomId'] = roomId
         ..['hostUid'] = uid
@@ -765,7 +817,7 @@ class MultiplayerManager {
     String opponentUid,
   ) async {
     await _db.child('matchmaking/$uid').update({
-      'status': 'assigned',
+      'status': 'matched',
       'role': 'host',
       'roomId': roomId,
       'guestUid': opponentUid,
@@ -957,7 +1009,10 @@ class MultiplayerManager {
       return 100;
     }
     final elapsedSeconds = DateTime.now().difference(startedAt).inSeconds;
-    return 100 + ((elapsedSeconds ~/ 5) * 100);
+    if (elapsedSeconds >= 10) {
+      return 1 << 30;
+    }
+    return 100 + (elapsedSeconds * 100);
   }
 
   bool _isFreshMatchmakingEntry(Map data) {
@@ -1000,9 +1055,13 @@ class MultiplayerManager {
   Future<void> _cleanupMatchmaking() async {
     _matchmakingPollTimer?.cancel();
     _matchmakingPollTimer = null;
+    _matchmakingTimeoutTimer?.cancel();
+    _matchmakingTimeoutTimer = null;
 
     await _matchmakingInviteSubscription?.cancel();
     _matchmakingInviteSubscription = null;
+    await _matchmakingQueueSubscription?.cancel();
+    _matchmakingQueueSubscription = null;
 
     final uid = myUid;
     try {
