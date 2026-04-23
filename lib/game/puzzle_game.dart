@@ -1,10 +1,12 @@
 import 'dart:async' as async;
+import 'dart:async' show unawaited;
 import 'dart:math';
 import 'dart:collection';
 import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/components.dart';
+import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'components/active_piece_component.dart';
@@ -20,6 +22,13 @@ import 'game_models.dart';
 enum GameState { title, ready, playing, gameover }
 
 class PuzzleGame extends FlameGame with KeyboardEvents {
+  static const String _spawnSfx = '決定ボタンを押す33_スポーン02.mp3';
+  static const String _hardDropSfx = 'カーソル移動5_落下02.mp3';
+  static const String _landingSfx = 'カーソル移動12_落下.mp3';
+  static const String _wazaChargeSfx = 'メニューを開く4_ワザ.mp3';
+  static const String _wazaClearSfx = '決定ボタンを押す13_ワザ消去.mp3';
+  static const double _sfxVolumeMultiplier = 2.0;
+
   final bool isCpuMode;
   final int? seed;
   final bool autoStart;
@@ -81,6 +90,21 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       : useConstantFallSpeed
           ? constantFallSpeed
           : scoreManager.currentFallSpeed;
+
+  bool get _isPlayerControlledBoard => !isCpuMode && !isRemotePlayerMode;
+
+  void _playSfx(String fileName, {double volume = 1.0}) {
+    final adjustedVolume = (volume * _sfxVolumeMultiplier).clamp(0.0, 1.0);
+    unawaited(_playSfxSafely(fileName, volume: adjustedVolume));
+  }
+
+  Future<void> _playSfxSafely(String fileName, {double volume = 1.0}) async {
+    try {
+      await FlameAudio.play(fileName, volume: volume);
+    } catch (_) {
+      // SE再生失敗でゲーム進行を止めない。
+    }
+  }
 
   void startMovingLeft() {
     isMovingLeft = true;
@@ -265,6 +289,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     add(ghostPiece!);
 
     nextPieceColors.value = _generatePieceColors();
+    if (_isPlayerControlledBoard) {
+      _playSfx(_spawnSfx, volume: 0.8);
+    }
     _notifyActivePieceState(force: true, action: 'spawn');
   }
 
@@ -463,6 +490,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       newBall.hitOffsetX = positions[i].x - grid.hexToPixel(hex).x;
       add(newBall);
       grid.lockedBalls[hex] = newBall;
+    }
+
+    if (_isPlayerControlledBoard) {
+      _playSfx(_landingSfx, volume: 0.78);
     }
 
     await _processGravityAndMatches();
@@ -1048,6 +1079,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       }
     }
 
+    if (_isPlayerControlledBoard) {
+      _playSfx(_wazaChargeSfx, volume: 0.9);
+    }
     for (var group in matchResult.wazaPattern) {
       for (var hex in group) {
         final ball = grid.lockedBalls[hex];
@@ -1059,6 +1093,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     await Future.delayed(const Duration(milliseconds: 350));
+
+    if (_isPlayerControlledBoard && sameColorBalls.isNotEmpty) {
+      _playSfx(_wazaClearSfx, volume: 0.92);
+    }
 
     for (var ball in sameColorBalls) {
       ball.isWazaSameColor = false;
@@ -1181,6 +1219,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       activePiece!.position = ghostPiece!.position.clone();
       activePiece!.position.y += 5.0;
+      if (_isPlayerControlledBoard) {
+        _playSfx(_hardDropSfx, volume: 0.85);
+      }
       _notifyActivePieceState(force: true, action: 'hard_drop');
     }
   }

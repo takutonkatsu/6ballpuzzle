@@ -1721,7 +1721,7 @@ class _GameScreenState extends State<GameScreen> {
     }
     _isBattleBgmPlaying = true;
     try {
-      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.5);
+      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.17);
     } catch (_) {
       _isBattleBgmPlaying = false;
     }
