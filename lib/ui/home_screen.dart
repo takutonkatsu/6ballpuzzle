@@ -348,11 +348,20 @@ class _HomeScreenState extends State<HomeScreen>
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 1.2)),
-                    Text(_isLoadingProfile ? 'RATE: ...' : 'RATE: $_rating',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold)),
+                    Text(
+                      _isLoadingProfile ? 'RATING: ...' : 'RATING: $_rating',
+                      style: const TextStyle(
+                        color: Colors.cyanAccent,
+                        fontSize: 17,
+                        fontFamily: 'Courier',
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2.0,
+                        shadows: [
+                          Shadow(color: Colors.cyanAccent, blurRadius: 12),
+                          Shadow(color: Colors.white, blurRadius: 2),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(width: 12),
@@ -986,9 +995,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _showDailyMissionsDialog(BuildContext context) async {
     await _refreshPlayerEconomy();
-    if (!context.mounted) {
-      return;
-    }
+    if (!context.mounted) return;
 
     return showDialog<void>(
       context: context,
@@ -1001,6 +1008,9 @@ class _HomeScreenState extends State<HomeScreen>
             }
 
             final dialogMissions = _playerDataManager.currentMissions;
+            final isAllComplete = _missionManager.allMissionsComplete;
+            final hasClaimable = _missionManager.claimableCount > 0;
+
             return _buildCyberDialog(
               accentColor: Colors.amberAccent,
               title: 'DAILY MISSIONS',
@@ -1010,68 +1020,98 @@ class _HomeScreenState extends State<HomeScreen>
                   Text(
                     '$_completedMissionCount / ${dialogMissions.length} COMPLETE',
                     style: const TextStyle(
-                      color: Colors.white70,
+                      color: Colors.amberAccent,
                       fontWeight: FontWeight.bold,
+                      shadows: [Shadow(color: Colors.amberAccent, blurRadius: 8)],
                     ),
                   ),
                   const SizedBox(height: 16),
-                  for (var index = 0;
-                      index < dialogMissions.length;
-                      index++) ...[
-                    _buildMissionTile(
-                      mission: dialogMissions[index],
-                      onClaim: () async {
-                        try {
-                          final rewarded = await RewardedAdManager.instance
-                              .showDoubleRewardAd();
-                          final reward = await _missionManager.claimMission(
-                            index,
-                            boosted: rewarded,
-                          );
-                          if (!mounted) {
-                            return;
-                          }
-                          await refreshDialogState();
-                          if (!mounted) {
-                            return;
-                          }
-                          await _showAlert(
-                            this.context,
-                            rewarded
-                                ? 'MISSION x2 COMPLETE'
-                                : 'MISSION COMPLETE',
-                            'COIN +$reward',
-                          );
-                        } catch (error) {
-                          if (!mounted) {
-                            return;
-                          }
-                          await _showAlert(
-                            this.context,
-                            'MISSION CLAIM FAILED',
-                            '$error',
-                          );
-                        }
-                      },
-                      onReroll: () async {
-                        try {
-                          await _missionManager.rerollMission(index);
-                          await refreshDialogState();
-                        } catch (error) {
-                          if (!mounted) {
-                            return;
-                          }
-                          await _showAlert(
-                            this.context,
-                            'REROLL FAILED',
-                            '$error',
-                          );
-                        }
-                      },
+                  for (var i = 0; i < dialogMissions.length; i++) ...[
+                    _buildSimplifiedMissionTile(
+                      mission: dialogMissions[i],
                     ),
-                    if (index != dialogMissions.length - 1)
+                    if (i != dialogMissions.length - 1)
                       const SizedBox(height: 10),
                   ],
+                  const SizedBox(height: 24),
+                  
+                  // REWARD x3 Button
+                  InkWell(
+                    onTap: !isAllComplete || !hasClaimable
+                        ? null
+                        : () async {
+                            try {
+                              final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+                              if (!rewarded) {
+                                if (context.mounted) {
+                                  await _showAlert(context, 'AD FAILED', '動画の視聴が完了しませんでした。');
+                                }
+                                return;
+                              }
+                              
+                              final amount = await _missionManager.claimAllMissionsBoosted();
+                              await refreshDialogState();
+                              
+                              if (context.mounted) {
+                                await _showAlert(
+                                  context,
+                                  'MISSION CLEAR',
+                                  'ALL MISSIONS COMPLETE!\nREWARD x3 INSTALLED: +$amount COIN',
+                                );
+                              }
+                            } catch (error) {
+                              if (context.mounted) {
+                                await _showAlert(context, 'ERROR', '$error');
+                              }
+                            }
+                          },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                        color: isAllComplete && hasClaimable
+                            ? Colors.amberAccent.withValues(alpha: 0.2)
+                            : Colors.white10,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isAllComplete && hasClaimable
+                              ? Colors.amberAccent
+                              : Colors.white24,
+                          width: 2,
+                        ),
+                        boxShadow: isAllComplete && hasClaimable
+                            ? [
+                                const BoxShadow(
+                                  color: Colors.amberAccent,
+                                  blurRadius: 16,
+                                  spreadRadius: 2,
+                                )
+                              ]
+                            : [],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.ondemand_video,
+                            color: isAllComplete && hasClaimable ? Colors.amberAccent : Colors.white54,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            hasClaimable ? 'REWARD x3' : 'ALL CLAIMED',
+                            style: TextStyle(
+                              color: isAllComplete && hasClaimable ? Colors.amberAccent : Colors.white54,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                   const SizedBox(height: 14),
                   _buildCyberDialogButton(
                     label: 'CLOSE',
@@ -1087,76 +1127,55 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildMissionTile({
-    required Map<String, dynamic> mission,
-    required Future<void> Function() onClaim,
-    required Future<void> Function() onReroll,
-  }) {
+  Widget _buildSimplifiedMissionTile({required Map<String, dynamic> mission}) {
     final progress = (mission['progress'] as num?)?.toInt() ?? 0;
     final target = (mission['target'] as num?)?.toInt() ?? 0;
     final reward = (mission['rewardCoins'] as num?)?.toInt() ?? 0;
     final claimed = mission['claimed'] as bool? ?? false;
-    final claimable = !claimed && progress >= target;
+    final isDone = progress >= target;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.amberAccent.withValues(alpha: 0.08),
+        color: isDone ? Colors.amberAccent.withValues(alpha: 0.15) : Colors.amberAccent.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.45)),
+        border: Border.all(color: isDone ? Colors.amberAccent : Colors.amberAccent.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            mission['title']?.toString() ?? 'MISSION',
-            style: const TextStyle(
-              color: Colors.amberAccent,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  mission['title']?.toString() ?? 'MISSION',
+                  style: const TextStyle(
+                    color: Colors.amberAccent,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (claimed)
+                const Text('CLAIMED', style: TextStyle(color: Colors.grey, fontSize: 12))
+              else
+                Text('REWARD $reward', style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            mission['description']?.toString() ?? '',
-            style: const TextStyle(color: Colors.white70, height: 1.4),
-          ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           Row(
             children: [
               Expanded(
                 child: LinearProgressIndicator(
                   value: target == 0 ? 0 : (progress / target).clamp(0, 1),
-                  color: Colors.amberAccent,
+                  color: isDone ? Colors.amberAccent : Colors.amberAccent.withValues(alpha: 0.5),
                   backgroundColor: Colors.white12,
                 ),
               ),
               const SizedBox(width: 10),
               Text(
                 '$progress / $target',
-                style: const TextStyle(color: Colors.white70),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Text(
-                'REWARD $reward',
-                style: const TextStyle(
-                  color: Colors.greenAccent,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: claimed ? null : onReroll,
-                child: const Text('REROLL 500C'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: claimable ? () => unawaited(onClaim()) : null,
-                child: Text(claimed ? 'CLAIMED' : 'CLAIM x2'),
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
             ],
           ),

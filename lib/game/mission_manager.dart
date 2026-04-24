@@ -70,31 +70,48 @@ class MissionManager {
     await _playerData.saveCurrentMissions(missions);
   }
 
-  Future<int> claimMission(int index, {bool boosted = false}) async {
+  bool get allMissionsComplete {
+    if (currentMissions.isEmpty) return false;
+    for (final mission in currentMissions) {
+      if (!_isComplete(mission)) return false;
+    }
+    return true;
+  }
+
+  Future<int> claimAllMissionsBoosted() async {
     await load();
+    if (!allMissionsComplete) {
+      throw StateError('すべてのミッションがクリアされていません。');
+    }
+
     final missions = currentMissions;
-    if (index < 0 || index >= missions.length) {
-      throw RangeError.index(index, missions, 'index');
+    int totalBaseReward = 0;
+    
+    for (final mission in missions) {
+      if (!(mission['claimed'] as bool? ?? false)) {
+        totalBaseReward += _intValue(mission['rewardCoins']) ?? 0;
+        mission['claimed'] = true;
+      }
     }
 
-    final mission = missions[index];
-    if (!_isClaimable(mission)) {
-      throw StateError('まだ報酬を受け取れません。');
-    }
+    if (totalBaseReward == 0) return 0; // Already claimed
 
-    final baseReward = _intValue(mission['rewardCoins']) ?? 0;
-    final reward = boosted ? baseReward * 2 : baseReward;
-    mission['claimed'] = true;
-    await _playerData.addCoins(reward);
+    final totalReward = totalBaseReward * 3;
+    await _playerData.addCoins(totalReward);
     await _playerData.saveCurrentMissions(missions);
-    return reward;
+
+    return totalReward;
+  }
+
+  bool _isComplete(Map<String, dynamic> mission) {
+    final progress = _intValue(mission['progress']) ?? 0;
+    final target = _intValue(mission['target']) ?? 0;
+    return progress >= target;
   }
 
   bool _isClaimable(Map<String, dynamic> mission) {
     final claimed = mission['claimed'] as bool? ?? false;
-    final progress = _intValue(mission['progress']) ?? 0;
-    final target = _intValue(mission['target']) ?? 0;
-    return !claimed && progress >= target;
+    return !claimed && _isComplete(mission);
   }
 
   int? _intValue(Object? value) {

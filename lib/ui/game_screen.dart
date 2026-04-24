@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
 import '../game/game_models.dart';
+import '../data/models/game_item.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
 import '../network/multiplayer_manager.dart';
@@ -83,6 +84,13 @@ class _GameScreenState extends State<GameScreen> {
   bool _arenaResultApplied = false;
   ArenaMatchResult? _arenaMatchResult;
 
+  // Stamp States
+  bool _isStampCoolingDown = false;
+  GameItem? _currentFloatingStamp;
+  GameItem? _opponentFloatingStamp;
+  Timer? _myStampTimer;
+  Timer? _opponentStampTimer;
+
   final List<Timer> _pendingAttackTimers = [];
 
   bool get _isOnlineMode => widget.isOnlineMultiplayer;
@@ -147,6 +155,7 @@ class _GameScreenState extends State<GameScreen> {
       _multiplayerManager.onOpponentBoardUpdated = _handleOpponentBoardUpdated;
       _multiplayerManager.onOpponentPieceUpdated = _handleOpponentPieceUpdated;
       _multiplayerManager.onAttackReceived = _handleAttackReceived;
+      _multiplayerManager.onOpponentStampReceived = _handleOpponentStampReceived;
       _multiplayerManager.onOpponentOjamaSpawned = _handleOpponentOjamaSpawned;
       _multiplayerManager.onOpponentGameOver = _handleOpponentGameOver;
       _multiplayerManager.onOpponentDisconnected = _handleOpponentDisconnected;
@@ -297,6 +306,117 @@ class _GameScreenState extends State<GameScreen> {
     _playerFocusNode.dispose();
     super.dispose();
   }
+  void _handleOpponentStampReceived(String stampId) {
+    if (!mounted) return;
+    final stamp = GameItemCatalog.byId(stampId);
+    if (stamp != null) {
+      setState(() {
+        _opponentFloatingStamp = stamp;
+      });
+      _opponentStampTimer?.cancel();
+      _opponentStampTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _opponentFloatingStamp = null;
+          });
+        }
+      });
+    }
+  }
+
+  void _sendStamp(GameItem stamp) {
+    if (!mounted || _isStampCoolingDown) return;
+    
+    unawaited(_multiplayerManager.sendStamp(stamp.id));
+    
+    setState(() {
+      _currentFloatingStamp = stamp;
+      _isStampCoolingDown = true;
+    });
+    
+    Timer(const Duration(seconds: 5), () {
+      if (mounted) {
+        setState(() {
+          _isStampCoolingDown = false;
+        });
+      }
+    });
+
+    _myStampTimer?.cancel();
+    _myStampTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _currentFloatingStamp = null;
+        });
+      }
+    });
+  }
+
+  void _showStampGrid() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F13).withValues(alpha: 0.95),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'SEND STAMP',
+                style: TextStyle(
+                  color: Colors.cyanAccent,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                  shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 8)],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                alignment: WrapAlignment.center,
+                children: GameItemCatalog.commonStamps.map((stamp) {
+                  return InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      _sendStamp(stamp);
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: 90,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.cyanAccent.withValues(alpha: 0.1),
+                        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(stamp.emoji ?? '', style: const TextStyle(fontSize: 28, shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 10)])),
+                          const SizedBox(height: 4),
+                          Text(
+                            stamp.text ?? stamp.name,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -330,6 +450,58 @@ class _GameScreenState extends State<GameScreen> {
                 _buildGlobalOverlay(),
               if (widget.isArenaMode) _buildArenaRecordBadge(),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
+              if (_currentFloatingStamp != null)
+                Positioned(
+                  bottom: MediaQuery.of(context).size.height * 0.25,
+                  left: 30,
+                  right: 30,
+                  child: Center(child: _buildFloatingStampWidget(_currentFloatingStamp!)),
+                ),
+              if (_opponentFloatingStamp != null)
+                Positioned(
+                  top: MediaQuery.of(context).size.height * 0.15,
+                  left: 30,
+                  right: 30,
+                  child: Center(child: _buildFloatingStampWidget(_opponentFloatingStamp!)),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingStampWidget(GameItem stamp) {
+    return Semantics(
+      label: 'stamp',
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.black87,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5), width: 2),
+            boxShadow: [
+              const BoxShadow(color: Colors.cyanAccent, blurRadius: 20, spreadRadius: 4),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                stamp.emoji ?? '',
+                style: const TextStyle(fontSize: 64, shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 16)]),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                stamp.text ?? stamp.name,
+                style: const TextStyle(
+                  color: Colors.cyanAccent,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 8)],
+                ),
+              ),
             ],
           ),
         ),
@@ -558,6 +730,25 @@ class _GameScreenState extends State<GameScreen> {
                         isCpu: false,
                         ballSize: nextBallSize,
                       ),
+                      if (_isOnlineMode) ...[
+                        const SizedBox(height: 16),
+                        InkWell(
+                          onTap: _isStampCoolingDown ? null : _showStampGrid,
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: _isStampCoolingDown ? Colors.white10 : Colors.cyanAccent.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: _isStampCoolingDown ? Colors.white24 : Colors.cyanAccent),
+                              boxShadow: _isStampCoolingDown ? null : [
+                                const BoxShadow(color: Colors.cyanAccent, blurRadius: 10),
+                              ],
+                            ),
+                            child: Icon(Icons.chat, color: _isStampCoolingDown ? Colors.white54 : Colors.cyanAccent),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

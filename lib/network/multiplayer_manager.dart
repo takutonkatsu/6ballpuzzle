@@ -17,6 +17,7 @@ typedef OpponentOjamaSpawnedCallback = void Function(
   List<dynamic> ojamaData,
   int dropSeed,
 );
+typedef OpponentStampReceivedCallback = void Function(String stampId);
 typedef OpponentGameOverCallback = void Function();
 typedef OpponentDisconnectedCallback = void Function();
 typedef RematchStartedCallback = void Function(int newSeed);
@@ -154,6 +155,7 @@ class MultiplayerManager {
   StreamSubscription<DatabaseEvent>? _opponentBoardSubscription;
   StreamSubscription<DatabaseEvent>? _opponentPieceSubscription;
   StreamSubscription<DatabaseEvent>? _attackSubscription;
+  StreamSubscription<DatabaseEvent>? _stampSubscription;
   StreamSubscription<DatabaseEvent>? _opponentOjamaSpawnSubscription;
   StreamSubscription<DatabaseEvent>? _opponentStatusSubscription;
   StreamSubscription<DatabaseEvent>? _matchmakingInviteSubscription;
@@ -164,6 +166,7 @@ class MultiplayerManager {
   OpponentPieceUpdateCallback? onOpponentPieceUpdated;
   AttackReceivedCallback? onAttackReceived;
   OpponentOjamaSpawnedCallback? onOpponentOjamaSpawned;
+  OpponentStampReceivedCallback? onOpponentStampReceived;
   OpponentGameOverCallback? onOpponentGameOver;
   OpponentDisconnectedCallback? onOpponentDisconnected;
   RematchStartedCallback? onRematchStarted;
@@ -1320,6 +1323,7 @@ class MultiplayerManager {
     _opponentBoardSubscription?.cancel();
     _opponentPieceSubscription?.cancel();
     _attackSubscription?.cancel();
+    _stampSubscription?.cancel();
     _opponentOjamaSpawnSubscription?.cancel();
     _opponentStatusSubscription?.cancel();
     _roomSubscription = null;
@@ -1597,6 +1601,25 @@ class MultiplayerManager {
     }
   }
 
+  Future<void> sendStamp(String stampId) async {
+    final roomId = currentRoomId;
+    if (roomId == null || myRoleId == null) {
+      throw StateError('参加中のルームがありません。');
+    }
+
+    try {
+      await _db
+          .child('rooms/$roomId/players/$opponentRoleId/stamps')
+          .push()
+          .set({
+        'id': stampId,
+        'timestamp': ServerValue.timestamp,
+      });
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('スタンプ送信', error));
+    }
+  }
+
   Future<void> sendOjamaSpawn(List<dynamic> ojamaData, int dropSeed) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
@@ -1770,6 +1793,22 @@ class MultiplayerManager {
         onAttackReceived?.call(task);
       }
 
+      if (event.snapshot.key != null) {
+        await event.snapshot.ref.remove();
+      }
+    });
+
+    _stampSubscription = _db
+        .child('rooms/$roomId/players/$roleId/stamps')
+        .onChildAdded
+        .listen((event) async {
+      final value = event.snapshot.value;
+      if (value is Map<dynamic, dynamic>) {
+        final stampId = value['id'] as String?;
+        if (stampId != null) {
+          onOpponentStampReceived?.call(stampId);
+        }
+      }
       if (event.snapshot.key != null) {
         await event.snapshot.ref.remove();
       }

@@ -18,6 +18,8 @@ class GameItem {
     required this.type,
     required this.rarity,
     this.level = 1,
+    this.emoji,
+    this.text,
   });
 
   static const int maxStampLevel = 5;
@@ -27,6 +29,8 @@ class GameItem {
   final ItemType type;
   final ItemRarity rarity;
   final int level;
+  final String? emoji;
+  final String? text;
 
   bool get isStamp => type == ItemType.stamp;
   bool get isMaxLevel => isStamp && level >= maxStampLevel;
@@ -37,6 +41,8 @@ class GameItem {
     ItemType? type,
     ItemRarity? rarity,
     int? level,
+    String? emoji,
+    String? text,
   }) {
     return GameItem(
       id: id ?? this.id,
@@ -44,6 +50,8 @@ class GameItem {
       type: type ?? this.type,
       rarity: rarity ?? this.rarity,
       level: level ?? this.level,
+      emoji: emoji ?? this.emoji,
+      text: text ?? this.text,
     );
   }
 
@@ -54,6 +62,8 @@ class GameItem {
       'type': type.name,
       'rarity': rarity.name,
       'level': level,
+      if (emoji != null) 'emoji': emoji,
+      if (text != null) 'text': text,
     };
   }
 
@@ -72,6 +82,8 @@ class GameItem {
         ItemRarity.common,
       ),
       level: _intValue(json['level']) ?? 1,
+      emoji: json['emoji'] as String?,
+      text: json['text'] as String?,
     );
   }
 
@@ -101,22 +113,60 @@ class GameItemCatalog {
 
   static const List<GameItem> commonStamps = [
     GameItem(
-      id: 'stamp_good_game',
-      name: 'GOOD GAME',
+      id: 'stamp_cyber_1',
+      name: 'CONNECTING',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
+      emoji: '👽',
+      text: 'CONNECTING...',
     ),
     GameItem(
-      id: 'stamp_nice_chain',
-      name: 'NICE CHAIN',
+      id: 'stamp_cyber_2',
+      name: 'NICE HACK',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
+      emoji: '⚡️',
+      text: 'NICE HACK!',
     ),
     GameItem(
-      id: 'stamp_too_fast',
-      name: 'TOO FAST',
+      id: 'stamp_cyber_3',
+      name: 'SYSTEM ERROR',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
+      emoji: '⚠️',
+      text: 'SYSTEM ERROR',
+    ),
+    GameItem(
+      id: 'stamp_cyber_4',
+      name: 'TOO SLOW',
+      type: ItemType.stamp,
+      rarity: ItemRarity.common,
+      emoji: '🥱',
+      text: 'TOO SLOW',
+    ),
+    GameItem(
+      id: 'stamp_cyber_5',
+      name: 'ACCESS DENIED',
+      type: ItemType.stamp,
+      rarity: ItemRarity.common,
+      emoji: '🛑',
+      text: 'ACCESS DENIED',
+    ),
+    GameItem(
+      id: 'stamp_cyber_6',
+      name: 'U BORING',
+      type: ItemType.stamp,
+      rarity: ItemRarity.common,
+      emoji: '😈',
+      text: 'U BORING?',
+    ),
+    GameItem(
+      id: 'stamp_cyber_7',
+      name: 'SESSION CLOSED',
+      type: ItemType.stamp,
+      rarity: ItemRarity.common,
+      emoji: '🔌',
+      text: 'SESSION CLOSED',
     ),
   ];
 
