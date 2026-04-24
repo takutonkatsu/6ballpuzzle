@@ -36,6 +36,7 @@ class _HomeScreenState extends State<HomeScreen>
   final ArenaManager _arenaManager = ArenaManager.instance;
   final MissionManager _missionManager = MissionManager.instance;
   final TextEditingController _playerNameController = TextEditingController();
+  late final List<BallColor> _rotatingBallColors = _randomRotatingBallColors();
   bool _isBusy = false;
   int _rating = MultiplayerManager.initialRating;
   int _level = 1;
@@ -50,6 +51,14 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isPersistingPlayerName = false;
   late AnimationController _animController;
   bool _isHomeBgmPlaying = false;
+
+  List<BallColor> _randomRotatingBallColors() {
+    final random = math.Random();
+    return List.generate(
+      3,
+      (_) => BallColor.values[random.nextInt(BallColor.values.length)],
+    );
+  }
 
   @override
   void initState() {
@@ -640,9 +649,9 @@ class _HomeScreenState extends State<HomeScreen>
         const centerY = 76.0;
         final triRadius = baseSize / math.sqrt(3);
         final balls = [
-          (color: BallColor.blue, x: 0.0, y: -triRadius),
-          (color: BallColor.purple, x: -baseSize / 2, y: triRadius / 2),
-          (color: BallColor.red, x: baseSize / 2, y: triRadius / 2),
+          (color: _rotatingBallColors[0], x: 0.0, y: -triRadius),
+          (color: _rotatingBallColors[1], x: -baseSize / 2, y: triRadius / 2),
+          (color: _rotatingBallColors[2], x: baseSize / 2, y: triRadius / 2),
         ].map((ball) {
           final projectedX = ball.x * math.cos(rotation);
           final depth = -ball.x * math.sin(rotation);
