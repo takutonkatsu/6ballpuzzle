@@ -18,18 +18,20 @@ class GameItem {
     required this.type,
     required this.rarity,
     this.level = 1,
-    this.emoji,
+    this.iconName,
+    this.colorName,
     this.text,
   });
 
-  static const int maxStampLevel = 5;
+  static const int maxStampLevel = 4;
 
   final String id;
   final String name;
   final ItemType type;
   final ItemRarity rarity;
   final int level;
-  final String? emoji;
+  final String? iconName;
+  final String? colorName;
   final String? text;
 
   bool get isStamp => type == ItemType.stamp;
@@ -41,7 +43,8 @@ class GameItem {
     ItemType? type,
     ItemRarity? rarity,
     int? level,
-    String? emoji,
+    String? iconName,
+    String? colorName,
     String? text,
   }) {
     return GameItem(
@@ -50,7 +53,8 @@ class GameItem {
       type: type ?? this.type,
       rarity: rarity ?? this.rarity,
       level: level ?? this.level,
-      emoji: emoji ?? this.emoji,
+      iconName: iconName ?? this.iconName,
+      colorName: colorName ?? this.colorName,
       text: text ?? this.text,
     );
   }
@@ -62,7 +66,8 @@ class GameItem {
       'type': type.name,
       'rarity': rarity.name,
       'level': level,
-      if (emoji != null) 'emoji': emoji,
+      if (iconName != null) 'iconName': iconName,
+      if (colorName != null) 'colorName': colorName,
       if (text != null) 'text': text,
     };
   }
@@ -82,7 +87,8 @@ class GameItem {
         ItemRarity.common,
       ),
       level: _intValue(json['level']) ?? 1,
-      emoji: json['emoji'] as String?,
+      iconName: json['iconName'] as String?,
+      colorName: json['colorName'] as String?,
       text: json['text'] as String?,
     );
   }
@@ -113,60 +119,58 @@ class GameItemCatalog {
 
   static const List<GameItem> commonStamps = [
     GameItem(
-      id: 'stamp_cyber_1',
-      name: 'CONNECTING',
+      id: 'stamp_greet_01',
+      name: 'GREETING',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      emoji: '👽',
-      text: 'CONNECTING...',
+      iconName: 'handshake',
+      colorName: 'Cyan',
+      text: 'よろしく！',
     ),
     GameItem(
-      id: 'stamp_cyber_2',
-      name: 'NICE HACK',
+      id: 'stamp_react_01',
+      name: 'SWEAT',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      emoji: '⚡️',
-      text: 'NICE HACK!',
+      iconName: 'water_drop',
+      colorName: 'Blue',
+      text: 'あせあせ',
     ),
     GameItem(
-      id: 'stamp_cyber_3',
-      name: 'SYSTEM ERROR',
+      id: 'stamp_react_02',
+      name: 'FIRE',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      emoji: '⚠️',
-      text: 'SYSTEM ERROR',
+      iconName: 'local_fire_department',
+      colorName: 'Red',
+      text: 'おこ！',
     ),
     GameItem(
-      id: 'stamp_cyber_4',
-      name: 'TOO SLOW',
+      id: 'stamp_praise_01',
+      name: 'NICE',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      emoji: '🥱',
-      text: 'TOO SLOW',
+      iconName: 'thumb_up',
+      colorName: 'Yellow',
+      text: 'ナイス！',
     ),
     GameItem(
-      id: 'stamp_cyber_5',
-      name: 'ACCESS DENIED',
+      id: 'stamp_taunt_01',
+      name: 'EZ',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      emoji: '🛑',
-      text: 'ACCESS DENIED',
+      iconName: 'coffee',
+      colorName: 'Magenta',
+      text: '余裕です',
     ),
     GameItem(
-      id: 'stamp_cyber_6',
-      name: 'U BORING',
+      id: 'stamp_taunt_02',
+      name: 'SEE THROUGH',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      emoji: '😈',
-      text: 'U BORING?',
-    ),
-    GameItem(
-      id: 'stamp_cyber_7',
-      name: 'SESSION CLOSED',
-      type: ItemType.stamp,
-      rarity: ItemRarity.common,
-      emoji: '🔌',
-      text: 'SESSION CLOSED',
+      iconName: 'visibility',
+      colorName: 'Purple',
+      text: '見え見えだよ',
     ),
   ];
 

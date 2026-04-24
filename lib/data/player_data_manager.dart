@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../game/mission_catalog.dart';
@@ -27,6 +26,8 @@ class PlayerDataManager {
   PlayerDataManager._internal();
 
   static final PlayerDataManager instance = PlayerDataManager._internal();
+  static const bool _debugControlsEnabled =
+      bool.fromEnvironment('ENABLE_DEBUG_CONTROLS', defaultValue: true);
 
   static const int initialCoins = 10000;
   static const String _coinsKey = 'player_coins';
@@ -123,7 +124,7 @@ class PlayerDataManager {
 
     _loaded = true;
 
-    if (kDebugMode && _coins != _debugBuildCoins) {
+    if (_debugControlsEnabled && _coins != _debugBuildCoins) {
       _coins = _debugBuildCoins;
       await _saveEconomy();
     }
@@ -167,6 +168,15 @@ class PlayerDataManager {
     await _saveEconomy();
   }
 
+  Future<void> setCoinsForDebug(int amount) async {
+    if (!_debugControlsEnabled) {
+      return;
+    }
+    await load();
+    _coins = max(0, amount);
+    await _saveEconomy();
+  }
+
   int getRequiredExp(int currentLevel) {
     final normalizedLevel = max(1, currentLevel);
     return 1000 + (pow(normalizedLevel - 1, 1.5) * 1000).toInt();
@@ -194,6 +204,15 @@ class PlayerDataManager {
       totalRewardCoins += reachedLevel * 500;
     }
     await addCoins(totalRewardCoins);
+  }
+
+  Future<void> adjustExpForDebug(int delta) async {
+    if (!_debugControlsEnabled) {
+      return;
+    }
+    await load();
+    _exp = max(0, _exp + delta);
+    await _saveEconomy();
   }
 
   Future<int> levelUpReward() async {
@@ -321,7 +340,9 @@ class PlayerDataManager {
   }
 
   bool _applyDebugBuildMissionReset() {
-    if (!kDebugMode || _debugMissionsResetApplied || _currentMissions.isEmpty) {
+    if (!_debugControlsEnabled ||
+        _debugMissionsResetApplied ||
+        _currentMissions.isEmpty) {
       return false;
     }
 

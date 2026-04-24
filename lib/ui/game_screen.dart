@@ -16,6 +16,7 @@ import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/interstitial_ad_manager.dart';
+import 'components/stamp_widget.dart';
 import 'home_screen.dart';
 
 class GameScreen extends StatefulWidget {
@@ -408,15 +409,21 @@ class _GameScreenState extends State<GameScreen> {
                 runSpacing: 12,
                 alignment: WrapAlignment.center,
                 children: GameItemCatalog.commonStamps.map((stamp) {
+                  final ownedList = PlayerDataManager.instance.ownedItems;
+                  final ownedMatch = ownedList.firstWhere(
+                    (item) => item.id == stamp.id,
+                    orElse: () => stamp,
+                  );
+
                   return InkWell(
                     onTap: () {
                       Navigator.pop(context);
-                      _sendStamp(stamp);
+                      _sendStamp(ownedMatch);
                     },
                     borderRadius: BorderRadius.circular(12),
                     child: Container(
-                      width: 90,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      width: 140,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                       decoration: BoxDecoration(
                         color: Colors.cyanAccent.withValues(alpha: 0.06),
                         border: Border.all(
@@ -424,22 +431,11 @@ class _GameScreenState extends State<GameScreen> {
                         ),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Column(
-                        children: [
-                          Text(stamp.emoji ?? '',
-                              style: const TextStyle(fontSize: 28, shadows: [
-                                Shadow(color: Colors.cyanAccent, blurRadius: 2)
-                              ])),
-                          const SizedBox(height: 4),
-                          Text(
-                            stamp.text ?? stamp.name,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold),
-                          ),
-                        ],
+                      child: Center(
+                        child: StampWidget(
+                          item: ownedMatch,
+                          level: ownedMatch.level,
+                        ),
                       ),
                     ),
                   );
@@ -551,42 +547,10 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                   ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                stamp.emoji ?? '',
-                style: TextStyle(
-                  fontSize: compact ? 32 : 64,
-                  height: 1,
-                  shadows: [
-                    Shadow(
-                      color: Colors.cyanAccent,
-                      blurRadius: compact ? 4 * normalizedScale : 16,
-                    )
-                  ],
-                ),
-              ),
-              SizedBox(height: compact ? 4 * normalizedScale : 8),
-              Text(
-                stamp.text ?? stamp.name,
-                textAlign: TextAlign.center,
-                maxLines: compact ? 2 : 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.cyanAccent,
-                  fontSize: compact ? 9 * normalizedScale : 18,
-                  fontWeight: FontWeight.w900,
-                  height: 1.1,
-                  shadows: [
-                    Shadow(
-                      color: Colors.cyanAccent,
-                      blurRadius: compact ? 2 * normalizedScale : 8,
-                    )
-                  ],
-                ),
-              ),
-            ],
+          child: StampWidget(
+            item: stamp,
+            level: stamp.level,
+            forceLarge: !compact,
           ),
         ),
       ),
@@ -691,7 +655,9 @@ class _GameScreenState extends State<GameScreen> {
           width: 1.5,
         ),
         boxShadow: [
-          BoxShadow(color: Colors.lightBlueAccent.withValues(alpha: 0.2), blurRadius: 10),
+          BoxShadow(
+              color: Colors.lightBlueAccent.withValues(alpha: 0.2),
+              blurRadius: 10),
         ],
       ),
       child: Text(
@@ -869,78 +835,85 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildPlayerArea(PuzzleGame game) {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onTapDown: (_) => game.triggerHardDrop(),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final sidePanelWidth = constraints.maxWidth / 5;
-          final nextBallSize = _scaledGridBallDiameter(
-            boardWidth: constraints.maxWidth,
-            boardHeight: constraints.maxHeight,
-          );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final sidePanelWidth = constraints.maxWidth / 5;
+        final isSoloMode = !_isOnlineMode && !widget.isCpuMode;
+        final boardWidth = isSoloMode
+            ? max(0.0, constraints.maxWidth - sidePanelWidth * 2)
+            : constraints.maxWidth;
+        final nextBallSize = _scaledGridBallDiameter(
+          boardWidth: boardWidth,
+          boardHeight: constraints.maxHeight,
+        );
 
-          return Stack(
-            children: [
-              Center(
-                child: FittedBox(
-                  fit: BoxFit.contain,
-                  child: _buildGameViewport(game, isPlayer: true),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                right: 0,
-                bottom: 0,
-                width: sidePanelWidth,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildNameBadge(_myDisplayName, isCpu: false),
-                      const SizedBox(height: 16),
-                      _buildNextBadge(
-                        game,
-                        isCpu: false,
-                        ballSize: nextBallSize,
-                      ),
-                      if (_isOnlineMode) ...[
-                        const SizedBox(height: 16),
-                        InkWell(
-                          onTap: _isStampCoolingDown ? null : _showStampGrid,
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.cyanAccent.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color:
-                                    Colors.cyanAccent.withValues(alpha: 0.58),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color:
-                                      Colors.cyanAccent.withValues(alpha: 0.12),
-                                  blurRadius: 5,
-                                ),
-                              ],
-                            ),
-                            child: Icon(Icons.chat,
-                                color: Colors.cyanAccent.withValues(
-                                  alpha: _isStampCoolingDown ? 0.72 : 1,
-                                )),
-                          ),
-                        ),
-                      ],
-                    ],
+        return Stack(
+          children: [
+            Center(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTapDown: (_) => game.triggerHardDrop(),
+                child: SizedBox(
+                  width: boardWidth,
+                  height: constraints.maxHeight,
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: _buildGameViewport(game, isPlayer: true),
                   ),
                 ),
               ),
-            ],
-          );
-        },
-      ),
+            ),
+            Positioned(
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: sidePanelWidth,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildNameBadge(_myDisplayName, isCpu: false),
+                    const SizedBox(height: 16),
+                    _buildNextBadge(
+                      game,
+                      isCpu: false,
+                      ballSize: nextBallSize,
+                    ),
+                    if (_isOnlineMode) ...[
+                      const SizedBox(height: 16),
+                      InkWell(
+                        onTap: _isStampCoolingDown ? null : _showStampGrid,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.cyanAccent.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.cyanAccent.withValues(alpha: 0.58),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color:
+                                    Colors.cyanAccent.withValues(alpha: 0.12),
+                                blurRadius: 5,
+                              ),
+                            ],
+                          ),
+                          child: Icon(Icons.chat,
+                              color: Colors.cyanAccent.withValues(
+                                alpha: _isStampCoolingDown ? 0.72 : 1,
+                              )),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1295,7 +1268,7 @@ class _GameScreenState extends State<GameScreen> {
     if (_onlineResultMessage == null) {
       return const SizedBox.shrink();
     }
-    
+
     final win = _onlineResultMessage == 'YOU WIN!!';
     final textColor = win ? Colors.cyanAccent : Colors.pinkAccent;
 
@@ -1385,7 +1358,8 @@ class _GameScreenState extends State<GameScreen> {
           decoration: BoxDecoration(
             color: glowColor.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: glowColor.withValues(alpha: 0.5), width: 1.5),
+            border:
+                Border.all(color: glowColor.withValues(alpha: 0.5), width: 1.5),
             boxShadow: [
               BoxShadow(
                 color: glowColor.withValues(alpha: 0.2),
@@ -1913,6 +1887,8 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
+    _playerGame.resumeEngine();
+    _cpuGame?.resumeEngine();
     _playerGame.startGame(newSeed: seed);
     _cpuGame?.startGame(newSeed: seed);
   }
@@ -1953,8 +1929,10 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
-    _playerGame.startGame(newSeed: seed);
+    _playerGame.resumeEngine();
+    _cpuGame?.resumeEngine();
     _cpuGame?.startGame(newSeed: seed);
+    _playerGame.startGame(newSeed: seed);
   }
 
   String? _displayNameForRole(String? roleId) {
@@ -2284,8 +2262,10 @@ class _GameScreenState extends State<GameScreen> {
       _onlineResultMessage = null;
       _isWaitingForRematch = false;
     });
-    _playerGame.startGame(newSeed: newSeed);
+    _playerGame.resumeEngine();
+    _cpuGame?.resumeEngine();
     _cpuGame?.startGame(newSeed: newSeed);
+    _playerGame.startGame(newSeed: newSeed);
     unawaited(_startBattleBgm());
   }
 

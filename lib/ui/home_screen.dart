@@ -10,12 +10,14 @@ import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/mission_catalog.dart';
 import '../game/mission_manager.dart';
+import '../data/models/game_item.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'components/stamp_widget.dart';
 import 'game_screen.dart';
 import 'ranking_screen.dart';
 import 'shop_screen.dart';
@@ -30,6 +32,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _playerNameKey = 'player_name';
+  static const bool _debugControlsEnabled =
+      bool.fromEnvironment('ENABLE_DEBUG_CONTROLS', defaultValue: true);
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final RankingManager _rankingManager = RankingManager.instance;
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
@@ -137,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen>
     await _playerDataManager.load();
     await _playerDataManager.checkDailyReset();
     await _missionManager.load();
+    await _arenaManager.load();
     if (!mounted) {
       return;
     }
@@ -395,13 +400,13 @@ class _HomeScreenState extends State<HomeScreen>
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('SEASON 0',
+                      const Text('シーズン 0',
                           style: TextStyle(
                               color: Colors.pinkAccent,
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1.2)),
-                      Text(_isLoadingProfile ? 'RATE: ...' : 'RATE: $_rating',
+                      Text(_isLoadingProfile ? 'レート: ...' : 'レート: $_rating',
                           style: const TextStyle(
                               color: Colors.white,
                               fontSize: 16,
@@ -447,11 +452,20 @@ class _HomeScreenState extends State<HomeScreen>
                 tooltip: '設定',
               ),
               const SizedBox(width: 8),
+              if (_debugControlsEnabled) ...[
+                _buildRoundIcon(
+                  Icons.bug_report,
+                  Colors.purpleAccent,
+                  () => unawaited(_showDebugMenu()),
+                  tooltip: 'デバッグ',
+                ),
+                const SizedBox(width: 8),
+              ],
               _buildRoundIcon(
                 Icons.assignment_turned_in,
                 Colors.amberAccent,
                 () => unawaited(_showDailyMissionsDialog(context)),
-                tooltip: 'DAILY MISSIONS',
+                tooltip: 'デイリーミッション',
                 badgeCount: _claimableMissionCount,
               ),
             ],
@@ -628,7 +642,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(height: 18),
               _buildCyberDialogButton(
-                label: 'CLOSE',
+                label: '閉じる',
                 accentColor: Colors.cyanAccent,
                 onPressed: () => Navigator.of(dialogContext).pop(),
               ),
@@ -701,13 +715,13 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Row(
                   children: [
                     Expanded(
-                        child: _buildGridButton('ENDLESS', Colors.greenAccent,
+                        child: _buildGridButton('エンドレス', Colors.greenAccent,
                             () => _startGame(context, false),
                             alignment: Alignment.topLeft)),
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
-                            'FRIEND\nBATTLE',
+                            'フレンド\n対戦',
                             Colors.redAccent,
                             _isBusy
                                 ? null
@@ -722,7 +736,7 @@ class _HomeScreenState extends State<HomeScreen>
                   children: [
                     Expanded(
                         child: _buildGridButton(
-                            'CPU\nBATTLE',
+                            'CPU\n対戦',
                             Colors.yellowAccent,
                             _isBusy
                                 ? null
@@ -789,7 +803,7 @@ class _HomeScreenState extends State<HomeScreen>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              'RANDOM\nMATCH',
+                              'ランク戦',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: Colors.white,
@@ -825,9 +839,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                               ),
                               child: Text(
-                                _isLoadingProfile
-                                    ? 'RATE ...'
-                                    : 'RATE $_rating',
+                                _isLoadingProfile ? 'レート ...' : 'レート $_rating',
                                 style: const TextStyle(
                                   color: Colors.amberAccent,
                                   fontSize: 11,
@@ -1011,7 +1023,7 @@ class _HomeScreenState extends State<HomeScreen>
                               ],
                             )
                           : const Text(
-                              'ENTRY',
+                              '未入場',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: Colors.white70,
@@ -1023,7 +1035,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     const SizedBox(height: 7),
                     Text(
-                      'ARENA',
+                      '闘技場',
                       textAlign:
                           alignment.x > 0 ? TextAlign.right : TextAlign.left,
                       style: TextStyle(
@@ -1065,21 +1077,21 @@ class _HomeScreenState extends State<HomeScreen>
         children: [
           _buildBottomTextButton(
             Icons.storefront,
-            'DAILY SHOP',
+            'ショップ',
             () => _openDailyShop(context),
           ),
           _buildBottomTextButton(
             Icons.bar_chart,
-            'RECORDS',
+            'レコード',
             () => unawaited(
-              _showAlert(context, 'RECORDS', 'レコード画面は準備中です。'),
+              _showAlert(context, 'レコード', 'レコード画面は準備中です。'),
             ),
           ),
           _buildBottomTextButton(
             Icons.help_outline,
-            'HOW TO',
+            '遊び方',
             () => unawaited(
-              _showAlert(context, 'HOW TO', '遊び方は準備中です。'),
+              _showAlert(context, '遊び方', '遊び方は準備中です。'),
             ),
           ),
           _buildBottomTextButton(
@@ -1180,7 +1192,7 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.yellowAccent,
-          title: 'CPU BATTLE',
+          title: 'CPU対戦',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1271,7 +1283,7 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.redAccent,
-          title: 'FRIEND BATTLE',
+          title: 'フレンド対戦',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1279,7 +1291,7 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: 'CREATE',
+                      label: '作成',
                       accentColor: Colors.redAccent,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
@@ -1290,7 +1302,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 12),
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: 'JOIN',
+                      label: '参加',
                       accentColor: Colors.lightBlueAccent,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
@@ -1302,7 +1314,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(height: 14),
               _buildCyberDialogButton(
-                label: 'CANCEL',
+                label: 'キャンセル',
                 accentColor: Colors.white54,
                 onPressed: () => Navigator.of(dialogContext).pop(),
               ),
@@ -1344,12 +1356,12 @@ class _HomeScreenState extends State<HomeScreen>
 
             return _buildCyberDialog(
               accentColor: Colors.amberAccent,
-              title: 'DAILY MISSIONS',
+              title: 'デイリーミッション',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '$_completedMissionCount / ${dialogMissions.length} COMPLETE',
+                    '$_completedMissionCount / ${dialogMissions.length} 達成',
                     style: const TextStyle(
                       color: Colors.amberAccent,
                       fontWeight: FontWeight.bold,
@@ -1368,8 +1380,8 @@ class _HomeScreenState extends State<HomeScreen>
                         if (context.mounted && amount > 0) {
                           await _showAlert(
                             context,
-                            'MISSION REWARD',
-                            '+$amount COIN を受け取りました。',
+                            'ミッション報酬',
+                            '+$amount コインを受け取りました。',
                           );
                         }
                       },
@@ -1389,7 +1401,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 if (context.mounted) {
                                   await _showAlert(
                                     context,
-                                    'AD FAILED',
+                                    '広告エラー',
                                     '動画の視聴が完了しませんでした。',
                                   );
                                 }
@@ -1403,8 +1415,8 @@ class _HomeScreenState extends State<HomeScreen>
                               if (context.mounted) {
                                 await _showAlert(
                                   context,
-                                  'REWARD BONUS',
-                                  '動画リワードで +$amount COIN を受け取りました。',
+                                  'リワード報酬',
+                                  '動画リワードで +$amount コインを受け取りました。',
                                 );
                               }
                             } catch (error) {
@@ -1456,8 +1468,8 @@ class _HomeScreenState extends State<HomeScreen>
                               children: [
                                 Text(
                                   isAllClearBonusClaimed
-                                      ? 'REWARD CLAIMED'
-                                      : 'REWARD x2 BONUS',
+                                      ? 'リワード受取済み'
+                                      : 'リワード x2 ボーナス',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: canClaimAllClearBonus
@@ -1473,8 +1485,8 @@ class _HomeScreenState extends State<HomeScreen>
                                   canClaimAllClearBonus
                                       ? '動画広告で +$rewardAdClaimAmount'
                                       : isAllComplete
-                                          ? 'RECEIVED'
-                                          : 'CLEAR ALL MISSIONS',
+                                          ? '受取済み'
+                                          : 'すべて達成で解放',
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                     color: Colors.amberAccent,
@@ -1492,7 +1504,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 14),
                   _buildCyberDialogButton(
-                    label: 'CLOSE',
+                    label: '閉じる',
                     accentColor: Colors.white54,
                     onPressed: () => Navigator.of(dialogContext).pop(),
                   ),
@@ -1588,7 +1600,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       child: Text(
                         claimed
-                            ? 'CLAIMED'
+                            ? '受取済み'
                             : canClaim
                                 ? 'CLAIM +$reward'
                                 : '+$reward',
@@ -1673,7 +1685,7 @@ class _HomeScreenState extends State<HomeScreen>
           builder: (dialogContext) {
             return _buildCyberDialog(
               accentColor: Colors.lightBlueAccent,
-              title: 'ARENA',
+              title: '闘技場',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1699,7 +1711,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 24),
                   _buildCyberDialogButton(
-                    label: 'CANCEL',
+                    label: 'キャンセル',
                     accentColor: Colors.lightBlueAccent,
                     onPressed: () {
                       unawaited(_multiplayerManager.cancelArenaMatchmaking());
@@ -1748,7 +1760,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (dialogOpen) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      await _showAlert(context, 'ARENA MATCH FAILED', '$error');
+      await _showAlert(context, '闘技場マッチ失敗', '$error');
     } finally {
       await _multiplayerManager.cancelArenaMatchmaking();
       if (mounted) {
@@ -1946,7 +1958,7 @@ class _HomeScreenState extends State<HomeScreen>
           builder: (dialogContext) {
             return _buildCyberDialog(
               accentColor: Colors.pinkAccent,
-              title: 'RANDOM MATCH',
+              title: 'ランク戦',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1971,7 +1983,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 24),
                   _buildCyberDialogButton(
-                    label: 'CANCEL',
+                    label: 'キャンセル',
                     accentColor: Colors.pinkAccent,
                     onPressed: () {
                       unawaited(_multiplayerManager.cancelMatchmaking());
@@ -2041,7 +2053,7 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.amberAccent,
-          title: 'JOIN ROOM',
+          title: 'ルーム参加',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2083,7 +2095,7 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: 'CANCEL',
+                      label: 'キャンセル',
                       accentColor: Colors.white54,
                       onPressed: () => Navigator.of(dialogContext).pop(),
                     ),
@@ -2091,7 +2103,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 12),
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: 'JOIN',
+                      label: '参加',
                       accentColor: Colors.amberAccent,
                       onPressed: () {
                         final roomId = controller.text.trim();
@@ -2223,6 +2235,328 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
+
+  Future<void> _showDebugMenu() async {
+    if (!_debugControlsEnabled) {
+      return;
+    }
+
+    await _refreshPlayerEconomy();
+    if (!mounted) {
+      return;
+    }
+
+    final rateController = TextEditingController(text: '$_rating');
+    final arenaWinsController =
+        TextEditingController(text: '${_arenaManager.currentWins}');
+    final arenaLossesController =
+        TextEditingController(text: '${_arenaManager.currentLosses}');
+    final coinsController = TextEditingController(text: '$_coins');
+    final expDeltaController = TextEditingController(text: '1000');
+    var arenaActive = _arenaManager.isArenaActive;
+
+    int intValue(TextEditingController controller, int fallback) {
+      return int.tryParse(controller.text.trim()) ?? fallback;
+    }
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (sheetContext) {
+          return StatefulBuilder(
+            builder: (context, setSheetState) {
+              Future<void> applyDebugValues() async {
+                final nextRating = intValue(rateController, _rating);
+                final nextCoins = intValue(coinsController, _coins);
+                final nextWins =
+                    intValue(arenaWinsController, _arenaManager.currentWins);
+                final nextLosses = intValue(
+                    arenaLossesController, _arenaManager.currentLosses);
+
+                _multiplayerManager.currentRating = nextRating;
+                await _playerDataManager.setCoinsForDebug(nextCoins);
+                await _arenaManager.setArenaStateForDebug(
+                  isActive: arenaActive,
+                  wins: nextWins,
+                  losses: nextLosses,
+                );
+                unawaited(_rankingManager.updateMyRating(rating: nextRating));
+
+                if (!mounted) {
+                  return;
+                }
+                setState(() {
+                  _rating = nextRating;
+                });
+                await _refreshPlayerEconomy();
+              }
+
+              Future<void> adjustExp(int sign) async {
+                final delta = intValue(expDeltaController, 0).abs() * sign;
+                await _playerDataManager.adjustExpForDebug(delta);
+                await _refreshPlayerEconomy();
+              }
+
+              return SafeArea(
+                child: Container(
+                  padding: EdgeInsets.only(
+                    left: 20,
+                    right: 20,
+                    top: 20,
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F0F13).withValues(alpha: 0.97),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(20)),
+                    border: Border.all(
+                      color: Colors.purpleAccent.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'デバッグ操作',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.purpleAccent,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 2,
+                            shadows: [
+                              Shadow(
+                                color: Colors.purpleAccent,
+                                blurRadius: 4,
+                              )
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildDebugNumberField('レート', rateController),
+                        const SizedBox(height: 10),
+                        _buildDebugNumberField('コイン', coinsController),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildDebugNumberField(
+                                '闘技場 勝利数',
+                                arenaWinsController,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _buildDebugNumberField(
+                                '闘技場 敗北数',
+                                arenaLossesController,
+                              ),
+                            ),
+                          ],
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: arenaActive,
+                          onChanged: (value) {
+                            setSheetState(() {
+                              arenaActive = value;
+                            });
+                          },
+                          activeThumbColor: Colors.lightBlueAccent,
+                          title: const Text(
+                            '闘技場 エントリー中',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        _buildCyberDialogButton(
+                          label: '値を反映',
+                          accentColor: Colors.cyanAccent,
+                          onPressed: () => unawaited(applyDebugValues()),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildDebugNumberField('EXP 変化量', expDeltaController),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildCyberDialogButton(
+                                label: 'EXP +',
+                                accentColor: Colors.greenAccent,
+                                onPressed: () => unawaited(adjustExp(1)),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _buildCyberDialogButton(
+                                label: 'EXP -',
+                                accentColor: Colors.redAccent,
+                                onPressed: () => unawaited(adjustExp(-1)),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCyberDialogButton(
+                          label: 'スタンプ確認',
+                          accentColor: Colors.purpleAccent,
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            _showStampDebugPreview();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      rateController.dispose();
+      arenaWinsController.dispose();
+      arenaLossesController.dispose();
+      coinsController.dispose();
+      expDeltaController.dispose();
+    }
+  }
+
+  Widget _buildDebugNumberField(
+    String label,
+    TextEditingController controller,
+  ) {
+    return TextField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(signed: true),
+      style: const TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.bold,
+      ),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(
+          color: Colors.white60,
+          fontWeight: FontWeight.bold,
+        ),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.06),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+            color: Colors.cyanAccent.withValues(alpha: 0.3),
+          ),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.cyanAccent),
+        ),
+      ),
+    );
+  }
+
+  void _showStampDebugPreview() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.8,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F0F13).withValues(alpha: 0.95),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            border:
+                Border.all(color: Colors.purpleAccent.withValues(alpha: 0.5)),
+          ),
+          child: Column(
+            children: [
+              const Text(
+                'スタンプ確認',
+                style: TextStyle(
+                  color: Colors.purpleAccent,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2,
+                  shadows: [Shadow(color: Colors.purpleAccent, blurRadius: 4)],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: GameItemCatalog.commonStamps.length,
+                  separatorBuilder: (context, index) =>
+                      const Divider(color: Colors.white24),
+                  itemBuilder: (context, index) {
+                    final item = GameItemCatalog.commonStamps[index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item.name,
+                              style: const TextStyle(
+                                  color: Colors.white70, fontSize: 12)),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              Column(
+                                children: [
+                                  const Text('Lv.1',
+                                      style: TextStyle(
+                                          color: Colors.white38, fontSize: 10)),
+                                  const SizedBox(height: 4),
+                                  StampWidget(item: item, level: 1),
+                                ],
+                              ),
+                              Column(
+                                children: [
+                                  const Text('Lv.2',
+                                      style: TextStyle(
+                                          color: Colors.white38, fontSize: 10)),
+                                  const SizedBox(height: 4),
+                                  StampWidget(item: item, level: 2),
+                                ],
+                              ),
+                              Column(
+                                children: [
+                                  const Text('Lv.3',
+                                      style: TextStyle(
+                                          color: Colors.white38, fontSize: 10)),
+                                  const SizedBox(height: 4),
+                                  StampWidget(item: item, level: 3),
+                                ],
+                              ),
+                              Column(
+                                children: [
+                                  const Text('Lv.4',
+                                      style: TextStyle(
+                                          color: Colors.white38, fontSize: 10)),
+                                  const SizedBox(height: 4),
+                                  StampWidget(item: item, level: 4),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _ModeButtonBorderOverlayPainter extends CustomPainter {
@@ -2266,6 +2600,6 @@ class _ModeButtonBorderOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ModeButtonBorderOverlayPainter oldDelegate) {
-    return false;
+    return true;
   }
 }

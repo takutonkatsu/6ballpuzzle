@@ -49,6 +49,8 @@ class ArenaManager {
   ArenaManager._internal();
 
   static final ArenaManager instance = ArenaManager._internal();
+  static const bool _debugControlsEnabled =
+      bool.fromEnvironment('ENABLE_DEBUG_CONTROLS', defaultValue: true);
   static const int entryCost = 5000;
   static const int maxWins = 12;
   static const int maxLosses = 3;
@@ -59,6 +61,7 @@ class ArenaManager {
   final PlayerDataManager _playerData = PlayerDataManager.instance;
 
   bool _loaded = false;
+  bool _debugArenaResetApplied = false;
   bool isArenaActive = false;
   int currentWins = 0;
   int currentLosses = 0;
@@ -73,6 +76,14 @@ class ArenaManager {
     currentWins = prefs.getInt(_winsKey) ?? 0;
     currentLosses = prefs.getInt(_lossesKey) ?? 0;
     _loaded = true;
+
+    if (_debugControlsEnabled && !_debugArenaResetApplied) {
+      _debugArenaResetApplied = true;
+      isArenaActive = false;
+      currentWins = 0;
+      currentLosses = 0;
+      await _save();
+    }
   }
 
   Future<void> enterArena() async {
@@ -173,5 +184,20 @@ class ArenaManager {
     await prefs.setBool(_activeKey, isArenaActive);
     await prefs.setInt(_winsKey, currentWins);
     await prefs.setInt(_lossesKey, currentLosses);
+  }
+
+  Future<void> setArenaStateForDebug({
+    required bool isActive,
+    required int wins,
+    required int losses,
+  }) async {
+    if (!_debugControlsEnabled) {
+      return;
+    }
+    await load();
+    isArenaActive = isActive;
+    currentWins = wins.clamp(0, maxWins);
+    currentLosses = losses.clamp(0, maxLosses);
+    await _save();
   }
 }
