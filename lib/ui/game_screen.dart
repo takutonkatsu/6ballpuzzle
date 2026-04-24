@@ -76,6 +76,7 @@ class _GameScreenState extends State<GameScreen> {
   String? _onlineResultMessage;
   bool _isWaitingForRematch = false;
   bool _isDisconnectDialogVisible = false;
+  bool _opponentDisconnectedDuringBattle = false;
   bool _isReturningToHome = false;
   bool _cpuBattleFinished = false;
   bool? _cpuBattlePlayerWon;
@@ -479,6 +480,11 @@ class _GameScreenState extends State<GameScreen> {
               else
                 _buildGlobalOverlay(),
               if (widget.isArenaMode) _buildArenaRecordBadge(),
+              Positioned(
+                top: 8,
+                left: 8,
+                child: _buildBattleSettingsButton(),
+              ),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
               if (_currentFloatingStamp != null)
                 Positioned(
@@ -564,7 +570,7 @@ class _GameScreenState extends State<GameScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _buildBattleSettingsButton(),
+          const SizedBox(width: 38),
           const Text(
             'TIME ∞',
             style: TextStyle(
@@ -641,37 +647,14 @@ class _GameScreenState extends State<GameScreen> {
 
     final rewardText = result?.isCompleted == true && reward != null
         ? reward.title == null
-            ? 'REWARD  COIN +${reward.coins} / EXP +${reward.exp} / TICKET +${reward.gachaTickets}'
-            : 'REWARD  COIN +${reward.coins} / EXP +${reward.exp} / TITLE ${reward.title}'
-        : 'RUN  $wins WINS / $losses LOSSES';
+            ? 'コイン +${reward.coins}'
+            : '称号 ${reward.title}'
+        : '$wins勝 $losses敗';
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.lightBlueAccent.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: Colors.lightBlueAccent.withValues(alpha: 0.65),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.lightBlueAccent.withValues(alpha: 0.2),
-              blurRadius: 10),
-        ],
-      ),
-      child: Text(
-        rewardText,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.lightBlueAccent,
-          fontSize: 14,
-          fontFamily: 'Courier',
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1.1,
-          shadows: [Shadow(color: Colors.lightBlueAccent, blurRadius: 4)],
-        ),
-      ),
+    return _buildResultInfoRow(
+      label: result?.isCompleted == true ? '闘技場報酬' : '闘技場',
+      value: rewardText,
+      color: Colors.lightBlueAccent,
     );
   }
 
@@ -688,82 +671,83 @@ class _GameScreenState extends State<GameScreen> {
       );
     }
 
-    final straightCount = _playerWazaCounts[WazaType.straight] ?? 0;
-    final pyramidCount = _playerWazaCounts[WazaType.pyramid] ?? 0;
-    final hexagonCount = _playerWazaCounts[WazaType.hexagon] ?? 0;
-
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: Colors.greenAccent.withValues(alpha: 0.6),
-            ),
-            boxShadow: const [
-              BoxShadow(color: Colors.greenAccent, blurRadius: 14),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'TOTAL EXP  +$totalExp',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.greenAccent,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.4,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'STRAIGHT x$straightCount  /  PYRAMID x$pyramidCount  /  HEXAGON x$hexagonCount',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ],
-          ),
+        _buildResultInfoRow(
+          label: 'EXP',
+          value: '+$totalExp',
+          color: Colors.greenAccent,
         ),
         if (_didLevelUpFromResultExp) ...[
-          const SizedBox(height: 16),
-          const Text(
-            'LEVEL UP!',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.cyanAccent,
-              fontSize: 32,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 2.6,
-              shadows: [
-                Shadow(color: Colors.cyanAccent, blurRadius: 18),
-                Shadow(color: Colors.white, blurRadius: 10),
-              ],
+          const SizedBox(height: 8),
+          _buildResultInfoRow(
+            label: 'LEVEL UP',
+            value: _resultLevelAfterExp == null
+                ? ''
+                : 'Lv.${_resultLevelAfterExp!}',
+            color: Colors.cyanAccent,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildResultInfoRow({
+    required String label,
+    required String value,
+    required Color color,
+    String? trailing,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.42)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
             ),
           ),
-          if (_resultLevelAfterExp != null) ...[
-            const SizedBox(height: 4),
+          const Spacer(),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
             Text(
-              'NOW LEVEL ${_resultLevelAfterExp!}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
+              trailing,
+              style: TextStyle(
+                color: color,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
               ),
             ),
           ],
         ],
-      ],
+      ),
     );
   }
 
@@ -953,10 +937,6 @@ class _GameScreenState extends State<GameScreen> {
                       isCpu: true,
                       ballSize: nextBallSize,
                     ),
-                    if (!_blocksOnlineExit) ...[
-                      const SizedBox(height: 24),
-                      _buildBattleSettingsButton(),
-                    ],
                   ],
                 ),
               ),
@@ -1176,7 +1156,7 @@ class _GameScreenState extends State<GameScreen> {
             return const SizedBox.shrink();
           }
 
-          var message = 'WAITING';
+          var message = '待機中';
           var textColor = Colors.white;
 
           if (pState == GameState.ready) {
@@ -1275,53 +1255,58 @@ class _GameScreenState extends State<GameScreen> {
     return Positioned.fill(
       child: Container(
         color: const Color(0xFF0F0F13).withValues(alpha: 0.90),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _onlineResultMessage!,
-                style: TextStyle(
-                  fontSize: 48,
-                  fontFamily: 'Courier',
-                  fontWeight: FontWeight.w900,
-                  color: textColor,
-                  letterSpacing: 2,
-                  shadows: [
-                    Shadow(color: textColor, blurRadius: 16),
-                    const Shadow(color: Colors.white, blurRadius: 4),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      win ? '勝利' : '敗北',
+                      style: TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w900,
+                        color: textColor,
+                        letterSpacing: 2,
+                        shadows: [Shadow(color: textColor, blurRadius: 10)],
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 18),
+                    _buildResultExpSummary(),
+                    const SizedBox(height: 12),
+                    if (widget.isRankedMode) ...[
+                      _buildRankedRatingChange(),
+                      const SizedBox(height: 12),
+                      if (widget.isArenaMode) ...[
+                        _buildArenaResultSummary(),
+                        const SizedBox(height: 12),
+                      ],
+                    ] else ...[
+                      _buildCyberResultButton(
+                        label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH',
+                        baseColor: Colors.blueAccent,
+                        isWaiting: _isWaitingForRematch,
+                        onPressed:
+                            _isWaitingForRematch ? null : _requestRematch,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    _buildCyberResultButton(
+                      label: 'HOME',
+                      baseColor: Colors.white54,
+                      isWaiting: false,
+                      onPressed: () {
+                        _leaveOnlineBattle();
+                      },
+                    ),
                   ],
                 ),
-                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
-              _buildResultExpSummary(),
-              const SizedBox(height: 24),
-              if (widget.isRankedMode) ...[
-                _buildRankedRatingChange(),
-                const SizedBox(height: 24),
-                if (widget.isArenaMode) ...[
-                  _buildArenaResultSummary(),
-                  const SizedBox(height: 24),
-                ],
-              ] else ...[
-                _buildCyberResultButton(
-                  label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH (再戦)',
-                  baseColor: Colors.blueAccent,
-                  isWaiting: _isWaitingForRematch,
-                  onPressed: _isWaitingForRematch ? null : _requestRematch,
-                ),
-                const SizedBox(height: 16),
-              ],
-              _buildCyberResultButton(
-                label: 'HOME',
-                baseColor: Colors.white54,
-                isWaiting: false,
-                onPressed: () {
-                  _leaveOnlineBattle();
-                },
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1332,13 +1317,11 @@ class _GameScreenState extends State<GameScreen> {
     final change = _rankedRatingChange;
     if (change == null) {
       return const Text(
-        'Ratingを更新中...',
+        'レート更新中...',
         style: TextStyle(
-          color: Colors.cyanAccent,
-          fontSize: 18,
-          fontFamily: 'Courier',
-          fontWeight: FontWeight.w900,
-          shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 8)],
+          color: Colors.white70,
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
         ),
       );
     }
@@ -1353,40 +1336,11 @@ class _GameScreenState extends State<GameScreen> {
       builder: (context, value, child) {
         final animatedRating = change.oldRating +
             ((change.newRating - change.oldRating) * value).round();
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          decoration: BoxDecoration(
-            color: glowColor.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-            border:
-                Border.all(color: glowColor.withValues(alpha: 0.5), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: glowColor.withValues(alpha: 0.2),
-                blurRadius: 14,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'RATING: ${change.oldRating} → $animatedRating ($deltaText)',
-                style: TextStyle(
-                  color: glowColor,
-                  fontSize: 24,
-                  fontFamily: 'Courier',
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
-                  shadows: [
-                    Shadow(color: glowColor, blurRadius: 10),
-                    const Shadow(color: Colors.white, blurRadius: 2),
-                  ],
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+        return _buildResultInfoRow(
+          label: 'レート',
+          value: '$animatedRating',
+          trailing: deltaText,
+          color: glowColor,
         );
       },
     );
@@ -1601,7 +1555,7 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                   const SizedBox(height: 20),
                   _buildLobbyStatusRow(
-                    _displayNameForRole('host') ?? 'Player',
+                    _displayNameForRole('host') ?? 'プレイヤー',
                     hostReady,
                     isOccupied: room.players['host'] != null,
                     rating: widget.isRankedMode
@@ -1610,7 +1564,7 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                   const SizedBox(height: 12),
                   _buildLobbyStatusRow(
-                    _displayNameForRole('guest') ?? 'Waiting for player...',
+                    _displayNameForRole('guest') ?? '対戦相手',
                     guestReady,
                     isOccupied: room.players['guest'] != null,
                     rating: widget.isRankedMode
@@ -1714,55 +1668,90 @@ class _GameScreenState extends State<GameScreen> {
     required bool isOccupied,
     int? rating,
   }) {
-    final backgroundColor = isOccupied
-        ? Colors.white10
-        : const Color(0xFF0D0D15).withValues(alpha: 0.92);
-    final borderColor = isOccupied
-        ? Colors.cyanAccent.withValues(alpha: 0.18)
-        : Colors.white.withValues(alpha: 0.08);
+    final accentColor = isOccupied ? Colors.cyanAccent : Colors.white38;
     final nameColor = isOccupied ? Colors.white : Colors.white54;
-    final statusText =
-        isOccupied ? (isReady ? 'READY' : 'WAITING') : 'NOT JOINED';
-    final statusColor = !isOccupied
-        ? Colors.white38
-        : isReady
-            ? Colors.greenAccent
-            : Colors.white70;
+    final statusText = isOccupied ? (isReady ? 'READY' : '') : '未参加';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor, width: 1.2),
+        color: const Color(0xFF0E1220).withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: accentColor.withValues(alpha: isOccupied ? 0.34 : 0.16),
+          width: 1.2,
+        ),
       ),
       child: Row(
         children: [
-          Expanded(
-            child: Text(
-              rating == null || !isOccupied
-                  ? name
-                  : '$name  /  RATING: $rating',
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: nameColor,
-                fontSize: 16,
-                fontFamily: 'Courier',
-                letterSpacing: 1.2,
-                fontWeight: FontWeight.w900,
-                shadows: [Shadow(color: nameColor, blurRadius: 4)],
-              ),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+              border: Border.all(color: accentColor.withValues(alpha: 0.42)),
+            ),
+            child: Icon(
+              Icons.person,
+              color: accentColor,
+              size: 19,
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            statusText,
-            style: TextStyle(
-              color: statusColor,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: nameColor,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  rating == null || !isOccupied ? 'レート -' : 'レート $rating',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
             ),
           ),
+          if (statusText.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: isReady
+                    ? Colors.greenAccent.withValues(alpha: 0.14)
+                    : Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: isReady
+                      ? Colors.greenAccent.withValues(alpha: 0.65)
+                      : Colors.white24,
+                ),
+              ),
+              child: Text(
+                statusText,
+                style: TextStyle(
+                  color: isReady ? Colors.greenAccent : Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1821,6 +1810,11 @@ class _GameScreenState extends State<GameScreen> {
 
     setState(() {
       _room = room;
+      final opponentStatus =
+          room.players[_multiplayerManager.opponentRoleId]?.status;
+      if (opponentStatus != null && opponentStatus != 'left') {
+        _opponentDisconnectedDuringBattle = false;
+      }
     });
 
     if (_onlineGameStarted) {
@@ -1904,6 +1898,7 @@ class _GameScreenState extends State<GameScreen> {
     _rankedAutoStartTimer?.cancel();
     setState(() {
       _onlineGameStarted = true;
+      _opponentDisconnectedDuringBattle = false;
       _readyGoOverlayText = 'READY...';
     });
     unawaited(FlameAudio.play(_readySfx, volume: 0.8));
@@ -2105,6 +2100,7 @@ class _GameScreenState extends State<GameScreen> {
     try {
       final change = await _multiplayerManager.applyRankedResult(
         isWin: isWin,
+        applyOpponentResult: _opponentDisconnectedDuringBattle,
       );
       if (change != null) {
         unawaited(
@@ -2136,6 +2132,7 @@ class _GameScreenState extends State<GameScreen> {
     _resultLevelAfterExp = null;
     _arenaResultApplied = false;
     _arenaMatchResult = null;
+    _opponentDisconnectedDuringBattle = false;
     _playerWazaCounts[WazaType.straight] = 0;
     _playerWazaCounts[WazaType.pyramid] = 0;
     _playerWazaCounts[WazaType.hexagon] = 0;
@@ -2243,8 +2240,15 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     _isDisconnectDialogVisible = true;
-    _cpuGame?.pauseEngine();
-    _finishOnlineWin();
+    setState(() {
+      _opponentDisconnectedDuringBattle = true;
+    });
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (!mounted) {
+        return;
+      }
+      _isDisconnectDialogVisible = false;
+    });
   }
 
   void _handleRematchStarted(int newSeed) {
@@ -2283,7 +2287,7 @@ class _GameScreenState extends State<GameScreen> {
     }
     _isBattleBgmPlaying = true;
     try {
-      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.102);
+      await FlameAudio.bgm.play('battle_bgm01.wav', volume: 0.102);
     } catch (_) {
       _isBattleBgmPlaying = false;
     }

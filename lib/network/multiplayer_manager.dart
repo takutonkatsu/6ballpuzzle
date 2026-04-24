@@ -91,7 +91,9 @@ class MultiplayerRoom {
       status: (map['status'] as String?) ?? 'waiting',
       seed: (map['seed'] as num?)?.toInt() ??
           DateTime.now().millisecondsSinceEpoch,
-      isRanked: map['mode'] == 'ranked' || map['ranked'] == true,
+      isRanked: map['mode'] == 'ranked' ||
+          map['mode'] == 'arena' ||
+          map['ranked'] == true,
       players: {
         for (final entry in playersRaw.entries)
           entry.key.toString(): MultiplayerPlayer.fromMap(
@@ -258,6 +260,7 @@ class MultiplayerManager {
 
   Future<RankedRatingChange?> applyRankedResult({
     required bool isWin,
+    bool applyOpponentResult = false,
   }) async {
     if (!isRankedMode) {
       return null;
@@ -292,6 +295,14 @@ class MultiplayerManager {
           'delta': delta,
           'timestamp': ServerValue.timestamp,
         });
+
+        if (applyOpponentResult) {
+          await _applyOpponentRankedResult(
+            roomId: roomId,
+            myOldRating: oldRating,
+            opponentWon: !isWin,
+          );
+        }
       }
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('レート更新', error));
@@ -302,6 +313,45 @@ class MultiplayerManager {
       newRating: newRating,
       delta: delta,
     );
+  }
+
+  Future<void> _applyOpponentRankedResult({
+    required String roomId,
+    required int myOldRating,
+    required bool opponentWon,
+  }) async {
+    final opponent = currentRoom?.players[opponentRoleId];
+    final opponentUid = opponent?.uid;
+    final opponentOldRating = opponent?.rating;
+    if (opponentUid == null || opponentOldRating == null) {
+      return;
+    }
+
+    final resultRef = _db.child('rooms/$roomId/results/$opponentRoleId');
+    final existingResult = await resultRef.get();
+    if (existingResult.exists) {
+      return;
+    }
+
+    final opponentNewRating = calculateNewRating(
+      opponentOldRating,
+      myOldRating,
+      opponentWon,
+    );
+    final opponentDelta = opponentNewRating - opponentOldRating;
+    await _db.child('users/$opponentUid').update({
+      'rating': opponentNewRating,
+      'updatedAt': ServerValue.timestamp,
+    });
+    await resultRef.set({
+      'uid': opponentUid,
+      'isWin': opponentWon,
+      'oldRating': opponentOldRating,
+      'newRating': opponentNewRating,
+      'delta': opponentDelta,
+      'resolvedBy': myUid,
+      'timestamp': ServerValue.timestamp,
+    });
   }
 
   Future<String> createRoom() async {
@@ -1258,11 +1308,12 @@ class MultiplayerManager {
 
     currentRoomId = roomId;
     myRoleId = 'host';
-    isRankedMode = false;
+    isRankedMode = true;
     currentRoom = MultiplayerRoom(
       roomId: roomId,
       status: 'waiting',
       seed: seed,
+      isRanked: true,
       players: {
         'host': MultiplayerPlayer(
           status: 'waiting',
@@ -1493,10 +1544,20 @@ class MultiplayerManager {
 
     currentRoomId = roomId;
     myRoleId = roleId;
+    final room = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
+    final previousStatus = room.players[roleId]?.status;
+    final restoredStatus = room.status == 'game_over' ||
+            previousStatus == 'dead' ||
+            previousStatus == 'rematch_ready'
+        ? previousStatus
+        : 'waiting';
     await _db.child('rooms/$roomId/players/$roleId').update({
       'name': displayPlayerName,
+      if (restoredStatus != null) 'status': restoredStatus,
+      'reconnectedAt': ServerValue.timestamp,
     });
-    currentRoom = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
+    final refreshedSnapshot = await _db.child('rooms/$roomId').get();
+    currentRoom = MultiplayerRoom.fromSnapshot(roomId, refreshedSnapshot.value);
     isRankedMode = currentRoom?.isRanked ?? false;
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
@@ -1695,6 +1756,8 @@ class MultiplayerManager {
       final opponentLeft = room.players[opponentRoleId]?.status == 'left';
       if (_hadOpponentPresent && (!opponentPresent || opponentLeft)) {
         _notifyOpponentDisconnected();
+      } else if (opponentPresent && !opponentLeft) {
+        _opponentDisconnectNotified = false;
       }
       _hadOpponentPresent = opponentPresent;
 

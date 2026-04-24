@@ -164,6 +164,10 @@ class ArenaManager {
     );
   }
 
+  ArenaReward previewRewardForWins(int wins) {
+    return _calculateReward(wins.clamp(0, maxWins));
+  }
+
   Future<void> _grantReward(ArenaReward reward) async {
     if (reward.coins > 0) {
       await _playerData.addCoins(reward.coins);

@@ -102,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen>
         await FlameAudio.bgm.stop();
       }
       _isHomeBgmPlaying = true;
-      await FlameAudio.bgm.play('home_screen_bgm01.mp3', volume: 0.18);
+      await FlameAudio.bgm.play('home_screen_bgm01.wav', volume: 0.18);
     } catch (_) {
       _isHomeBgmPlaying = false;
     }
@@ -216,43 +216,58 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildTopBanner1() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          InkWell(
-            onTap: () => unawaited(_showLevelDetailsDialog()),
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                border:
-                    Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 390;
+        final edgePadding = compact ? 8.0 : 16.0;
+        final gap = compact ? 6.0 : 12.0;
+        final levelProgressWidth = compact ? 34.0 : 52.0;
+
+        return Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: edgePadding,
+            vertical: 8,
+          ),
+          child: Row(
+            children: [
+              InkWell(
+                onTap: () => unawaited(_showLevelDetailsDialog()),
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.cyanAccent.withValues(alpha: 0.2),
-                    blurRadius: 8,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 8 : 10,
+                    vertical: 6,
                   ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    'Lv.$_level',
-                    style: const TextStyle(
-                      color: Colors.cyanAccent,
-                      fontWeight: FontWeight.bold,
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    border: Border.all(
+                      color: Colors.cyanAccent.withValues(alpha: 0.5),
                     ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.cyanAccent.withValues(alpha: 0.2),
+                        blurRadius: 8,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Lv.$_level',
+                          style: const TextStyle(
+                            color: Colors.cyanAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: compact ? 5 : 7),
                       Container(
-                        width: 58,
+                        width: levelProgressWidth,
                         height: 6,
                         decoration: BoxDecoration(
                           color: Colors.white12,
@@ -275,99 +290,140 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'EXP $_currentLevelExp/$_nextLevelRequiredExp',
-                        style: const TextStyle(
-                          color: Colors.white60,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(width: gap),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 210),
+                    child: _buildProfileButton(compact: compact),
+                  ),
+                ),
+              ),
+              SizedBox(width: gap),
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: compact ? 68 : 78,
+                  maxWidth: compact ? 82 : 96,
+                ),
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 8 : 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    border: Border.all(
+                      color: Colors.amberAccent.withValues(alpha: 0.5),
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.amberAccent.withValues(alpha: 0.2),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.monetization_on,
+                        color: Colors.amberAccent,
+                        size: compact ? 14 : 16,
+                      ),
+                      SizedBox(width: compact ? 3 : 4),
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            '$_coins',
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProfileButton({required bool compact}) {
+    final displayName = _playerNameController.text.trim().isEmpty
+        ? 'プレイヤー'
+        : _playerNameController.text.trim();
+
+    return InkWell(
+      onTap: () => unawaited(_showProfileDialog()),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        height: compact ? 34 : 36,
+        padding: EdgeInsets.symmetric(horizontal: compact ? 7 : 10),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: Colors.purpleAccent.withValues(alpha: 0.58),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.purpleAccent.withValues(alpha: 0.18),
+              blurRadius: 8,
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: compact ? 18 : 22,
+              height: compact ? 18 : 22,
+              decoration: BoxDecoration(
+                color: Colors.purpleAccent.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.purpleAccent.withValues(alpha: 0.65),
+                ),
+              ),
+              child: Icon(
+                Icons.person,
+                color: Colors.white,
+                size: compact ? 13 : 15,
               ),
             ),
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minWidth: 132,
-                    maxWidth: 172,
-                  ),
-                  child: SizedBox(
-                    height: 36,
-                    child: TextField(
-                      controller: _playerNameController,
-                      maxLength: 10,
-                      maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                      inputFormatters: [
-                        LengthLimitingTextInputFormatter(10),
-                      ],
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.5,
-                          fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: 'PLAYER NAME',
-                        hintStyle: const TextStyle(color: Colors.white38),
-                        counterText: '',
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                        filled: true,
-                        fillColor: Colors.black54,
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: BorderSide(
-                              color:
-                                  Colors.purpleAccent.withValues(alpha: 0.5)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide:
-                              const BorderSide(color: Colors.purpleAccent),
-                        ),
-                      ),
-                      onChanged: _savePlayerName,
-                    ),
+            SizedBox(width: compact ? 5 : 8),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  displayName,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: compact ? 0.4 : 0.8,
+                    fontSize: compact ? 13 : 14,
                   ),
                 ),
               ),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              border:
-                  Border.all(color: Colors.amberAccent.withValues(alpha: 0.5)),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.amberAccent.withValues(alpha: 0.2),
-                    blurRadius: 8)
-              ],
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.monetization_on,
-                    color: Colors.amberAccent, size: 16),
-                const SizedBox(width: 4),
-                Text('$_coins',
-                    style: const TextStyle(
-                        color: Colors.amberAccent,
-                        fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -936,6 +992,12 @@ class _HomeScreenState extends State<HomeScreen>
         : alignment.x < 0
             ? CrossAxisAlignment.start
             : CrossAxisAlignment.center;
+    final currentReward =
+        _arenaManager.previewRewardForWins(_arenaManager.currentWins);
+    final maxReward = _arenaManager.previewRewardForWins(ArenaManager.maxWins);
+    final infoText = isActive
+        ? '現在 ${currentReward.coins}コイン'
+        : '5000必要  最大${maxReward.coins}コイン';
 
     return InkWell(
       onTap: onTap,
@@ -963,7 +1025,7 @@ class _HomeScreenState extends State<HomeScreen>
             Align(
               alignment: alignment,
               child: Padding(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(10),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: crossAxisAlignment,
@@ -1000,15 +1062,15 @@ class _HomeScreenState extends State<HomeScreen>
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  '${_arenaManager.currentWins}',
+                                  '${_arenaManager.currentWins}勝',
                                   style: const TextStyle(
                                     color: Colors.amberAccent,
-                                    fontSize: 15,
+                                    fontSize: 13,
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 0,
                                   ),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 6),
                                 Text(
                                   lossMarks,
                                   style: TextStyle(
@@ -1029,11 +1091,34 @@ class _HomeScreenState extends State<HomeScreen>
                                 color: Colors.white70,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: 1.2,
+                                letterSpacing: 0.6,
                               ),
                             ),
                     ),
-                    const SizedBox(height: 7),
+                    const SizedBox(height: 5),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 96),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: alignment.x > 0
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Text(
+                          infoText,
+                          textAlign: alignment.x > 0
+                              ? TextAlign.right
+                              : TextAlign.left,
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
                     Text(
                       '闘技場',
                       textAlign:
@@ -1041,8 +1126,8 @@ class _HomeScreenState extends State<HomeScreen>
                       style: TextStyle(
                         color: accentColor,
                         fontWeight: FontWeight.w900,
-                        fontSize: 18,
-                        letterSpacing: 2,
+                        fontSize: 17,
+                        letterSpacing: 1.6,
                         shadows: [
                           Shadow(color: accentColor, blurRadius: 8),
                           Shadow(
@@ -1060,6 +1145,20 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+  }
+
+  String _arenaRewardSummaryText(ArenaReward reward) {
+    final parts = <String>[
+      '${reward.coins}コイン',
+      'EXP ${reward.exp}',
+    ];
+    if (reward.gachaTickets > 0) {
+      parts.add('チケット${reward.gachaTickets}');
+    }
+    if (reward.cyberScrap > 0) {
+      parts.add('スクラップ${reward.cyberScrap}');
+    }
+    return parts.join('  ');
   }
 
   String _missionDisplayTitle(Map<String, dynamic> mission) {
@@ -1671,12 +1770,24 @@ class _HomeScreenState extends State<HomeScreen>
           return;
         }
         await _refreshPlayerEconomy();
+        if (!context.mounted) {
+          return;
+        }
+        await _showAlert(
+          context,
+          '闘技場に入場しました',
+          '0勝0敗でエントリーしました。もう一度「闘技場」を押すとマッチングを開始します。',
+        );
+        return;
       }
       if (!context.mounted) {
         return;
       }
 
       final currentWins = _arenaManager.currentWins;
+      final currentReward = _arenaRewardSummaryText(
+        _arenaManager.previewRewardForWins(currentWins),
+      );
       dialogOpen = true;
       unawaited(
         showDialog<void>(
@@ -1690,7 +1801,7 @@ class _HomeScreenState extends State<HomeScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '${_arenaManager.currentWins}W ${_arenaManager.currentLosses}L / 対戦相手を検索中...',
+                    '${_arenaManager.currentWins}勝 ${_arenaManager.currentLosses}敗\n報酬 $currentReward\n対戦相手を検索中...',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.white70,
@@ -1808,6 +1919,73 @@ class _HomeScreenState extends State<HomeScreen>
     final nextName = value.trim();
     _multiplayerManager.setPlayerName(nextName);
     _queuePlayerNameSave(nextName);
+  }
+
+  Future<void> _showProfileDialog() async {
+    final controller = TextEditingController(text: _playerNameController.text);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.purpleAccent,
+          title: 'プロフィール',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                maxLength: 10,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(10),
+                ],
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
+                decoration: InputDecoration(
+                  labelText: '名前',
+                  labelStyle: const TextStyle(color: Colors.white60),
+                  counterText: '',
+                  filled: true,
+                  fillColor: Colors.black45,
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(
+                      color: Colors.purpleAccent.withValues(alpha: 0.55),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Colors.purpleAccent),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: _buildCyberDialogButton(
+                  label: '保存',
+                  accentColor: Colors.purpleAccent,
+                  onPressed: () {
+                    final nextName = controller.text.trim();
+                    setState(() {
+                      _playerNameController.text = nextName;
+                    });
+                    _savePlayerName(nextName);
+                    Navigator.of(dialogContext).pop();
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    controller.dispose();
   }
 
   void _queuePlayerNameSave(String name) {
