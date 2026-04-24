@@ -11,6 +11,7 @@ import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
 import '../network/multiplayer_manager.dart';
+import '../network/ranking_manager.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/interstitial_ad_manager.dart';
 import 'home_screen.dart';
@@ -53,13 +54,12 @@ class _GameScreenState extends State<GameScreen> {
   static const double _gameViewportWidth = 308;
   static const double _gameViewportHeight = 480;
   static const double _gridBallDiameter = 30;
-  static const Duration _postReadyGoBoardPause =
-      Duration(milliseconds: 350);
-  static const Duration _battleBgmStartDelay =
-      Duration(milliseconds: 1000);
+  static const Duration _postReadyGoBoardPause = Duration(milliseconds: 350);
+  static const Duration _battleBgmStartDelay = Duration(milliseconds: 1000);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
+  final RankingManager _rankingManager = RankingManager.instance;
   final ArenaManager _arenaManager = ArenaManager.instance;
   final MissionManager _missionManager = MissionManager.instance;
   late final PuzzleGame _playerGame;
@@ -72,6 +72,8 @@ class _GameScreenState extends State<GameScreen> {
   bool _isWaitingForRematch = false;
   bool _isDisconnectDialogVisible = false;
   bool _isReturningToHome = false;
+  bool _cpuBattleFinished = false;
+  bool? _cpuBattlePlayerWon;
   bool _rankedRatingApplied = false;
   RankedRatingChange? _rankedRatingChange;
   Timer? _rankedAutoStartTimer;
@@ -125,7 +127,7 @@ class _GameScreenState extends State<GameScreen> {
       isCpuMode: false,
       seed: gameSeed,
       autoStart: false,
-      useConstantFallSpeed: widget.isOnlineMultiplayer,
+      useConstantFallSpeed: false,
       wallColor: Colors.blueAccent,
     );
 
@@ -177,6 +179,7 @@ class _GameScreenState extends State<GameScreen> {
         _cpuGame!.cpuAgent!.setDifficulty(widget.cpuDifficulty);
       }
       _cpuGame!.onGameOverTriggered = () {
+        _finishCpuBattle(playerWon: true);
         unawaited(_stopBattleBgm());
       };
     }
@@ -211,7 +214,12 @@ class _GameScreenState extends State<GameScreen> {
     };
     _playerGame.onGameOverTriggered = () {
       unawaited(_stopBattleBgm());
+      if (widget.isCpuMode) {
+        _finishCpuBattle(playerWon: false);
+        return;
+      }
       if (_isOnlineMode) {
+        _freezeBattleBoards();
         unawaited(_missionManager.recordEvent('play_match'));
         setState(() {
           _onlineResultMessage = 'YOU LOSE...';
@@ -805,11 +813,10 @@ class _GameScreenState extends State<GameScreen> {
           } else if (pState == GameState.gameover ||
               (cState == GameState.gameover && widget.isCpuMode)) {
             if (widget.isCpuMode) {
-              message =
-                  pState == GameState.gameover ? 'YOU LOSE...' : 'YOU WIN!!';
-              textColor = pState == GameState.gameover
-                  ? Colors.blueGrey
-                  : Colors.amberAccent;
+              final playerWon =
+                  _cpuBattlePlayerWon ?? (pState != GameState.gameover);
+              message = playerWon ? 'YOU WIN!!' : 'YOU LOSE...';
+              textColor = playerWon ? Colors.amberAccent : Colors.blueGrey;
             } else {
               message = 'GAME OVER';
               textColor = Colors.redAccent;
@@ -1291,7 +1298,8 @@ class _GameScreenState extends State<GameScreen> {
         ? Colors.cyanAccent.withValues(alpha: 0.18)
         : Colors.white.withValues(alpha: 0.08);
     final nameColor = isOccupied ? Colors.white : Colors.white54;
-    final statusText = isOccupied ? (isReady ? 'READY' : 'WAITING') : 'NOT JOINED';
+    final statusText =
+        isOccupied ? (isReady ? 'READY' : 'WAITING') : 'NOT JOINED';
     final statusColor = !isOccupied
         ? Colors.white38
         : isReady
@@ -1421,6 +1429,9 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
+    _cpuBattleFinished = false;
+    _cpuBattlePlayerWon = null;
+
     setState(() {
       _readyGoOverlayText = 'READY...';
     });
@@ -1456,6 +1467,8 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
+    _cpuBattleFinished = false;
+    _cpuBattlePlayerWon = null;
     _rankedAutoStartTimer?.cancel();
     setState(() {
       _onlineGameStarted = true;
@@ -1645,14 +1658,7 @@ class _GameScreenState extends State<GameScreen> {
     unawaited(_missionManager.recordEvent('win_match'));
     unawaited(_applyRankedRatingResult(isWin: true));
     unawaited(_recordArenaResult(isWin: true));
-    _playerGame.gameStateWrapper.value = GameState.gameover;
-    if (_playerGame.activePiece != null) {
-      _playerGame.activePiece!.isLocked = true;
-    }
-    _cpuGame?.gameStateWrapper.value = GameState.gameover;
-    if (_cpuGame?.activePiece != null) {
-      _cpuGame!.activePiece!.isLocked = true;
-    }
+    _freezeBattleBoards();
   }
 
   Future<void> _applyRankedRatingResult({required bool isWin}) async {
@@ -1665,6 +1671,13 @@ class _GameScreenState extends State<GameScreen> {
       final change = await _multiplayerManager.applyRankedResult(
         isWin: isWin,
       );
+      if (change != null) {
+        unawaited(
+          _rankingManager.updateMyRating(
+            rating: change.newRating,
+          ),
+        );
+      }
       if (!mounted || change == null) {
         return;
       }
@@ -1737,6 +1750,8 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
+    _cpuBattleFinished = false;
+    _cpuBattlePlayerWon = null;
     _clearAllPendingAttacks();
     _cpuGame?.clearRemoteActivePiece();
     setState(() {
@@ -1763,9 +1778,35 @@ class _GameScreenState extends State<GameScreen> {
     }
     _isBattleBgmPlaying = true;
     try {
-      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.085);
+      await FlameAudio.bgm.play('battle_bgm01.mp3', volume: 0.102);
     } catch (_) {
       _isBattleBgmPlaying = false;
+    }
+  }
+
+  void _finishCpuBattle({required bool playerWon}) {
+    if (_cpuBattleFinished) {
+      return;
+    }
+
+    _cpuBattleFinished = true;
+    _cpuBattlePlayerWon = playerWon;
+    _freezeBattleBoards();
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _freezeBattleBoards() {
+    _playerGame.gameStateWrapper.value = GameState.gameover;
+    if (_playerGame.activePiece != null) {
+      _playerGame.activePiece!.isLocked = true;
+    }
+    if (_cpuGame != null) {
+      _cpuGame!.gameStateWrapper.value = GameState.gameover;
+      if (_cpuGame!.activePiece != null) {
+        _cpuGame!.activePiece!.isLocked = true;
+      }
     }
   }
 

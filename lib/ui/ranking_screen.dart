@@ -1,0 +1,300 @@
+import 'package:flutter/material.dart';
+
+import '../network/multiplayer_manager.dart';
+import '../network/ranking_manager.dart';
+
+class RankingScreen extends StatefulWidget {
+  const RankingScreen({super.key});
+
+  @override
+  State<RankingScreen> createState() => _RankingScreenState();
+}
+
+class _RankingScreenState extends State<RankingScreen> {
+  final RankingManager _rankingManager = RankingManager.instance;
+  final MultiplayerManager _multiplayerManager = MultiplayerManager.instance;
+
+  bool _isLoading = true;
+  List<RankingEntry> _entries = const [];
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRankings();
+  }
+
+  Future<void> _loadRankings() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final entries = await _rankingManager.fetchTopRankings();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _entries = entries;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage = '$error';
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F13),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(context),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF141421),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: Colors.cyanAccent.withValues(alpha: 0.45),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.cyanAccent.withValues(alpha: 0.16),
+                        blurRadius: 24,
+                      ),
+                      BoxShadow(
+                        color: Colors.purpleAccent.withValues(alpha: 0.12),
+                        blurRadius: 36,
+                      ),
+                    ],
+                  ),
+                  child: _buildBody(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: Colors.amberAccent.withValues(alpha: 0.55),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.amberAccent.withValues(alpha: 0.2),
+                blurRadius: 18,
+              ),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.emoji_events, color: Colors.amberAccent, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'GLOBAL RANKING',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Spacer(),
+        _buildBackButton(context),
+      ],
+    );
+  }
+
+  Widget _buildBackButton(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: () => Navigator.of(context).pop(),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF1B1F2E),
+        foregroundColor: Colors.cyanAccent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        side: BorderSide(color: Colors.cyanAccent.withValues(alpha: 0.5)),
+      ),
+      icon: const Icon(Icons.arrow_back_ios_new, size: 16),
+      label: const Text(
+        'BACK',
+        style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.cyanAccent),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'ランキングを取得できませんでした',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: _loadRankings,
+                child: const Text('RETRY'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_entries.isEmpty) {
+      return const Center(
+        child: Text(
+          'まだランキングデータがありません',
+          style: TextStyle(color: Colors.white70, fontSize: 16),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(14),
+      itemCount: _entries.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final entry = _entries[index];
+        final rank = index + 1;
+        final isMe = entry.uid == _multiplayerManager.myUid;
+        return _buildRankingRow(entry, rank, isMe);
+      },
+    );
+  }
+
+  Widget _buildRankingRow(RankingEntry entry, int rank, bool isMe) {
+    final accent = switch (rank) {
+      1 => Colors.amberAccent,
+      2 => Colors.cyanAccent,
+      3 => Colors.purpleAccent,
+      _ => isMe ? Colors.pinkAccent : Colors.white24,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: isMe
+            ? Colors.pinkAccent.withValues(alpha: 0.12)
+            : Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: isMe || rank <= 3 ? 0.18 : 0.08),
+            blurRadius: isMe || rank <= 3 ? 18 : 10,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 54,
+            child: Row(
+              children: [
+                if (rank <= 3)
+                  Icon(
+                    switch (rank) {
+                      1 => Icons.workspace_premium,
+                      2 => Icons.military_tech,
+                      _ => Icons.stars,
+                    },
+                    color: accent,
+                    size: 20,
+                  )
+                else
+                  Text(
+                    '#$rank',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.76),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                if (rank <= 3) const SizedBox(width: 6),
+                if (rank <= 3)
+                  Text(
+                    '$rank',
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              entry.displayName,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color:
+                    isMe ? Colors.white : Colors.white.withValues(alpha: 0.92),
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            'R${entry.rating}',
+            style: TextStyle(
+              color: accent,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
