@@ -6,14 +6,23 @@ import 'ball_component.dart';
 import '../game_models.dart';
 
 class ActivePieceComponent extends PositionComponent {
+  static const double _rotationStep = pi / 3;
+  static const double _fullTurn = pi * 2;
+  static const double _rotationDuration = 0.11;
+
   final double ballRadius;
   double fallSpeed;
   bool isLocked = false;
   final bool isGhost;
-  
+
+  double logicalAngle = 0.0;
+  double _rotationStartAngle = 0.0;
+  double _rotationTargetAngle = 0.0;
+  double _rotationProgress = 1.0;
+
   // 色情報を保持しておく
   final List<BallColor> colors = [];
-  
+
   // 3つの相対的なローカル座標オフセット
   final List<Vector2> baseOffsets = [];
 
@@ -28,9 +37,15 @@ class ActivePieceComponent extends PositionComponent {
     this.fallSpeed = 50.0,
   }) : super(position: position) {
     final random = Random();
-    final allColors = [BallColor.blue, BallColor.green, BallColor.red, BallColor.yellow, BallColor.purple];
+    final allColors = [
+      BallColor.blue,
+      BallColor.green,
+      BallColor.red,
+      BallColor.yellow,
+      BallColor.purple,
+    ];
 
-    final d = ballRadius * 2; 
+    final d = ballRadius * 2;
     final rCenter = d * sqrt(3) / 3;
     final hSub = d * sqrt(3) / 6;
 
@@ -41,15 +56,17 @@ class ActivePieceComponent extends PositionComponent {
     ]);
 
     for (int i = 0; i < 3; i++) {
-        BallColor c = presetColors != null ? presetColors[i] : allColors[random.nextInt(allColors.length)];
-        colors.add(c);
-        
-        add(BallComponent(
-          position: baseOffsets[i],
-          radius: ballRadius,
-          ballColor: c,
-          isGhost: isGhost,
-        )..state = BallState.locked);
+      BallColor c = presetColors != null
+          ? presetColors[i]
+          : allColors[random.nextInt(allColors.length)];
+      colors.add(c);
+
+      add(BallComponent(
+        position: baseOffsets[i],
+        radius: ballRadius,
+        ballColor: c,
+        isGhost: isGhost,
+      )..state = BallState.locked);
     }
   }
 
@@ -73,7 +90,7 @@ class ActivePieceComponent extends PositionComponent {
   /// 現在のangleを反映した3つのワールド座標のリストを返す
   List<Vector2> get absoluteBallPositions {
     return baseOffsets.map((offset) {
-      Vector2 rotated = offset.clone()..rotate(angle);
+      Vector2 rotated = offset.clone()..rotate(logicalAngle);
       return position + rotated;
     }).toList();
   }
@@ -84,6 +101,7 @@ class ActivePieceComponent extends PositionComponent {
     if (!isLocked) {
       position.y += fallSpeed * dt;
     }
+    _updateVisualRotation(dt);
     _auraTime += dt;
   }
 
@@ -96,7 +114,8 @@ class ActivePieceComponent extends PositionComponent {
         final offset = baseOffsets[i];
         final localPos = Offset(offset.x, offset.y);
 
-        final auraColor = colors.isNotEmpty ? colors[i].glowColor : Colors.white;
+        final auraColor =
+            colors.isNotEmpty ? colors[i].glowColor : Colors.white;
 
         // リム（外周枠）発光のみ
         final rimPaint = Paint()
@@ -112,11 +131,59 @@ class ActivePieceComponent extends PositionComponent {
 
   void rotateLeft() {
     if (isLocked) return;
-    angle -= pi / 3;
+    _setLogicalAngle(logicalAngle - _rotationStep);
   }
 
   void rotateRight() {
     if (isLocked) return;
-    angle += pi / 3;
+    _setLogicalAngle(logicalAngle + _rotationStep);
+  }
+
+  void setRotationIndex(int rotation, {bool animate = false}) {
+    final nextAngle = rotation * _rotationStep;
+    if (animate) {
+      if ((logicalRotationIndex - rotation) % 6 == 0) {
+        return;
+      }
+      _setLogicalAngle(nextAngle);
+      return;
+    }
+    logicalAngle = nextAngle;
+    angle = nextAngle;
+    _rotationStartAngle = nextAngle;
+    _rotationTargetAngle = nextAngle;
+    _rotationProgress = 1.0;
+  }
+
+  int get logicalRotationIndex {
+    final normalized = (logicalAngle / _rotationStep).round() % 6;
+    return normalized < 0 ? normalized + 6 : normalized;
+  }
+
+  void _setLogicalAngle(double nextAngle) {
+    logicalAngle = nextAngle;
+    _rotationStartAngle = angle;
+    _rotationTargetAngle = _nearestEquivalentAngle(nextAngle, angle);
+    _rotationProgress = 0.0;
+  }
+
+  double _nearestEquivalentAngle(double targetAngle, double fromAngle) {
+    var delta = (targetAngle - fromAngle) % _fullTurn;
+    if (delta > pi) {
+      delta -= _fullTurn;
+    } else if (delta < -pi) {
+      delta += _fullTurn;
+    }
+    return fromAngle + delta;
+  }
+
+  void _updateVisualRotation(double dt) {
+    if (_rotationProgress >= 1.0) {
+      return;
+    }
+    _rotationProgress = min(1.0, _rotationProgress + dt / _rotationDuration);
+    final eased = Curves.easeOutCubic.transform(_rotationProgress);
+    angle = _rotationStartAngle +
+        (_rotationTargetAngle - _rotationStartAngle) * eased;
   }
 }

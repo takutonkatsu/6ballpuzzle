@@ -77,6 +77,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const double _ballRadius = 15.0;
   static const double _boardWidth = _ballRadius * 20;
   static const double _ojamaSpawnYOffset = 120 - (_ballRadius * 1.73205);
+  static const double _lockedBallFallDuration = 0.15;
+  static const double _lockedBallFallMinDuration = 0.075;
+  static const double _lockedBallFallAcceleration = 0.09;
+  static const Curve _lockedBallFallCurve = Curves.easeInCubic;
 
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
@@ -532,6 +536,15 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   bool _isProcessingGravity = false;
   bool _needsGravityRetry = false;
 
+  double _lockedBallFallDurationFor(int fallStreak) {
+    final acceleration =
+        1 + max(0, fallStreak - 1) * _lockedBallFallAcceleration;
+    return max(
+      _lockedBallFallMinDuration,
+      _lockedBallFallDuration / acceleration,
+    );
+  }
+
   Future<void> _processGravityAndMatches() async {
     if (_isProcessingGravity) {
       _needsGravityRetry = true;
@@ -546,9 +559,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         while (hasMatches && gameStateWrapper.value == GameState.playing) {
           var hadGravitySequence = false;
           bool changed = true;
+          final fallStreaks = <BallComponent, int>{};
           while (changed) {
             if (gameStateWrapper.value != GameState.playing) return;
             changed = false;
+            var longestFallDuration = 0.0;
 
             List<HexCoordinate> allHexes = grid.lockedBalls.keys.toList();
             allHexes.sort((a, b) {
@@ -568,19 +583,28 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                 hadGravitySequence = true;
                 grid.lockedBalls[next] = comp;
                 Vector2 targetPx = grid.hexToPixel(next);
+                final fallStreak = (fallStreaks[comp] ?? 0) + 1;
+                fallStreaks[comp] = fallStreak;
+                final fallDuration = _lockedBallFallDurationFor(fallStreak);
+                longestFallDuration = max(longestFallDuration, fallDuration);
 
                 comp.add(MoveEffect.to(
                   targetPx,
-                  EffectController(duration: 0.15, curve: Curves.easeInQuad),
+                  EffectController(
+                    duration: fallDuration,
+                    curve: _lockedBallFallCurve,
+                  ),
                 ));
               } else {
+                fallStreaks.remove(comp);
                 grid.lockedBalls[curr] = comp;
                 comp.snapTo(grid.hexToPixel(curr));
               }
             }
 
             if (changed) {
-              await Future.delayed(const Duration(milliseconds: 155));
+              final delayMs = (longestFallDuration * 1000).round() + 4;
+              await Future.delayed(Duration(milliseconds: delayMs));
             }
           }
 
@@ -673,7 +697,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           } else if (activePiece == null) {
             _isSpawning = true;
             await Future.delayed(const Duration(milliseconds: 500));
-            if (gameStateWrapper.value != GameState.playing || activePiece != null) {
+            if (gameStateWrapper.value != GameState.playing ||
+                activePiece != null) {
               _isSpawning = false;
               return;
             }
@@ -889,7 +914,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       return;
     }
 
-    piece.angle = rotation * (pi / 3);
+    piece.setRotationIndex(rotation, animate: duration > 0.01);
     piece.add(
       MoveEffect.to(
         Vector2(x, y),
@@ -897,6 +922,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       ),
     );
     if (ghostPiece != null) {
+      ghostPiece!.setRotationIndex(rotation);
       ghostPiece!.angle = piece.angle;
     }
   }
@@ -906,8 +932,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (piece == null) {
       return 0;
     }
-    final normalized = (piece.angle / (pi / 3)).round() % 6;
-    return normalized < 0 ? normalized + 6 : normalized;
+    return piece.logicalRotationIndex;
   }
 
   void _notifyActivePieceState({

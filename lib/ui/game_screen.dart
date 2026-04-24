@@ -5,6 +5,7 @@ import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 
+import '../audio/seamless_bgm.dart';
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
@@ -60,6 +61,7 @@ class _GameScreenState extends State<GameScreen> {
   static const double _compactStampWidth = 96;
   static const Duration _postReadyGoBoardPause = Duration(milliseconds: 350);
   static const Duration _battleBgmStartDelay = Duration(milliseconds: 1000);
+  static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
@@ -2287,7 +2289,11 @@ class _GameScreenState extends State<GameScreen> {
     }
     _isBattleBgmPlaying = true;
     try {
-      await FlameAudio.bgm.play('battle_bgm01.wav', volume: 0.102);
+      await SeamlessBgm.instance.play(
+        assetPath: 'audio/battle_bgm01.wav',
+        duration: _battleBgmDuration,
+        volume: 0.102,
+      );
     } catch (_) {
       _isBattleBgmPlaying = false;
     }
@@ -2321,12 +2327,12 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Future<void> _stopBattleBgm() async {
-    if (!_isBattleBgmPlaying && !FlameAudio.bgm.isPlaying) {
+    if (!_isBattleBgmPlaying && !SeamlessBgm.instance.isPlaying) {
       return;
     }
     _isBattleBgmPlaying = false;
     try {
-      await FlameAudio.bgm.stop();
+      await SeamlessBgm.instance.stop();
     } catch (_) {
       // BGM停止失敗で画面遷移や破棄を止めない。
     }

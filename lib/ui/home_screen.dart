@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../audio/seamless_bgm.dart';
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/mission_catalog.dart';
@@ -32,6 +32,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _playerNameKey = 'player_name';
+  static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
   static const bool _debugControlsEnabled =
       bool.fromEnvironment('ENABLE_DEBUG_CONTROLS', defaultValue: true);
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
@@ -98,23 +99,25 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     try {
-      if (forceRestart || FlameAudio.bgm.isPlaying) {
-        await FlameAudio.bgm.stop();
-      }
       _isHomeBgmPlaying = true;
-      await FlameAudio.bgm.play('home_screen_bgm01.wav', volume: 0.18);
+      await SeamlessBgm.instance.play(
+        assetPath: 'audio/home_screen_bgm01.wav',
+        duration: _homeBgmDuration,
+        volume: 0.18,
+        forceRestart: forceRestart,
+      );
     } catch (_) {
       _isHomeBgmPlaying = false;
     }
   }
 
   Future<void> _stopHomeBgm() async {
-    if (!_isHomeBgmPlaying && !FlameAudio.bgm.isPlaying) {
+    if (!_isHomeBgmPlaying && !SeamlessBgm.instance.isPlaying) {
       return;
     }
     _isHomeBgmPlaying = false;
     try {
-      await FlameAudio.bgm.stop();
+      await SeamlessBgm.instance.stop();
     } catch (_) {
       // BGM停止失敗で画面遷移や破棄を止めない。
     }

@@ -13,7 +13,7 @@ class OjamaBlockComponent extends PositionComponent
   final List<BallColor>? presetColors;
   final List<BallComponent> innerBalls = [];
 
-  double fallSpeed = 200.0; // Slow block fall
+  late final double fallSpeed;
   bool _collided = false;
 
   OjamaBlockComponent({
@@ -21,12 +21,14 @@ class OjamaBlockComponent extends PositionComponent
     required Vector2 position,
     this.startColor,
     this.presetColors,
-  }) : super(position: position);
+  }) : super(position: position) {
+    fallSpeed = ojamaType == OjamaType.straightSet ? 230.0 : 300.0;
+  }
 
   @override
   Future<void> onLoad() async {
     await super.onLoad();
-    
+
     scale = Vector2.zero();
     add(
       ScaleEffect.to(
