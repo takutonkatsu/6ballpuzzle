@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../game/mission_catalog.dart';
@@ -36,10 +37,11 @@ class PlayerDataManager {
   static const String _lastDailyResetKey = 'player_last_daily_reset';
   static const String _currentMissionsKey = 'player_current_missions_json';
   static const String _dailyShopItemsKey = 'player_daily_shop_items_json';
-  static const int expPerLevel = 1000;
+  static const int _debugBuildCoins = 1000000;
 
   final Random _random = Random();
   bool _loaded = false;
+  bool _debugMissionsResetApplied = false;
   int _coins = initialCoins;
   int _exp = 0;
   int _gachaTickets = 0;
@@ -52,6 +54,10 @@ class PlayerDataManager {
   int get coins => _coins;
   int get exp => _exp;
   int get level => _levelFromExp(_exp);
+  int get currentLevelExp => _expIntoCurrentLevel(_exp);
+  int get nextLevelRequiredExp => getRequiredExp(level);
+  int get remainingExpToNextLevel =>
+      max(0, nextLevelRequiredExp - currentLevelExp);
   int get gachaTickets => _gachaTickets;
   int get cyberScrap => _cyberScrap;
   List<GameItem> get ownedItems => List.unmodifiable(_ownedItems);
@@ -116,21 +122,34 @@ class PlayerDataManager {
     }
 
     _loaded = true;
+
+    if (kDebugMode && _coins != _debugBuildCoins) {
+      _coins = _debugBuildCoins;
+      await _saveEconomy();
+    }
   }
 
   Future<void> checkDailyReset() async {
     await load();
     final today = _todayKey();
-    if (_lastDailyReset == today &&
-        _currentMissions.length == 3 &&
-        _dailyShopItems.length == 3) {
-      return;
+    var changed = false;
+
+    if (_lastDailyReset != today ||
+        _currentMissions.length != 3 ||
+        _dailyShopItems.length != 3) {
+      _lastDailyReset = today;
+      _currentMissions = _generateDailyMissions();
+      _dailyShopItems = _generateDailyShopItems();
+      changed = true;
     }
 
-    _lastDailyReset = today;
-    _currentMissions = _generateDailyMissions();
-    _dailyShopItems = _generateDailyShopItems();
-    await _saveDailyData();
+    if (_applyDebugBuildMissionReset()) {
+      changed = true;
+    }
+
+    if (changed) {
+      await _saveDailyData();
+    }
   }
 
   Future<void> spendCoins(int amount) async {
@@ -148,19 +167,33 @@ class PlayerDataManager {
     await _saveEconomy();
   }
 
+  int getRequiredExp(int currentLevel) {
+    final normalizedLevel = max(1, currentLevel);
+    return 1000 + (pow(normalizedLevel - 1, 1.5) * 1000).toInt();
+  }
+
   Future<void> addExp(int amount) async {
     await load();
+    if (amount <= 0) {
+      return;
+    }
+
     final previousLevel = level;
     _exp += amount;
     final currentLevel = level;
-    if (currentLevel > previousLevel) {
-      for (var nextLevel = previousLevel + 1;
-          nextLevel <= currentLevel;
-          nextLevel++) {
-        _coins += nextLevel * 500;
-      }
-    }
     await _saveEconomy();
+
+    if (currentLevel <= previousLevel) {
+      return;
+    }
+
+    var totalRewardCoins = 0;
+    for (var reachedLevel = previousLevel + 1;
+        reachedLevel <= currentLevel;
+        reachedLevel++) {
+      totalRewardCoins += reachedLevel * 500;
+    }
+    await addCoins(totalRewardCoins);
   }
 
   Future<int> levelUpReward() async {
@@ -287,8 +320,42 @@ class PlayerDataManager {
     return pool.take(3).map((item) => item.id).toList();
   }
 
+  bool _applyDebugBuildMissionReset() {
+    if (!kDebugMode || _debugMissionsResetApplied || _currentMissions.isEmpty) {
+      return false;
+    }
+
+    _debugMissionsResetApplied = true;
+    for (final mission in _currentMissions) {
+      mission['progress'] = 0;
+      mission['claimed'] = false;
+      mission['allClearBonusClaimed'] = false;
+    }
+    return true;
+  }
+
   int _levelFromExp(int value) {
-    return (value ~/ expPerLevel) + 1;
+    var currentLevel = 1;
+    var remainingExp = max(0, value);
+
+    while (remainingExp >= getRequiredExp(currentLevel)) {
+      remainingExp -= getRequiredExp(currentLevel);
+      currentLevel++;
+    }
+
+    return currentLevel;
+  }
+
+  int _expIntoCurrentLevel(int value) {
+    var currentLevel = 1;
+    var remainingExp = max(0, value);
+
+    while (remainingExp >= getRequiredExp(currentLevel)) {
+      remainingExp -= getRequiredExp(currentLevel);
+      currentLevel++;
+    }
+
+    return remainingExp;
   }
 
   String _todayKey() {

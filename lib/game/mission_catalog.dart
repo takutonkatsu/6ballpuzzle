@@ -18,7 +18,7 @@ class MissionDefinition {
   Map<String, dynamic> toMissionMap() {
     return {
       'id': id,
-      'title': title,
+      'title': MissionCatalog.localizedTitleForId(id) ?? title,
       'description': description,
       'eventKey': eventKey,
       'target': target,
@@ -32,10 +32,22 @@ class MissionDefinition {
 class MissionCatalog {
   MissionCatalog._();
 
+  static String? localizedTitleForId(String id) {
+    return switch (id) {
+      'play_matches_3' => '対戦を3回プレイ',
+      'win_matches_2' => '対戦で2勝',
+      'roll_gacha_2' => 'ガチャを2回',
+      'enter_arena_1' => 'アリーナにエントリー',
+      'play_endless_1' => 'エンドレスを開始',
+      'play_random_match_1' => 'ランダムマッチを開始',
+      _ => null,
+    };
+  }
+
   static const List<MissionDefinition> dailyPool = [
     MissionDefinition(
       id: 'play_matches_3',
-      title: 'MATCH RUNNER',
+      title: '対戦を3回プレイ',
       description: '対戦を3回プレイする',
       eventKey: 'play_match',
       target: 3,
@@ -43,7 +55,7 @@ class MissionCatalog {
     ),
     MissionDefinition(
       id: 'win_matches_2',
-      title: 'WIN PROTOCOL',
+      title: '対戦で2勝',
       description: '対戦で2勝する',
       eventKey: 'win_match',
       target: 2,
@@ -51,7 +63,7 @@ class MissionCatalog {
     ),
     MissionDefinition(
       id: 'roll_gacha_2',
-      title: 'DATA DIGGER',
+      title: 'ガチャを2回',
       description: 'ガチャを2回回す',
       eventKey: 'roll_gacha',
       target: 2,
@@ -59,7 +71,7 @@ class MissionCatalog {
     ),
     MissionDefinition(
       id: 'enter_arena_1',
-      title: 'ARENA DIVE',
+      title: 'アリーナにエントリー',
       description: 'アリーナに1回エントリーする',
       eventKey: 'enter_arena',
       target: 1,
@@ -67,7 +79,7 @@ class MissionCatalog {
     ),
     MissionDefinition(
       id: 'play_endless_1',
-      title: 'ENDLESS BOOT',
+      title: 'エンドレスを開始',
       description: 'エンドレスを1回開始する',
       eventKey: 'play_endless',
       target: 1,
@@ -75,7 +87,7 @@ class MissionCatalog {
     ),
     MissionDefinition(
       id: 'play_random_match_1',
-      title: 'RANK LINK',
+      title: 'ランダムマッチを開始',
       description: 'ランダムマッチを1回開始する',
       eventKey: 'start_ranked_match',
       target: 1,

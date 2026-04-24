@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
+import '../game/mission_catalog.dart';
 import '../game/mission_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
@@ -38,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isBusy = false;
   int _rating = MultiplayerManager.initialRating;
   int _level = 1;
+  int _currentLevelExp = 0;
+  int _nextLevelRequiredExp = 1000;
   int _coins = PlayerDataManager.initialCoins;
   int _claimableMissionCount = 0;
   int _completedMissionCount = 0;
@@ -114,12 +117,7 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
       setState(() {
-        _level = _playerDataManager.level;
-        _coins = _playerDataManager.coins;
-        _claimableMissionCount = _missionManager.claimableCount;
-        _completedMissionCount = _playerDataManager.currentMissions
-            .where((mission) => (mission['claimed'] as bool? ?? false))
-            .length;
+        _syncPlayerEconomyState();
       });
     } catch (_) {
       // ローカルデータ読込に失敗してもホーム表示は継続する。
@@ -134,13 +132,29 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     setState(() {
-      _level = _playerDataManager.level;
-      _coins = _playerDataManager.coins;
-      _claimableMissionCount = _missionManager.claimableCount;
-      _completedMissionCount = _playerDataManager.currentMissions
-          .where((mission) => (mission['claimed'] as bool? ?? false))
-          .length;
+      _syncPlayerEconomyState();
     });
+  }
+
+  void _syncPlayerEconomyState() {
+    _level = _playerDataManager.level;
+    _currentLevelExp = _playerDataManager.currentLevelExp;
+    _nextLevelRequiredExp = _playerDataManager.nextLevelRequiredExp;
+    _coins = _playerDataManager.coins;
+    _claimableMissionCount = _missionManager.claimableCount;
+    _completedMissionCount =
+        _playerDataManager.currentMissions.where((mission) {
+      final progress = (mission['progress'] as num?)?.toInt() ?? 0;
+      final target = (mission['target'] as num?)?.toInt() ?? 0;
+      return progress >= target;
+    }).length;
+  }
+
+  double get _levelProgress {
+    if (_nextLevelRequiredExp <= 0) {
+      return 0;
+    }
+    return (_currentLevelExp / _nextLevelRequiredExp).clamp(0.0, 1.0);
   }
 
   @override
@@ -193,47 +207,74 @@ class _HomeScreenState extends State<HomeScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              border:
-                  Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5)),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
+          InkWell(
+            onTap: () => unawaited(_showLevelDetailsDialog()),
+            borderRadius: BorderRadius.circular(20),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                border:
+                    Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5)),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
                     color: Colors.cyanAccent.withValues(alpha: 0.2),
-                    blurRadius: 8)
-              ],
-            ),
-            child: Row(
-              children: [
-                Text('Lv.$_level',
-                    style: const TextStyle(
-                        color: Colors.cyanAccent, fontWeight: FontWeight.bold)),
-                const SizedBox(width: 8),
-                Container(
-                  width: 50,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: Colors.white12,
-                    borderRadius: BorderRadius.circular(3),
+                    blurRadius: 8,
                   ),
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: 0.7,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.cyanAccent,
-                        borderRadius: BorderRadius.circular(3),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.cyanAccent, blurRadius: 4)
-                        ],
-                      ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    'Lv.$_level',
+                    style: const TextStyle(
+                      color: Colors.cyanAccent,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: Colors.white12,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: FractionallySizedBox(
+                          alignment: Alignment.centerLeft,
+                          widthFactor: _levelProgress,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.cyanAccent,
+                              borderRadius: BorderRadius.circular(3),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.cyanAccent,
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'EXP $_currentLevelExp/$_nextLevelRequiredExp',
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           Expanded(
@@ -323,67 +364,62 @@ class _HomeScreenState extends State<HomeScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.pinkAccent.withValues(alpha: 0.14),
-                  blurRadius: 14,
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('SEASON 0',
-                        style: TextStyle(
-                            color: Colors.pinkAccent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1.2)),
-                    Text(
-                      _isLoadingProfile ? 'RATING: ...' : 'RATING: $_rating',
-                      style: const TextStyle(
-                        color: Colors.cyanAccent,
-                        fontSize: 17,
-                        fontFamily: 'Courier',
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 2.0,
-                        shadows: [
-                          Shadow(color: Colors.cyanAccent, blurRadius: 12),
-                          Shadow(color: Colors.white, blurRadius: 2),
+          InkWell(
+            onTap: _openRankingScreen,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.pinkAccent.withValues(alpha: 0.14),
+                    blurRadius: 14,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('SEASON 0',
+                          style: TextStyle(
+                              color: Colors.pinkAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2)),
+                      Text(_isLoadingProfile ? 'RATE: ...' : 'RATE: $_rating',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  InkWell(
+                    onTap: _openRankingScreen,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.pinkAccent.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.amberAccent.withValues(alpha: 0.22),
+                            blurRadius: 10,
+                          ),
                         ],
                       ),
+                      child: const Icon(Icons.emoji_events,
+                          color: Colors.amberAccent, size: 18),
                     ),
-                  ],
-                ),
-                const SizedBox(width: 12),
-                InkWell(
-                  onTap: _openRankingScreen,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: Colors.pinkAccent.withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.amberAccent.withValues(alpha: 0.22),
-                          blurRadius: 10,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(Icons.emoji_events,
-                        color: Colors.amberAccent, size: 18),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           Row(
@@ -486,6 +522,114 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _showLevelDetailsDialog() async {
+    await _refreshPlayerEconomy();
+    if (!mounted) {
+      return;
+    }
+
+    final currentLevel = _playerDataManager.level;
+    final currentLevelExp = _playerDataManager.currentLevelExp;
+    final requiredExp = _playerDataManager.nextLevelRequiredExp;
+    final remainingExp = _playerDataManager.remainingExpToNextLevel;
+    final nextRewardCoins = (currentLevel + 1) * 500;
+    final progress = requiredExp <= 0
+        ? 0.0
+        : (currentLevelExp / requiredExp).clamp(0.0, 1.0);
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          title: 'LEVEL STATUS',
+          accentColor: Colors.cyanAccent,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: Colors.cyanAccent.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.cyanAccent.withValues(alpha: 0.42),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.cyanAccent.withValues(alpha: 0.15),
+                      blurRadius: 18,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CURRENT LEVEL  $currentLevel',
+                      style: const TextStyle(
+                        color: Colors.cyanAccent,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 12,
+                        backgroundColor: Colors.white12,
+                        valueColor:
+                            const AlwaysStoppedAnimation(Colors.cyanAccent),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'EXP  $currentLevelExp / $requiredExp',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '次のレベルまで あと $remainingExp EXP',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '次のレベルアップ報酬： $nextRewardCoins コイン',
+                      style: const TextStyle(
+                        color: Colors.amberAccent,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              _buildCyberDialogButton(
+                label: 'CLOSE',
+                accentColor: Colors.cyanAccent,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _build3DRotatingBall() {
     return AnimatedBuilder(
       animation: _animController,
@@ -549,7 +693,8 @@ class _HomeScreenState extends State<HomeScreen>
                   children: [
                     Expanded(
                         child: _buildGridButton('ENDLESS', Colors.greenAccent,
-                            () => _startGame(context, false))),
+                            () => _startGame(context, false),
+                            alignment: Alignment.topLeft)),
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
@@ -557,7 +702,8 @@ class _HomeScreenState extends State<HomeScreen>
                             Colors.redAccent,
                             _isBusy
                                 ? null
-                                : () => _showFriendBattleDialog(context))),
+                                : () => _showFriendBattleDialog(context),
+                            alignment: Alignment.topRight)),
                   ],
                 ),
               ),
@@ -571,13 +717,13 @@ class _HomeScreenState extends State<HomeScreen>
                             Colors.yellowAccent,
                             _isBusy
                                 ? null
-                                : () => _showCpuDifficultyDialog(context))),
+                                : () => _showCpuDifficultyDialog(context),
+                            alignment: Alignment.bottomLeft)),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: _buildGridButton(
-                            _arenaButtonLabel(),
-                            Colors.lightBlueAccent,
-                            _isBusy ? null : () => _startArenaMatch(context))),
+                        child: _buildArenaGridButton(Colors.lightBlueAccent,
+                            _isBusy ? null : () => _startArenaMatch(context),
+                            alignment: Alignment.bottomRight)),
                   ],
                 ),
               ),
@@ -588,79 +734,100 @@ class _HomeScreenState extends State<HomeScreen>
             child: AnimatedBuilder(
               animation: _animController,
               builder: (context, child) {
-                final pulse =
-                    (math.sin(_animController.value * math.pi * 2) + 1) / 2;
-                final glowAlpha = 0.34 + (pulse * 0.16);
-                final glowBlur = 24.0 + (pulse * 8.0);
-                final scale = 1.0 + (pulse * 0.018);
+                const glowAlpha = 0.4;
+                const glowBlur = 28.0;
 
-                return Transform.scale(
-                  scale: scale,
-                  child: InkWell(
-                    onTap: _isBusy || _isLoadingProfile
-                        ? null
-                        : () => _startRandomMatch(context),
-                    borderRadius: BorderRadius.circular(74),
+                return InkWell(
+                  onTap: _isBusy || _isLoadingProfile
+                      ? null
+                      : () => _startRandomMatch(context),
+                  borderRadius: BorderRadius.circular(84),
+                  child: Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF0F0F13),
+                      border: Border.all(
+                        color: const Color(0xFF0F0F13),
+                        width: 5,
+                      ),
+                    ),
                     child: Container(
-                      width: 132,
-                      height: 132,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: const Color(0xFF0F0F13),
+                        color: Colors.purpleAccent.withValues(alpha: 0.18),
                         border: Border.all(
-                          color: const Color(0xFF0F0F13),
-                          width: 10,
+                          color: Colors.purpleAccent,
+                          width: 3,
                         ),
-                      ),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.purpleAccent.withValues(
-                            alpha: 0.16 + (pulse * 0.04),
-                          ),
-                          border: Border.all(
-                            color: Colors.purpleAccent,
-                            width: 3,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.purpleAccent.withValues(
-                                alpha: glowAlpha,
-                              ),
-                              blurRadius: glowBlur,
-                              spreadRadius: 2 + (pulse * 1.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.purpleAccent.withValues(
+                              alpha: glowAlpha,
                             ),
-                            BoxShadow(
-                              color: Colors.pinkAccent.withValues(
-                                alpha: 0.14 + (pulse * 0.08),
+                            blurRadius: glowBlur,
+                            spreadRadius: 3,
+                          ),
+                          BoxShadow(
+                            color: Colors.pinkAccent.withValues(alpha: 0.18),
+                            blurRadius: 16,
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'RANDOM\nMATCH',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
+                                letterSpacing: 2,
+                                shadows: [
+                                  const Shadow(
+                                    color: Colors.purpleAccent,
+                                    blurRadius: 11,
+                                  ),
+                                  Shadow(
+                                    color: Colors.pinkAccent.withValues(
+                                      alpha: 0.45,
+                                    ),
+                                    blurRadius: 6,
+                                  ),
+                                ],
                               ),
-                              blurRadius: 16,
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.62),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Colors.amberAccent
+                                      .withValues(alpha: 0.66),
+                                ),
+                              ),
+                              child: Text(
+                                _isLoadingProfile
+                                    ? 'RATE ...'
+                                    : 'RATE $_rating',
+                                style: const TextStyle(
+                                  color: Colors.amberAccent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
                             ),
                           ],
-                        ),
-                        child: Center(
-                          child: Text(
-                            'RANDOM\nMATCH',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 15,
-                              letterSpacing: 1.4,
-                              shadows: [
-                                Shadow(
-                                  color: Colors.purpleAccent,
-                                  blurRadius: 9 + (pulse * 4),
-                                ),
-                                Shadow(
-                                  color: Colors.pinkAccent.withValues(
-                                    alpha: 0.45,
-                                  ),
-                                  blurRadius: 6,
-                                ),
-                              ],
-                            ),
-                          ),
                         ),
                       ),
                     ),
@@ -669,13 +836,26 @@ class _HomeScreenState extends State<HomeScreen>
               },
             ),
           ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _ModeButtonBorderOverlayPainter(),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildGridButton(
-      String title, Color accentColor, VoidCallback? onTap) {
+  Widget _buildGridButton(String title, Color accentColor, VoidCallback? onTap,
+      {Alignment alignment = Alignment.center}) {
+    final textAlign = alignment.x < 0
+        ? TextAlign.left
+        : alignment.x > 0
+            ? TextAlign.right
+            : TextAlign.center;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -697,12 +877,13 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ],
         ),
-        child: Center(
+        child: Align(
+          alignment: alignment,
           child: Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(14),
             child: Text(
               title,
-              textAlign: TextAlign.center,
+              textAlign: textAlign,
               style: TextStyle(
                 color: accentColor,
                 fontWeight: FontWeight.w900,
@@ -723,11 +904,148 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  String _arenaButtonLabel() {
-    if (_arenaManager.isArenaActive) {
-      return 'ARENA\n${_arenaManager.currentWins}W ${_arenaManager.currentLosses}L';
-    }
-    return 'ARENA\n未エントリー';
+  Widget _buildArenaGridButton(Color accentColor, VoidCallback? onTap,
+      {Alignment alignment = Alignment.center}) {
+    final isActive = _arenaManager.isArenaActive;
+    final losses = _arenaManager.currentLosses.clamp(0, 3).toInt();
+    final lossMarks =
+        List.generate(3, (index) => index < losses ? '×' : '·').join(' ');
+    final crossAxisAlignment = alignment.x > 0
+        ? CrossAxisAlignment.end
+        : alignment.x < 0
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.center;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: accentColor.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+          border:
+              Border.all(color: accentColor.withValues(alpha: 0.58), width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.18),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.08),
+              blurRadius: 22,
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Align(
+              alignment: alignment,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: crossAxisAlignment,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isActive
+                            ? Colors.black.withValues(alpha: 0.72)
+                            : Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: isActive
+                              ? Colors.amberAccent
+                              : Colors.white.withValues(alpha: 0.32),
+                          width: 1.2,
+                        ),
+                        boxShadow: isActive
+                            ? [
+                                BoxShadow(
+                                  color: Colors.amberAccent
+                                      .withValues(alpha: 0.18),
+                                  blurRadius: 6,
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: isActive
+                          ? Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '${_arenaManager.currentWins}',
+                                  style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  lossMarks,
+                                  style: TextStyle(
+                                    color: losses == 0
+                                        ? Colors.white38
+                                        : Colors.redAccent,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const Text(
+                              'ENTRY',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      'ARENA',
+                      textAlign:
+                          alignment.x > 0 ? TextAlign.right : TextAlign.left,
+                      style: TextStyle(
+                        color: accentColor,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                        letterSpacing: 2,
+                        shadows: [
+                          Shadow(color: accentColor, blurRadius: 8),
+                          Shadow(
+                            color: Colors.black.withValues(alpha: 0.45),
+                            blurRadius: 2,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _missionDisplayTitle(Map<String, dynamic> mission) {
+    final id = mission['id']?.toString() ?? '';
+    return MissionCatalog.localizedTitleForId(id) ??
+        mission['title']?.toString() ??
+        'ミッション';
   }
 
   Widget _buildBottomBannerTop() {
@@ -1009,7 +1327,11 @@ class _HomeScreenState extends State<HomeScreen>
 
             final dialogMissions = _playerDataManager.currentMissions;
             final isAllComplete = _missionManager.allMissionsComplete;
-            final hasClaimable = _missionManager.claimableCount > 0;
+            final isAllClearBonusClaimed =
+                _missionManager.isAllClearBonusClaimed;
+            final canClaimAllClearBonus =
+                isAllComplete && !isAllClearBonusClaimed;
+            final rewardAdClaimAmount = _missionManager.allClearClaimAmount;
 
             return _buildCyberDialog(
               accentColor: Colors.amberAccent,
@@ -1022,41 +1344,58 @@ class _HomeScreenState extends State<HomeScreen>
                     style: const TextStyle(
                       color: Colors.amberAccent,
                       fontWeight: FontWeight.bold,
-                      shadows: [Shadow(color: Colors.amberAccent, blurRadius: 8)],
+                      shadows: [
+                        Shadow(color: Colors.amberAccent, blurRadius: 8)
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16),
                   for (var i = 0; i < dialogMissions.length; i++) ...[
                     _buildSimplifiedMissionTile(
+                      index: i,
                       mission: dialogMissions[i],
+                      onClaimed: (amount) async {
+                        await refreshDialogState();
+                        if (context.mounted && amount > 0) {
+                          await _showAlert(
+                            context,
+                            'MISSION REWARD',
+                            '+$amount COIN を受け取りました。',
+                          );
+                        }
+                      },
                     ),
                     if (i != dialogMissions.length - 1)
                       const SizedBox(height: 10),
                   ],
                   const SizedBox(height: 24),
-                  
-                  // REWARD x3 Button
                   InkWell(
-                    onTap: !isAllComplete || !hasClaimable
+                    onTap: !canClaimAllClearBonus
                         ? null
                         : () async {
                             try {
-                              final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+                              final rewarded = await RewardedAdManager.instance
+                                  .showDoubleRewardAd();
                               if (!rewarded) {
                                 if (context.mounted) {
-                                  await _showAlert(context, 'AD FAILED', '動画の視聴が完了しませんでした。');
+                                  await _showAlert(
+                                    context,
+                                    'AD FAILED',
+                                    '動画の視聴が完了しませんでした。',
+                                  );
                                 }
                                 return;
                               }
-                              
-                              final amount = await _missionManager.claimAllMissionsBoosted();
+
+                              final amount =
+                                  await _missionManager.claimAllClearBonus();
                               await refreshDialogState();
-                              
+
                               if (context.mounted) {
                                 await _showAlert(
                                   context,
-                                  'MISSION CLEAR',
-                                  'ALL MISSIONS COMPLETE!\nREWARD x3 INSTALLED: +$amount COIN',
+                                  'REWARD BONUS',
+                                  '動画リワードで +$amount COIN を受け取りました。',
                                 );
                               }
                             } catch (error) {
@@ -1070,22 +1409,22 @@ class _HomeScreenState extends State<HomeScreen>
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       decoration: BoxDecoration(
-                        color: isAllComplete && hasClaimable
+                        color: canClaimAllClearBonus
                             ? Colors.amberAccent.withValues(alpha: 0.2)
                             : Colors.white10,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: isAllComplete && hasClaimable
+                          color: canClaimAllClearBonus
                               ? Colors.amberAccent
                               : Colors.white24,
                           width: 2,
                         ),
-                        boxShadow: isAllComplete && hasClaimable
+                        boxShadow: canClaimAllClearBonus
                             ? [
                                 const BoxShadow(
                                   color: Colors.amberAccent,
-                                  blurRadius: 16,
-                                  spreadRadius: 2,
+                                  blurRadius: 8,
+                                  spreadRadius: 0,
                                 )
                               ]
                             : [],
@@ -1094,24 +1433,54 @@ class _HomeScreenState extends State<HomeScreen>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            Icons.ondemand_video,
-                            color: isAllComplete && hasClaimable ? Colors.amberAccent : Colors.white54,
+                            canClaimAllClearBonus
+                                ? Icons.card_giftcard
+                                : Icons.lock_outline,
+                            color: canClaimAllClearBonus
+                                ? Colors.amberAccent
+                                : Colors.white54,
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            hasClaimable ? 'REWARD x3' : 'ALL CLAIMED',
-                            style: TextStyle(
-                              color: isAllComplete && hasClaimable ? Colors.amberAccent : Colors.white54,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 2,
+                          Flexible(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  isAllClearBonusClaimed
+                                      ? 'REWARD CLAIMED'
+                                      : 'REWARD x2 BONUS',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: canClaimAllClearBonus
+                                        ? Colors.white
+                                        : Colors.white54,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  canClaimAllClearBonus
+                                      ? '動画広告で +$rewardAdClaimAmount'
+                                      : isAllComplete
+                                          ? 'RECEIVED'
+                                          : 'CLEAR ALL MISSIONS',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 14),
                   _buildCyberDialogButton(
                     label: 'CLOSE',
@@ -1127,57 +1496,130 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildSimplifiedMissionTile({required Map<String, dynamic> mission}) {
+  Widget _buildSimplifiedMissionTile({
+    required int index,
+    required Map<String, dynamic> mission,
+    required Future<void> Function(int amount) onClaimed,
+  }) {
     final progress = (mission['progress'] as num?)?.toInt() ?? 0;
     final target = (mission['target'] as num?)?.toInt() ?? 0;
     final reward = (mission['rewardCoins'] as num?)?.toInt() ?? 0;
     final claimed = mission['claimed'] as bool? ?? false;
     final isDone = progress >= target;
+    final canClaim = isDone && !claimed;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: isDone ? Colors.amberAccent.withValues(alpha: 0.15) : Colors.amberAccent.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: isDone ? Colors.amberAccent : Colors.amberAccent.withValues(alpha: 0.3)),
-      ),
+    return InkWell(
+      onTap: !canClaim
+          ? null
+          : () async {
+              final amount = await _missionManager.claimMissionReward(index);
+              await onClaimed(amount);
+            },
+      borderRadius: BorderRadius.circular(10),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  mission['title']?.toString() ?? 'MISSION',
-                  style: const TextStyle(
-                    color: Colors.amberAccent,
-                    fontWeight: FontWeight.bold,
-                  ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: canClaim
+                  ? Colors.greenAccent.withValues(alpha: 0.14)
+                  : isDone
+                      ? Colors.amberAccent.withValues(alpha: 0.15)
+                      : Colors.amberAccent.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: canClaim
+                    ? Colors.greenAccent
+                    : isDone
+                        ? Colors.amberAccent
+                        : Colors.amberAccent.withValues(alpha: 0.3),
+                width: canClaim ? 2 : 1,
+              ),
+              boxShadow: canClaim
+                  ? [
+                      BoxShadow(
+                        color: Colors.greenAccent.withValues(alpha: 0.28),
+                        blurRadius: 12,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _missionDisplayTitle(mission),
+                        style: TextStyle(
+                          color: canClaim
+                              ? Colors.greenAccent
+                              : Colors.amberAccent,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: canClaim
+                            ? Colors.greenAccent.withValues(alpha: 0.18)
+                            : Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: canClaim
+                              ? Colors.greenAccent
+                              : Colors.white.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Text(
+                        claimed
+                            ? 'CLAIMED'
+                            : canClaim
+                                ? 'CLAIM +$reward'
+                                : '+$reward',
+                        style: TextStyle(
+                          color: claimed
+                              ? Colors.grey
+                              : canClaim
+                                  ? Colors.greenAccent
+                                  : Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.8,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              if (claimed)
-                const Text('CLAIMED', style: TextStyle(color: Colors.grey, fontSize: 12))
-              else
-                Text('REWARD $reward', style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: LinearProgressIndicator(
-                  value: target == 0 ? 0 : (progress / target).clamp(0, 1),
-                  color: isDone ? Colors.amberAccent : Colors.amberAccent.withValues(alpha: 0.5),
-                  backgroundColor: Colors.white12,
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: LinearProgressIndicator(
+                        value:
+                            target == 0 ? 0 : (progress / target).clamp(0, 1),
+                        color: isDone
+                            ? Colors.amberAccent
+                            : Colors.amberAccent.withValues(alpha: 0.5),
+                        backgroundColor: Colors.white12,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      '$progress / $target',
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '$progress / $target',
-                style: const TextStyle(color: Colors.white70, fontSize: 12),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -1771,5 +2213,50 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       ),
     );
+  }
+}
+
+class _ModeButtonBorderOverlayPainter extends CustomPainter {
+  static const double _strokeWidth = 2;
+  static const double _arcRadius = 76.3;
+  static const double _arcGap = 0.065;
+
+  final List<Color> _colors = [
+    Colors.greenAccent,
+    Colors.redAccent,
+    Colors.yellowAccent,
+    Colors.lightBlueAccent,
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final arcRect = Rect.fromCircle(center: center, radius: _arcRadius);
+    final arcs = [
+      (start: math.pi + _arcGap, color: _colors[0]),
+      (start: -math.pi / 2 + _arcGap, color: _colors[1]),
+      (start: math.pi / 2 + _arcGap, color: _colors[2]),
+      (start: _arcGap, color: _colors[3]),
+    ];
+
+    for (final arc in arcs) {
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = _strokeWidth
+        ..color = arc.color.withValues(alpha: 0.58);
+      canvas.drawArc(
+        arcRect,
+        arc.start,
+        math.pi / 2 - (_arcGap * 2),
+        false,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ModeButtonBorderOverlayPainter oldDelegate) {
+    return false;
   }
 }

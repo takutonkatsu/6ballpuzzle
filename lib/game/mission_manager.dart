@@ -16,6 +16,37 @@ class MissionManager {
 
   int get claimableCount => currentMissions.where(_isClaimable).length;
 
+  bool get isAllClearBonusClaimed {
+    final missions = currentMissions;
+    if (missions.isEmpty) return false;
+    return missions.every(
+      (mission) => mission['allClearBonusClaimed'] as bool? ?? false,
+    );
+  }
+
+  int get totalMissionRewardCoins {
+    var total = 0;
+    for (final mission in currentMissions) {
+      total += _intValue(mission['rewardCoins']) ?? 0;
+    }
+    return total;
+  }
+
+  int get allClearClaimAmount {
+    if (isAllClearBonusClaimed) return 0;
+
+    var total = 0;
+    var unclaimed = 0;
+    for (final mission in currentMissions) {
+      final reward = _intValue(mission['rewardCoins']) ?? 0;
+      total += reward;
+      if (!(mission['claimed'] as bool? ?? false)) {
+        unclaimed += reward;
+      }
+    }
+    return total + unclaimed;
+  }
+
   Future<void> load() async {
     await _playerData.checkDailyReset();
   }
@@ -78,29 +109,57 @@ class MissionManager {
     return true;
   }
 
-  Future<int> claimAllMissionsBoosted() async {
+  Future<int> claimMissionReward(int index) async {
+    await load();
+    final missions = currentMissions;
+    if (index < 0 || index >= missions.length) {
+      throw RangeError.index(index, missions, 'index');
+    }
+
+    final mission = missions[index];
+    if (!_isComplete(mission)) {
+      throw StateError('ミッションがまだクリアされていません。');
+    }
+    if (mission['claimed'] as bool? ?? false) {
+      return 0;
+    }
+
+    final reward = _intValue(mission['rewardCoins']) ?? 0;
+    mission['claimed'] = true;
+    await _playerData.addCoins(reward);
+    await _playerData.saveCurrentMissions(missions);
+    return reward;
+  }
+
+  Future<int> claimAllClearBonus() async {
     await load();
     if (!allMissionsComplete) {
       throw StateError('すべてのミッションがクリアされていません。');
     }
-
-    final missions = currentMissions;
-    int totalBaseReward = 0;
-    
-    for (final mission in missions) {
-      if (!(mission['claimed'] as bool? ?? false)) {
-        totalBaseReward += _intValue(mission['rewardCoins']) ?? 0;
-        mission['claimed'] = true;
-      }
+    if (isAllClearBonusClaimed) {
+      return 0;
     }
 
-    if (totalBaseReward == 0) return 0; // Already claimed
+    final missions = currentMissions;
+    int totalReward = 0;
+    int unclaimedReward = 0;
 
-    final totalReward = totalBaseReward * 3;
-    await _playerData.addCoins(totalReward);
+    for (final mission in missions) {
+      final reward = _intValue(mission['rewardCoins']) ?? 0;
+      totalReward += reward;
+      if (!(mission['claimed'] as bool? ?? false)) {
+        unclaimedReward += reward;
+        mission['claimed'] = true;
+      }
+      mission['allClearBonusClaimed'] = true;
+    }
+
+    final claimAmount = totalReward + unclaimedReward;
+    if (claimAmount == 0) return 0;
+
+    await _playerData.addCoins(claimAmount);
     await _playerData.saveCurrentMissions(missions);
-
-    return totalReward;
+    return claimAmount;
   }
 
   bool _isComplete(Map<String, dynamic> mission) {
