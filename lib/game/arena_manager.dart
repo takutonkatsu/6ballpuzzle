@@ -93,6 +93,7 @@ class ArenaManager {
     }
 
     await _playerData.spendCoins(entryCost);
+    await _playerData.recordArenaChallengeStarted();
     currentWins = 0;
     currentLosses = 0;
     isArenaActive = true;
@@ -111,6 +112,7 @@ class ArenaManager {
 
     if (isWin) {
       currentWins = (currentWins + 1).clamp(0, maxWins);
+      await _playerData.updateMaxArenaWins(currentWins);
     } else {
       currentLosses = (currentLosses + 1).clamp(0, maxLosses);
     }

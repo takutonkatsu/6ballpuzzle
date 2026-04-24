@@ -19,7 +19,9 @@ import 'components/banner_ad_widget.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
 import 'game_screen.dart';
+import 'profile_screen.dart';
 import 'ranking_screen.dart';
+import 'record_screen.dart';
 import 'shop_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -51,9 +53,6 @@ class _HomeScreenState extends State<HomeScreen>
   int _claimableMissionCount = 0;
   int _completedMissionCount = 0;
   bool _isLoadingProfile = true;
-  String? _queuedPlayerName;
-  String _lastPersistedPlayerName = '';
-  bool _isPersistingPlayerName = false;
   late AnimationController _animController;
   bool _isHomeBgmPlaying = false;
 
@@ -371,7 +370,7 @@ class _HomeScreenState extends State<HomeScreen>
         : _playerNameController.text.trim();
 
     return InkWell(
-      onTap: () => unawaited(_showProfileDialog()),
+      onTap: () => unawaited(_openProfileScreen()),
       borderRadius: BorderRadius.circular(18),
       child: Container(
         height: compact ? 34 : 36,
@@ -428,6 +427,31 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _openProfileScreen() async {
+    await _playerDataManager.setCurrentRating(_rating);
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ProfileScreen()),
+    );
+    final savedName = await _readSavedPlayerName();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _playerNameController.text = savedName;
+    });
+    _multiplayerManager.setPlayerName(savedName);
+    unawaited(_multiplayerManager.updateUserName(savedName));
+  }
+
+  void _openRecordScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RecordScreen()),
     );
   }
 
@@ -1185,9 +1209,7 @@ class _HomeScreenState extends State<HomeScreen>
           _buildBottomTextButton(
             Icons.bar_chart,
             'レコード',
-            () => unawaited(
-              _showAlert(context, 'レコード', 'レコード画面は準備中です。'),
-            ),
+            _openRecordScreen,
           ),
           _buildBottomTextButton(
             Icons.help_outline,
@@ -1895,11 +1917,12 @@ class _HomeScreenState extends State<HomeScreen>
       _playerNameController.text = savedName;
     });
     _multiplayerManager.setPlayerName(savedName);
-    _lastPersistedPlayerName = savedName;
+    await _playerDataManager.setPlayerName(savedName);
 
     try {
       final rating = await _multiplayerManager.initializeUser(name: savedName);
       unawaited(_rankingManager.updateMyRating(rating: rating));
+      unawaited(_playerDataManager.setCurrentRating(rating));
       if (!mounted) {
         return;
       }
@@ -1915,108 +1938,7 @@ class _HomeScreenState extends State<HomeScreen>
         _rating = _multiplayerManager.currentRating;
         _isLoadingProfile = false;
       });
-    }
-  }
-
-  void _savePlayerName(String value) {
-    final nextName = value.trim();
-    _multiplayerManager.setPlayerName(nextName);
-    _queuePlayerNameSave(nextName);
-  }
-
-  Future<void> _showProfileDialog() async {
-    final controller = TextEditingController(text: _playerNameController.text);
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return _buildCyberDialog(
-          accentColor: Colors.purpleAccent,
-          title: 'プロフィール',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                maxLength: 10,
-                maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                inputFormatters: [
-                  LengthLimitingTextInputFormatter(10),
-                ],
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
-                decoration: InputDecoration(
-                  labelText: '名前',
-                  labelStyle: const TextStyle(color: Colors.white60),
-                  counterText: '',
-                  filled: true,
-                  fillColor: Colors.black45,
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Colors.purpleAccent.withValues(alpha: 0.55),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.purpleAccent),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: _buildCyberDialogButton(
-                  label: '保存',
-                  accentColor: Colors.purpleAccent,
-                  onPressed: () {
-                    final nextName = controller.text.trim();
-                    setState(() {
-                      _playerNameController.text = nextName;
-                    });
-                    _savePlayerName(nextName);
-                    Navigator.of(dialogContext).pop();
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    controller.dispose();
-  }
-
-  void _queuePlayerNameSave(String name) {
-    _queuedPlayerName = name;
-    if (_isPersistingPlayerName) {
-      return;
-    }
-    unawaited(_drainPlayerNameSaveQueue());
-  }
-
-  Future<void> _drainPlayerNameSaveQueue() async {
-    _isPersistingPlayerName = true;
-    try {
-      while (_queuedPlayerName != null) {
-        final nextName = _queuedPlayerName!;
-        _queuedPlayerName = null;
-        if (nextName == _lastPersistedPlayerName) {
-          continue;
-        }
-        await _writeSavedPlayerName(nextName);
-        _lastPersistedPlayerName = nextName;
-        await _multiplayerManager.updateUserName(nextName);
-      }
-    } finally {
-      _isPersistingPlayerName = false;
-      if (_queuedPlayerName != null) {
-        unawaited(_drainPlayerNameSaveQueue());
-      }
+      unawaited(_playerDataManager.setCurrentRating(_rating));
     }
   }
 
@@ -2026,16 +1948,6 @@ class _HomeScreenState extends State<HomeScreen>
       return prefs.getString(_playerNameKey) ?? '';
     } on MissingPluginException {
       return '';
-    }
-  }
-
-  Future<void> _writeSavedPlayerName(String name) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_playerNameKey, name);
-    } on MissingPluginException {
-      // The app can still run if a dev build has not been fully rebuilt after
-      // adding the plugin; the value will persist once registration is active.
     }
   }
 
@@ -2457,7 +2369,9 @@ class _HomeScreenState extends State<HomeScreen>
                     arenaLossesController, _arenaManager.currentLosses);
 
                 _multiplayerManager.currentRating = nextRating;
+                await _playerDataManager.setCurrentRating(nextRating);
                 await _playerDataManager.setCoinsForDebug(nextCoins);
+                await _playerDataManager.updateMaxArenaWins(nextWins);
                 await _arenaManager.setArenaStateForDebug(
                   isActive: arenaActive,
                   wins: nextWins,
@@ -2581,6 +2495,15 @@ class _HomeScreenState extends State<HomeScreen>
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCyberDialogButton(
+                          label: 'ミッション一覧',
+                          accentColor: Colors.amberAccent,
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            unawaited(_showDailyMissionsDialog(context));
+                          },
                         ),
                         const SizedBox(height: 12),
                         _buildCyberDialogButton(

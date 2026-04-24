@@ -154,7 +154,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _notifyActivePieceState(force: true, action: 'stop_right');
   }
 
-  void startGame({int? newSeed}) {
+  void startGame({int? newSeed, bool spawnInitialPiece = true}) {
     if (newSeed != null) {
       _rng = Random(newSeed);
     }
@@ -198,7 +198,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _activePieceSyncCooldown = 0.0;
 
     gameStateWrapper.value = GameState.playing;
-    if (!isRemotePlayerMode) {
+    if (!isRemotePlayerMode && spawnInitialPiece) {
       _spawnNewPiece();
     } else {
       _notifyBoardUpdated();
@@ -321,9 +321,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
     nextPieceColors.value = _generatePieceColors();
     if (_playsBoardSfx) {
-      _playSfx(_spawnSfx, volume: 0.8);
+      _playSfx(_spawnSfx, volume: 0.53);
     }
     _notifyActivePieceState(force: true, action: 'spawn');
+  }
+
+  void spawnInitialPieceAfterReadyGo() {
+    if (isRemotePlayerMode || activePiece != null) {
+      return;
+    }
+    _spawnNewPiece();
   }
 
   @override

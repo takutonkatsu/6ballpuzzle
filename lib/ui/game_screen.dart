@@ -60,7 +60,7 @@ class _GameScreenState extends State<GameScreen> {
   static const double _gridBallDiameter = 30;
   static const double _compactStampWidth = 96;
   static const Duration _postReadyGoBoardPause = Duration(milliseconds: 350);
-  static const Duration _battleBgmStartDelay = Duration(milliseconds: 1000);
+  static const Duration _preReadyDelay = Duration(milliseconds: 500);
   static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
@@ -1856,11 +1856,25 @@ class _GameScreenState extends State<GameScreen> {
     _cpuBattleFinished = false;
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
+    _playerGame.resumeEngine();
+    _cpuGame?.resumeEngine();
+    _playerGame.startGame(newSeed: seed, spawnInitialPiece: false);
+    _cpuGame?.startGame(newSeed: seed, spawnInitialPiece: false);
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+    if (!mounted) {
+      return;
+    }
+    _playerGame.pauseEngine();
+    _cpuGame?.pauseEngine();
 
+    await Future<void>.delayed(_preReadyDelay);
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _readyGoOverlayText = 'READY...';
     });
-    unawaited(FlameAudio.play(_readySfx, volume: 0.8));
+    unawaited(FlameAudio.play(_readySfx, volume: 1.0));
 
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) {
@@ -1869,7 +1883,7 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _readyGoOverlayText = 'GO!';
     });
-    unawaited(_startBattleBgmAfterDelay());
+    unawaited(_startBattleBgmAfterGoDelay());
 
     await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) {
@@ -1885,8 +1899,8 @@ class _GameScreenState extends State<GameScreen> {
 
     _playerGame.resumeEngine();
     _cpuGame?.resumeEngine();
-    _playerGame.startGame(newSeed: seed);
-    _cpuGame?.startGame(newSeed: seed);
+    _playerGame.spawnInitialPieceAfterReadyGo();
+    _cpuGame?.spawnInitialPieceAfterReadyGo();
   }
 
   Future<void> _startOnlineBattleWithReadyGo(int? seed) async {
@@ -1898,12 +1912,16 @@ class _GameScreenState extends State<GameScreen> {
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
     _rankedAutoStartTimer?.cancel();
+    await Future<void>.delayed(_preReadyDelay);
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _onlineGameStarted = true;
       _opponentDisconnectedDuringBattle = false;
       _readyGoOverlayText = 'READY...';
     });
-    unawaited(FlameAudio.play(_readySfx, volume: 0.8));
+    unawaited(FlameAudio.play(_readySfx, volume: 1.0));
 
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) {
@@ -1912,7 +1930,7 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       _readyGoOverlayText = 'GO!';
     });
-    unawaited(_startBattleBgmAfterDelay());
+    unawaited(_startBattleBgmAfterGoDelay());
 
     await Future<void>.delayed(const Duration(milliseconds: 650));
     if (!mounted) {
@@ -2105,6 +2123,7 @@ class _GameScreenState extends State<GameScreen> {
         applyOpponentResult: _opponentDisconnectedDuringBattle,
       );
       if (change != null) {
+        unawaited(_playerDataManager.setCurrentRating(change.newRating));
         unawaited(
           _rankingManager.updateMyRating(
             rating: change.newRating,
@@ -2167,6 +2186,7 @@ class _GameScreenState extends State<GameScreen> {
       await _playerDataManager.load();
       final previousLevel = _playerDataManager.level;
       await _playerDataManager.addExp(earnedExp);
+      await _recordMatchStats(isWin: isWin);
       final currentLevel = _playerDataManager.level;
       if (!mounted) {
         return;
@@ -2179,6 +2199,7 @@ class _GameScreenState extends State<GameScreen> {
         }
       });
     } catch (_) {
+      await _recordMatchStats(isWin: isWin);
       if (!mounted) {
         return;
       }
@@ -2186,6 +2207,30 @@ class _GameScreenState extends State<GameScreen> {
         _matchExpEarned = earnedExp;
       });
     }
+  }
+
+  Future<void> _recordMatchStats({required bool isWin}) async {
+    final mode = widget.isArenaMode
+        ? 'ARENA'
+        : widget.isRankedMode
+            ? 'RANKED'
+            : widget.isCpuMode
+                ? 'CPU'
+                : 'FRIEND';
+    final opponentName = widget.isCpuMode
+        ? _opponentDisplayName
+        : _displayNameForRole(_multiplayerManager.opponentRoleId) ?? 'UNKNOWN';
+    await _playerDataManager.recordMatchResult(
+      isWin: isWin,
+      mode: mode,
+      opponentName: opponentName,
+      maxCombo: _playerGame.scoreManager.maxChainThisRun,
+      wazaCounts: {
+        'straight': _playerWazaCounts[WazaType.straight] ?? 0,
+        'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
+        'hexagon': _playerWazaCounts[WazaType.hexagon] ?? 0,
+      },
+    );
   }
 
   Future<void> _recordArenaResult({required bool isWin}) async {
@@ -2275,8 +2320,8 @@ class _GameScreenState extends State<GameScreen> {
     unawaited(_startBattleBgm());
   }
 
-  Future<void> _startBattleBgmAfterDelay() async {
-    await Future<void>.delayed(_battleBgmStartDelay);
+  Future<void> _startBattleBgmAfterGoDelay() async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
     if (!mounted) {
       return;
     }

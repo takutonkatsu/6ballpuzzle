@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../game/mission_catalog.dart';
+import 'models/badge_item.dart';
 import 'models/game_item.dart';
 
 class ItemGrantResult {
@@ -22,6 +23,50 @@ class ItemGrantResult {
   final int cyberScrapAdded;
 }
 
+class MatchHistoryEntry {
+  const MatchHistoryEntry({
+    required this.isWin,
+    required this.opponentName,
+    required this.mode,
+    required this.playedAt,
+    this.ratingAfter,
+  });
+
+  final bool isWin;
+  final String opponentName;
+  final String mode;
+  final DateTime playedAt;
+  final int? ratingAfter;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'isWin': isWin,
+      'opponentName': opponentName,
+      'mode': mode,
+      'playedAt': playedAt.toIso8601String(),
+      if (ratingAfter != null) 'ratingAfter': ratingAfter,
+    };
+  }
+
+  factory MatchHistoryEntry.fromJson(Map<String, dynamic> json) {
+    return MatchHistoryEntry(
+      isWin: json['isWin'] == true,
+      opponentName: json['opponentName']?.toString() ?? 'UNKNOWN',
+      mode: json['mode']?.toString() ?? 'MATCH',
+      playedAt: DateTime.tryParse(json['playedAt']?.toString() ?? '') ??
+          DateTime.now(),
+      ratingAfter: _intValue(json['ratingAfter']),
+    );
+  }
+
+  static int? _intValue(Object? value) {
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse('$value');
+  }
+}
+
 class PlayerDataManager {
   PlayerDataManager._internal();
 
@@ -38,6 +83,21 @@ class PlayerDataManager {
   static const String _lastDailyResetKey = 'player_last_daily_reset';
   static const String _currentMissionsKey = 'player_current_missions_json';
   static const String _dailyShopItemsKey = 'player_daily_shop_items_json';
+  static const String _playerNameKey = 'player_name';
+  static const String _playerIdKey = 'player_public_id';
+  static const String _equippedBadgeIdsKey = 'player_equipped_badge_ids_json';
+  static const String _currentRatingKey = 'player_current_rating';
+  static const String _equippedBallSkinIdKey = 'player_equipped_ball_skin_id';
+  static const String _highestRatingKey = 'player_highest_rating';
+  static const String _maxArenaWinsKey = 'player_max_arena_wins';
+  static const String _arenaChallengeCountKey = 'player_arena_challenge_count';
+  static const String _accountCreatedAtKey = 'player_account_created_at';
+  static const String _totalMatchesKey = 'player_total_matches';
+  static const String _totalWinsKey = 'player_total_wins';
+  static const String _totalLossesKey = 'player_total_losses';
+  static const String _maxComboKey = 'player_max_combo';
+  static const String _wazaCountsKey = 'player_waza_counts_json';
+  static const String _matchHistoryKey = 'player_match_history_json';
   static const int _debugBuildCoins = 1000000;
 
   final Random _random = Random();
@@ -51,6 +111,25 @@ class PlayerDataManager {
   String _lastDailyReset = '';
   List<Map<String, dynamic>> _currentMissions = [];
   List<String> _dailyShopItems = [];
+  String _playerName = '';
+  String _playerId = '';
+  List<String> _equippedBadgeIds = [];
+  int _currentRating = 1000;
+  String _equippedBallSkinId = 'default';
+  int _highestRating = 1000;
+  int _maxArenaWins = 0;
+  int _arenaChallengeCount = 0;
+  DateTime _accountCreatedAt = DateTime.now();
+  int _totalMatches = 0;
+  int _totalWins = 0;
+  int _totalLosses = 0;
+  int _maxCombo = 0;
+  Map<String, int> _wazaCounts = {
+    'straight': 0,
+    'pyramid': 0,
+    'hexagon': 0,
+  };
+  List<MatchHistoryEntry> _matchHistory = [];
 
   int get coins => _coins;
   int get exp => _exp;
@@ -67,6 +146,37 @@ class PlayerDataManager {
       .map((mission) => Map<String, dynamic>.from(mission))
       .toList();
   List<String> get dailyShopItems => List.unmodifiable(_dailyShopItems);
+  String get playerName => _playerName;
+  String get displayPlayerName =>
+      _playerName.trim().isEmpty ? 'プレイヤー' : _playerName.trim();
+  String get playerId => _playerId;
+  List<String> get equippedBadgeIds => List.unmodifiable(_equippedBadgeIds);
+  int get currentRating => _currentRating;
+  String get equippedBallSkinId => _equippedBallSkinId;
+  int get highestRating => _highestRating;
+  int get maxArenaWins => _maxArenaWins;
+  int get arenaChallengeCount => _arenaChallengeCount;
+  DateTime get accountCreatedAt => _accountCreatedAt;
+  Duration get accountAge => DateTime.now().difference(_accountCreatedAt);
+  int get totalMatches => _totalMatches;
+  int get totalWins => _totalWins;
+  int get totalLosses => _totalLosses;
+  int get maxCombo => _maxCombo;
+  Map<String, int> get wazaCounts => Map.unmodifiable(_wazaCounts);
+  List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
+  List<String> get unlockedBadgeIds => BadgeCatalog.allBadges
+      .where(
+        (badge) => badge.unlockedCondition.isUnlocked(
+          highestRating: _highestRating,
+          maxArenaWins: _maxArenaWins,
+          accountAge: accountAge,
+          totalWins: _totalWins,
+          maxCombo: _maxCombo,
+          wazaCounts: _wazaCounts,
+        ),
+      )
+      .map((badge) => badge.id)
+      .toList();
 
   Future<List<GameItem>> getOwnedItems() async {
     await load();
@@ -122,11 +232,62 @@ class PlayerDataManager {
       }
     }
 
+    var shouldSaveProfile = false;
+    var shouldSaveStats = false;
+    _playerName = prefs.getString(_playerNameKey) ?? '';
+    _playerId = prefs.getString(_playerIdKey) ?? '';
+    if (_playerId.isEmpty) {
+      _playerId = _generatePlayerId();
+      shouldSaveProfile = true;
+    }
+    _equippedBadgeIds = _stringListFromJson(
+      prefs.getString(_equippedBadgeIdsKey),
+    ).take(2).toList();
+    _currentRating = prefs.getInt(_currentRatingKey) ?? 1000;
+    _highestRating = max(
+      prefs.getInt(_highestRatingKey) ?? _currentRating,
+      _currentRating,
+    );
+    _equippedBallSkinId = prefs.getString(_equippedBallSkinIdKey) ?? 'default';
+
+    final createdAtRaw = prefs.getString(_accountCreatedAtKey);
+    final parsedCreatedAt = DateTime.tryParse(createdAtRaw ?? '');
+    if (parsedCreatedAt == null) {
+      _accountCreatedAt = DateTime.now();
+      shouldSaveStats = true;
+    } else {
+      _accountCreatedAt = parsedCreatedAt;
+    }
+    _maxArenaWins = prefs.getInt(_maxArenaWinsKey) ?? 0;
+    _arenaChallengeCount = prefs.getInt(_arenaChallengeCountKey) ?? 0;
+    _totalMatches = prefs.getInt(_totalMatchesKey) ?? 0;
+    _totalWins = prefs.getInt(_totalWinsKey) ?? 0;
+    _totalLosses = prefs.getInt(_totalLossesKey) ?? 0;
+    _maxCombo = prefs.getInt(_maxComboKey) ?? 0;
+    _wazaCounts = {
+      'straight': 0,
+      'pyramid': 0,
+      'hexagon': 0,
+      ..._intMapFromJson(prefs.getString(_wazaCountsKey)),
+    };
+    _matchHistory = _historyFromJson(prefs.getString(_matchHistoryKey));
+
     _loaded = true;
+
+    _equippedBadgeIds = _equippedBadgeIds
+        .where((id) => unlockedBadgeIds.contains(id))
+        .take(2)
+        .toList();
 
     if (_debugControlsEnabled && _coins != _debugBuildCoins) {
       _coins = _debugBuildCoins;
       await _saveEconomy();
+    }
+    if (shouldSaveProfile) {
+      await _savePublicProfile();
+    }
+    if (shouldSaveStats) {
+      await _saveStats();
     }
   }
 
@@ -293,6 +454,83 @@ class PlayerDataManager {
     await _saveDailyData();
   }
 
+  Future<void> setPlayerName(String name) async {
+    await load();
+    _playerName = name.trim();
+    await _savePublicProfile();
+  }
+
+  Future<void> setCurrentRating(int rating) async {
+    await load();
+    _currentRating = rating;
+    _highestRating = max(_highestRating, rating);
+    await _savePublicProfile();
+    await _saveStats();
+  }
+
+  Future<void> setEquippedBadgeIds(List<String> badgeIds) async {
+    await load();
+    final unlocked = unlockedBadgeIds.toSet();
+    _equippedBadgeIds =
+        badgeIds.where((id) => unlocked.contains(id)).toSet().take(2).toList();
+    await _savePublicProfile();
+  }
+
+  Future<void> setEquippedBallSkinId(String skinId) async {
+    await load();
+    _equippedBallSkinId = skinId.trim().isEmpty ? 'default' : skinId.trim();
+    await _savePublicProfile();
+  }
+
+  Future<void> recordArenaChallengeStarted() async {
+    await load();
+    _arenaChallengeCount++;
+    await _saveStats();
+  }
+
+  Future<void> updateMaxArenaWins(int wins) async {
+    await load();
+    _maxArenaWins = max(_maxArenaWins, wins);
+    await _saveStats();
+  }
+
+  Future<void> recordMatchResult({
+    required bool isWin,
+    required String mode,
+    required String opponentName,
+    required int maxCombo,
+    required Map<String, int> wazaCounts,
+    int? ratingAfter,
+  }) async {
+    await load();
+    _totalMatches++;
+    if (isWin) {
+      _totalWins++;
+    } else {
+      _totalLosses++;
+    }
+    _maxCombo = max(_maxCombo, maxCombo);
+    for (final entry in wazaCounts.entries) {
+      _wazaCounts[entry.key] = (_wazaCounts[entry.key] ?? 0) + entry.value;
+    }
+    if (ratingAfter != null) {
+      _currentRating = ratingAfter;
+      _highestRating = max(_highestRating, ratingAfter);
+    }
+    _matchHistory = [
+      MatchHistoryEntry(
+        isWin: isWin,
+        opponentName: opponentName.trim().isEmpty ? 'UNKNOWN' : opponentName,
+        mode: mode,
+        playedAt: DateTime.now(),
+        ratingAfter: ratingAfter,
+      ),
+      ..._matchHistory,
+    ].take(20).toList();
+    await _savePublicProfile();
+    await _saveStats();
+  }
+
   Future<void> _saveEconomy() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_coinsKey, _coins);
@@ -312,6 +550,37 @@ class PlayerDataManager {
   Future<void> _saveAll() async {
     await _saveEconomy();
     await _saveItems();
+    await _savePublicProfile();
+    await _saveStats();
+  }
+
+  Future<void> _savePublicProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_playerNameKey, _playerName);
+    await prefs.setString(_playerIdKey, _playerId);
+    await prefs.setString(_equippedBadgeIdsKey, jsonEncode(_equippedBadgeIds));
+    await prefs.setInt(_currentRatingKey, _currentRating);
+    await prefs.setString(_equippedBallSkinIdKey, _equippedBallSkinId);
+  }
+
+  Future<void> _saveStats() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_highestRatingKey, _highestRating);
+    await prefs.setInt(_maxArenaWinsKey, _maxArenaWins);
+    await prefs.setInt(_arenaChallengeCountKey, _arenaChallengeCount);
+    await prefs.setString(
+      _accountCreatedAtKey,
+      _accountCreatedAt.toIso8601String(),
+    );
+    await prefs.setInt(_totalMatchesKey, _totalMatches);
+    await prefs.setInt(_totalWinsKey, _totalWins);
+    await prefs.setInt(_totalLossesKey, _totalLosses);
+    await prefs.setInt(_maxComboKey, _maxCombo);
+    await prefs.setString(_wazaCountsKey, jsonEncode(_wazaCounts));
+    await prefs.setString(
+      _matchHistoryKey,
+      jsonEncode(_matchHistory.map((entry) => entry.toJson()).toList()),
+    );
   }
 
   Future<void> _saveDailyData() async {
@@ -381,5 +650,73 @@ class PlayerDataManager {
 
   String _todayKey() {
     return DateTime.now().toLocal().toIso8601String().split('T').first;
+  }
+
+  String _generatePlayerId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    return List.generate(8, (_) => chars[_random.nextInt(chars.length)]).join();
+  }
+
+  List<String> _stringListFromJson(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return [];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded.map((item) => '$item').toList();
+      }
+    } catch (_) {
+      return [];
+    }
+    return [];
+  }
+
+  Map<String, int> _intMapFromJson(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return {};
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return {
+          for (final entry in decoded.entries)
+            entry.key.toString(): _intValue(entry.value) ?? 0,
+        };
+      }
+    } catch (_) {
+      return {};
+    }
+    return {};
+  }
+
+  List<MatchHistoryEntry> _historyFromJson(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return [];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map(
+              (entry) => MatchHistoryEntry.fromJson(
+                Map<String, dynamic>.from(entry),
+              ),
+            )
+            .take(20)
+            .toList();
+      }
+    } catch (_) {
+      return [];
+    }
+    return [];
+  }
+
+  int? _intValue(Object? value) {
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse('$value');
   }
 }

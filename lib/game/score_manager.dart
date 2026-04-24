@@ -5,7 +5,7 @@ class ScoreState {
   final int score;
   final int level;
   final int totalClearedBalls;
-  
+
   ScoreState({
     required this.score,
     required this.level,
@@ -21,9 +21,13 @@ class ScoreManager {
   ));
 
   int _chain = 0;
+  int _maxChain = 0;
+
+  int get maxChainThisRun => _maxChain;
 
   void reset() {
     _chain = 0;
+    _maxChain = 0;
     state.value = ScoreState(
       score: 0,
       level: 1,
@@ -39,14 +43,19 @@ class ScoreManager {
     if (ballsDestroyed == 0) return;
 
     _chain++; // 今回の消去で連鎖を加算
+    if (_chain > _maxChain) {
+      _maxChain = _chain;
+    }
 
     int baseScore = ballsDestroyed * 100;
     double shapeMultiplier = highestWaza.multiplier;
     double chainMultiplier = 1.0 + (_chain - 1) * 0.5;
     double levelMultiplier = 1.0 + (state.value.level * 0.1);
 
-    int earnedScore = (baseScore * shapeMultiplier * chainMultiplier * levelMultiplier).toInt();
-    
+    int earnedScore =
+        (baseScore * shapeMultiplier * chainMultiplier * levelMultiplier)
+            .toInt();
+
     int newTotalCleared = state.value.totalClearedBalls + ballsDestroyed;
     // 60個ごとに1レベルアップ
     int newLevel = 1 + (newTotalCleared ~/ 60);
