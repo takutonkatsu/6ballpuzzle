@@ -273,6 +273,7 @@ class MultiplayerManager {
   bool _isMatchFound = false;
   bool _isMatchmakingAttemptInProgress = false;
   bool _opponentDisconnectNotified = false;
+  bool? _presencePreserveMode;
   DateTime? _matchmakingStartedAt;
   String? _activeMatchmakingPath;
 
@@ -305,6 +306,22 @@ class MultiplayerManager {
     await PlayerDataManager.instance.load();
     final iconId = PlayerDataManager.instance.equippedPlayerIconId.trim();
     return iconId.isEmpty ? 'default' : iconId;
+  }
+
+  Future<Map<String, Object?>> _buildPlayerPayload({
+    required String status,
+    int? rating,
+  }) async {
+    final badgeIds = await _currentEquippedBadgeIds();
+    final playerIconId = await _currentEquippedPlayerIconId();
+    return {
+      'status': status,
+      'name': displayPlayerName,
+      'uid': myUid,
+      if (rating != null) 'rating': rating,
+      'badgeIds': badgeIds,
+      'playerIconId': playerIconId,
+    };
   }
 
   Future<int> initializeUser({String? name}) async {
@@ -479,10 +496,10 @@ class MultiplayerManager {
   Future<String> createRoom() async {
     try {
       await leaveRoom();
+      await initializeUser();
 
       for (int attempt = 0; attempt < 10; attempt++) {
-        final badgeIds = await _currentEquippedBadgeIds();
-        final playerIconId = await _currentEquippedPlayerIconId();
+        final hostData = await _buildPlayerPayload(status: 'waiting');
         final roomId = (_random.nextInt(9000) + 1000).toString();
         final roomRef = _db.child('rooms/$roomId');
         final existing = await roomRef.get();
@@ -496,12 +513,7 @@ class MultiplayerManager {
           'status': 'waiting',
           'seed': seed,
           'players': {
-            'host': {
-              'status': 'waiting',
-              'name': displayPlayerName,
-              'badgeIds': badgeIds,
-              'playerIconId': playerIconId,
-            },
+            'host': hostData,
           },
         });
 
@@ -514,18 +526,14 @@ class MultiplayerManager {
           seed: seed,
           isRanked: false,
           players: {
-            'host': MultiplayerPlayer(
-              status: 'waiting',
-              name: displayPlayerName,
-              badgeIds: badgeIds,
-              playerIconId: playerIconId,
-            ),
+            'host': MultiplayerPlayer.fromMap(hostData),
           },
         );
         _lastRoomStatus = currentRoom!.status;
         _hadOpponentPresent = false;
         _opponentDisconnectNotified = false;
-        await _setupPresence();
+        _presencePreserveMode = null;
+        await _syncPresenceMode();
         _listenRoom();
         _listenGameplayChannels();
         return roomId;
@@ -540,6 +548,7 @@ class MultiplayerManager {
   Future<bool> joinRoom(String roomId) async {
     try {
       await leaveRoom();
+      await initializeUser();
 
       final roomRef = _db.child('rooms/$roomId');
       final snapshot = await roomRef.get();
@@ -552,16 +561,11 @@ class MultiplayerManager {
         return false;
       }
 
-      final guestBadgeIds = await _currentEquippedBadgeIds();
-      final guestPlayerIconId = await _currentEquippedPlayerIconId();
-      final guestData = <String, Object?>{
-        'status': 'waiting',
-        'name': displayPlayerName,
-        'badgeIds': guestBadgeIds,
-        'playerIconId': guestPlayerIconId,
-      };
+      final guestData = await _buildPlayerPayload(
+        status: 'waiting',
+        rating: room.isRanked ? currentRating : null,
+      );
       if (room.isRanked) {
-        guestData['uid'] = myUid;
         guestData['rating'] = currentRating;
       }
 
@@ -577,20 +581,14 @@ class MultiplayerManager {
         isRanked: room.isRanked,
         players: {
           ...room.players,
-          'guest': MultiplayerPlayer(
-            status: 'waiting',
-            name: displayPlayerName,
-            uid: room.isRanked ? myUid : null,
-            rating: room.isRanked ? currentRating : null,
-            badgeIds: guestBadgeIds,
-            playerIconId: guestPlayerIconId,
-          ),
+          'guest': MultiplayerPlayer.fromMap(guestData),
         },
       );
       _lastRoomStatus = currentRoom!.status;
       _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
       _opponentDisconnectNotified = false;
-      await _setupPresence();
+      _presencePreserveMode = null;
+      await _syncPresenceMode();
       _listenRoom();
       _listenGameplayChannels();
       return true;
@@ -1375,8 +1373,10 @@ class MultiplayerManager {
       throw StateError('ユーザーIDの初期化に失敗しました。');
     }
 
-    final badgeIds = await _currentEquippedBadgeIds();
-    final playerIconId = await _currentEquippedPlayerIconId();
+    final hostData = await _buildPlayerPayload(
+      status: 'waiting',
+      rating: myRating,
+    );
     final seed = DateTime.now().millisecondsSinceEpoch;
     final roomRef = _db.child('rooms/$roomId');
     await roomRef.set({
@@ -1389,14 +1389,7 @@ class MultiplayerManager {
         'guestUid': opponentUid,
       },
       'players': {
-        'host': {
-          'status': 'waiting',
-          'name': displayPlayerName,
-          'uid': uid,
-          'rating': myRating,
-          'badgeIds': badgeIds,
-          'playerIconId': playerIconId,
-        },
+        'host': hostData,
       },
     });
 
@@ -1409,20 +1402,14 @@ class MultiplayerManager {
       seed: seed,
       isRanked: true,
       players: {
-        'host': MultiplayerPlayer(
-          status: 'waiting',
-          name: displayPlayerName,
-          uid: uid,
-          rating: myRating,
-          badgeIds: badgeIds,
-          playerIconId: playerIconId,
-        ),
+        'host': MultiplayerPlayer.fromMap(hostData),
       },
     );
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = false;
     _opponentDisconnectNotified = false;
-    await _setupPresence();
+    _presencePreserveMode = null;
+    await _syncPresenceMode();
     _listenRoom();
     _listenGameplayChannels();
   }
@@ -1437,8 +1424,10 @@ class MultiplayerManager {
       throw StateError('ユーザーIDの初期化に失敗しました。');
     }
 
-    final badgeIds = await _currentEquippedBadgeIds();
-    final playerIconId = await _currentEquippedPlayerIconId();
+    final hostData = await _buildPlayerPayload(
+      status: 'waiting',
+      rating: currentRating,
+    );
     final seed = DateTime.now().millisecondsSinceEpoch;
     final roomRef = _db.child('rooms/$roomId');
     await roomRef.set({
@@ -1451,14 +1440,7 @@ class MultiplayerManager {
         'wins': currentWins,
       },
       'players': {
-        'host': {
-          'status': 'waiting',
-          'name': displayPlayerName,
-          'uid': uid,
-          'rating': currentRating,
-          'badgeIds': badgeIds,
-          'playerIconId': playerIconId,
-        },
+        'host': hostData,
       },
     });
 
@@ -1471,20 +1453,14 @@ class MultiplayerManager {
       seed: seed,
       isRanked: true,
       players: {
-        'host': MultiplayerPlayer(
-          status: 'waiting',
-          name: displayPlayerName,
-          uid: uid,
-          rating: currentRating,
-          badgeIds: badgeIds,
-          playerIconId: playerIconId,
-        ),
+        'host': MultiplayerPlayer.fromMap(hostData),
       },
     );
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = false;
     _opponentDisconnectNotified = false;
-    await _setupPresence();
+    _presencePreserveMode = null;
+    await _syncPresenceMode();
     _listenRoom();
     _listenGameplayChannels();
   }
@@ -1561,6 +1537,7 @@ class MultiplayerManager {
     _hadOpponentPresent = false;
     _isLaunchingRematch = false;
     _opponentDisconnectNotified = false;
+    _presencePreserveMode = null;
   }
 
   Future<void> _clearGuestInvite(String opponentUid, String roomId) async {
@@ -1925,6 +1902,7 @@ class MultiplayerManager {
     required String roomId,
     required String roleId,
   }) async {
+    await initializeUser();
     final snapshot = await _db.child('rooms/$roomId').get();
     if (!snapshot.exists) {
       throw StateError('ルームが見つかりません。');
@@ -1944,6 +1922,7 @@ class MultiplayerManager {
             : 'waiting';
     await _db.child('rooms/$roomId/players/$roleId').update({
       'name': displayPlayerName,
+      'uid': myUid,
       'badgeIds': await _currentEquippedBadgeIds(),
       'playerIconId': await _currentEquippedPlayerIconId(),
       if (restoredStatus != null) 'status': restoredStatus,
@@ -1955,7 +1934,8 @@ class MultiplayerManager {
     _lastRoomStatus = currentRoom!.status;
     _hadOpponentPresent = currentRoom!.players.containsKey(opponentRoleId);
     _opponentDisconnectNotified = false;
-    await _setupPresence();
+    _presencePreserveMode = null;
+    await _syncPresenceMode();
     _listenRoom();
     _listenGameplayChannels();
   }
@@ -2364,6 +2344,7 @@ class MultiplayerManager {
 
       currentRoom = room;
       _lastRoomStatus = room.status;
+      unawaited(_refreshPresenceModeIfNeeded());
       onRoomUpdated?.call(room);
     });
   }
@@ -2508,7 +2489,7 @@ class MultiplayerManager {
     onOpponentDisconnected?.call();
   }
 
-  Future<void> cancelLobby() => leaveRoom();
+  Future<void> cancelLobby() => leaveRoom(forceRemove: true);
 
   Future<void> suspendActiveSession() async {
     _roomSubscription?.cancel();
@@ -2536,10 +2517,10 @@ class MultiplayerManager {
     onRematchStarted = null;
   }
 
-  Future<void> leaveRoom() async {
+  Future<void> leaveRoom({bool forceRemove = false}) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
-    final preserveRoom = _shouldPreserveRoomOnDisconnect;
+    final preserveRoom = forceRemove ? false : _shouldPreserveRoomOnDisconnect;
 
     _roomSubscription?.cancel();
     _opponentBoardSubscription?.cancel();
@@ -2584,6 +2565,7 @@ class MultiplayerManager {
     _hadOpponentPresent = false;
     _isLaunchingRematch = false;
     _opponentDisconnectNotified = false;
+    _presencePreserveMode = null;
     onRoomUpdated = null;
     onOpponentBoardUpdated = null;
     onOpponentPieceUpdated = null;
@@ -2683,15 +2665,35 @@ class MultiplayerManager {
     return _globalIntValue(value);
   }
 
-  Future<void> _setupPresence() async {
+  Future<void> _refreshPresenceModeIfNeeded() async {
+    try {
+      await _syncPresenceMode();
+    } catch (_) {
+      // 接続設定の再同期失敗は次のルーム更新で再試行する。
+    }
+  }
+
+  Future<void> _syncPresenceMode() async {
+    final preserveRoom = _shouldPreserveRoomOnDisconnect;
+    if (_presencePreserveMode == preserveRoom) {
+      return;
+    }
+    await _configurePresenceHandlers(preserveRoom: preserveRoom);
+  }
+
+  Future<void> _configurePresenceHandlers({
+    required bool preserveRoom,
+  }) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
     if (roomId == null || roleId == null) {
       return;
     }
 
-    final preserveRoom = _shouldPreserveRoomOnDisconnect;
-    final playerRef = _db.child('rooms/$roomId/players/$roleId');
+    final roomRef = _db.child('rooms/$roomId');
+    final playerRef = roomRef.child('players/$roleId');
+    await playerRef.onDisconnect().cancel();
+    await roomRef.onDisconnect().cancel();
     if (preserveRoom) {
       await playerRef.onDisconnect().update({
         'status': 'left',
@@ -2699,20 +2701,22 @@ class MultiplayerManager {
       });
     } else {
       if (roleId == 'host') {
-        await _db.child('rooms/$roomId').onDisconnect().remove();
+        await roomRef.onDisconnect().remove();
       } else {
         await playerRef.onDisconnect().remove();
-        await _db
-            .child('rooms/$roomId')
-            .onDisconnect()
-            .update({'status': 'waiting'});
+        await roomRef.onDisconnect().update({'status': 'waiting'});
       }
     }
+    _presencePreserveMode = preserveRoom;
   }
 
   bool get _shouldPreserveRoomOnDisconnect {
     final room = currentRoom;
-    return isRankedMode || (room?.isRanked ?? false) || room?.status == 'playing';
+    return isRankedMode ||
+        (room?.isRanked ?? false) ||
+        (room?.hasGuest ?? false) ||
+        room?.status == 'playing' ||
+        room?.status == 'game_over';
   }
 
   Future<void> _startRematch(String roomId) async {

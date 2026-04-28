@@ -3072,7 +3072,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _cpuGame?.pauseEngine();
     await _stopBattleBgm();
     if (_isOnlineMode) {
-      await _multiplayerManager.leaveRoom();
+      if (!_onlineGameStarted && !widget.isRankedMode) {
+        await _multiplayerManager.cancelLobby();
+      } else {
+        await _multiplayerManager.leaveRoom();
+      }
     }
     if (!mounted) {
       return;
