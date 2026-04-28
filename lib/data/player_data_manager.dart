@@ -30,6 +30,7 @@ class MatchHistoryEntry {
     required this.mode,
     required this.playedAt,
     this.ratingAfter,
+    this.ratingDelta,
   });
 
   final bool isWin;
@@ -37,6 +38,7 @@ class MatchHistoryEntry {
   final String mode;
   final DateTime playedAt;
   final int? ratingAfter;
+  final int? ratingDelta;
 
   Map<String, dynamic> toJson() {
     return {
@@ -45,6 +47,7 @@ class MatchHistoryEntry {
       'mode': mode,
       'playedAt': playedAt.toIso8601String(),
       if (ratingAfter != null) 'ratingAfter': ratingAfter,
+      if (ratingDelta != null) 'ratingDelta': ratingDelta,
     };
   }
 
@@ -56,6 +59,7 @@ class MatchHistoryEntry {
       playedAt: DateTime.tryParse(json['playedAt']?.toString() ?? '') ??
           DateTime.now(),
       ratingAfter: _intValue(json['ratingAfter']),
+      ratingDelta: _intValue(json['ratingDelta']),
     );
   }
 
@@ -529,6 +533,7 @@ class PlayerDataManager {
     required int maxCombo,
     required Map<String, int> wazaCounts,
     int? ratingAfter,
+    int? ratingDelta,
   }) async {
     await load();
     _totalMatches++;
@@ -553,9 +558,34 @@ class PlayerDataManager {
         mode: mode,
         playedAt: DateTime.now(),
         ratingAfter: ratingAfter,
+        ratingDelta: ratingDelta,
       ),
       ..._matchHistory,
     ].take(20).toList();
+    await _savePublicProfile();
+    await _saveStats();
+  }
+
+  Future<void> updateLatestRankedHistory({
+    required int ratingAfter,
+    required int ratingDelta,
+  }) async {
+    await load();
+    final index = _matchHistory.indexWhere((entry) => entry.mode == 'RANKED');
+    if (index == -1) {
+      return;
+    }
+    final target = _matchHistory[index];
+    _matchHistory[index] = MatchHistoryEntry(
+      isWin: target.isWin,
+      opponentName: target.opponentName,
+      mode: target.mode,
+      playedAt: target.playedAt,
+      ratingAfter: ratingAfter,
+      ratingDelta: ratingDelta,
+    );
+    _currentRating = ratingAfter;
+    _highestRating = max(_highestRating, ratingAfter);
     await _savePublicProfile();
     await _saveStats();
   }

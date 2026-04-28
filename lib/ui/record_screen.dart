@@ -73,7 +73,7 @@ class _RecordScreenState extends State<RecordScreen> {
         _statGrid([
           _StatItem('総プレイ回数', '${_playerData.totalMatches}'),
           _StatItem('ランク戦', '${counts['RANKED'] ?? 0}'),
-          _StatItem('闘技場', '${counts['ARENA'] ?? 0}'),
+          _StatItem('アリーナ', '${counts['ARENA'] ?? 0}'),
           _StatItem('CPU戦', '${counts['CPU'] ?? 0}'),
           _StatItem('1Pモード', '${counts['SOLO'] ?? 0}'),
           _StatItem('フレンド対戦', '${counts['FRIEND'] ?? 0}'),
@@ -83,8 +83,8 @@ class _RecordScreenState extends State<RecordScreen> {
           _StatItem('勝利', '${_playerData.totalWins}'),
           _StatItem('敗北', '${_playerData.totalLosses}'),
           _StatItem('最高レート', '${_playerData.highestRating}'),
-          _StatItem('闘技場最高勝利', '${_playerData.maxArenaWins}'),
-          _StatItem('闘技場挑戦回数', '${_playerData.arenaChallengeCount}'),
+          _StatItem('アリーナ最高勝利', '${_playerData.maxArenaWins}'),
+          _StatItem('アリーナ挑戦回数', '${_playerData.arenaChallengeCount}'),
         ]),
       ],
     );
@@ -302,13 +302,31 @@ class _RecordScreenState extends State<RecordScreen> {
               ],
             ),
           ),
-          if (entry.ratingAfter != null)
-            Text(
-              '${entry.ratingAfter}',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontWeight: FontWeight.bold,
-              ),
+          if (entry.mode == 'RANKED' && entry.ratingAfter != null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '${entry.ratingAfter}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (entry.ratingDelta != null)
+                  Text(
+                    entry.ratingDelta! >= 0
+                        ? '+${entry.ratingDelta}'
+                        : '${entry.ratingDelta}',
+                    style: TextStyle(
+                      color: entry.ratingDelta! >= 0
+                          ? Colors.cyanAccent
+                          : Colors.pinkAccent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+              ],
             ),
         ],
       ),
@@ -338,7 +356,7 @@ class _RecordScreenState extends State<RecordScreen> {
   String _localizedMode(String mode) {
     return switch (mode) {
       'RANKED' => 'ランク戦',
-      'ARENA' => '闘技場',
+      'ARENA' => 'アリーナ',
       'CPU' => 'CPU戦',
       'SOLO' => '1Pモード',
       'FRIEND' => 'フレンド対戦',

@@ -136,23 +136,23 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                     Positioned(
                       top: 20,
                       child: MiniBallWidget(
+                        ballColor: BallColor.red,
+                        size: 52,
+                      ),
+                    ),
+                    Positioned(
+                      left: 15,
+                      bottom: 18,
+                      child: MiniBallWidget(
                         ballColor: BallColor.blue,
                         size: 52,
                       ),
                     ),
                     Positioned(
-                      left: 24,
-                      bottom: 24,
+                      right: 15,
+                      bottom: 18,
                       child: MiniBallWidget(
                         ballColor: BallColor.green,
-                        size: 52,
-                      ),
-                    ),
-                    Positioned(
-                      right: 24,
-                      bottom: 24,
-                      child: MiniBallWidget(
-                        ballColor: BallColor.red,
                         size: 52,
                       ),
                     ),
@@ -161,23 +161,34 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
               ),
               const SizedBox(height: 28),
               const Text(
-                '6-BALL PUZZLE',
+                'ヘキサゴン',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 28,
+                  fontSize: 30,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: 3,
+                  letterSpacing: 2,
                 ),
               ),
               const SizedBox(height: 10),
-              Text(
-                'Takutonkatsu',
+              const Text(
+                '6ボール対戦パズル',
+                textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
+                  color: Colors.white70,
                   fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '2026©Takutonkatsu',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 1.2,
+                  letterSpacing: 0.8,
                 ),
               ),
               const Spacer(),

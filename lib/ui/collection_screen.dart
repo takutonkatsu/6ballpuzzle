@@ -178,6 +178,9 @@ class _CollectionScreenState extends State<CollectionScreen>
             selected: _playerData.equippedPlayerIconId == icon.id,
             onTap: () async {
               await _playerData.setEquippedPlayerIconId(icon.id);
+              await _multiplayerManager.updateUserName(
+                _playerData.playerName,
+              );
               if (!mounted) {
                 return;
               }

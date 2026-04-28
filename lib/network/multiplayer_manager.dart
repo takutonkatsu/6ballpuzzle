@@ -38,6 +38,7 @@ class MultiplayerPlayer {
     this.uid,
     this.rating,
     this.badgeIds = const [],
+    this.playerIconId = 'default',
   });
 
   final String status;
@@ -45,6 +46,7 @@ class MultiplayerPlayer {
   final String? uid;
   final int? rating;
   final List<String> badgeIds;
+  final String playerIconId;
 
   factory MultiplayerPlayer.fromMap(Map<dynamic, dynamic>? data) {
     return MultiplayerPlayer(
@@ -53,6 +55,9 @@ class MultiplayerPlayer {
       uid: data?['uid'] as String?,
       rating: _intValue(data?['rating']),
       badgeIds: _stringList(data?['badgeIds']),
+      playerIconId: ((data?['playerIconId']?.toString() ?? '').trim()).isNotEmpty
+          ? data!['playerIconId'].toString().trim()
+          : 'default',
     );
   }
 
@@ -192,6 +197,7 @@ class SavedSessionResolution {
     required this.isResolved,
     this.isWin,
     this.newRating,
+    this.ratingDelta,
     this.opponentName,
   });
 
@@ -199,6 +205,7 @@ class SavedSessionResolution {
   final bool isResolved;
   final bool? isWin;
   final int? newRating;
+  final int? ratingDelta;
   final String? opponentName;
 }
 
@@ -291,6 +298,12 @@ class MultiplayerManager {
     return PlayerDataManager.instance.equippedBadgeIds.toList();
   }
 
+  Future<String> _currentEquippedPlayerIconId() async {
+    await PlayerDataManager.instance.load();
+    final iconId = PlayerDataManager.instance.equippedPlayerIconId.trim();
+    return iconId.isEmpty ? 'default' : iconId;
+  }
+
   Future<int> initializeUser({String? name}) async {
     if (name != null) {
       setPlayerName(name);
@@ -306,10 +319,12 @@ class MultiplayerManager {
       final syncedRating = _intValue(userData?['rating']) ?? currentRating;
       currentRating = syncedRating;
       final badgeIds = await _currentEquippedBadgeIds();
+      final playerIconId = await _currentEquippedPlayerIconId();
       await userRef.update({
         'name': displayPlayerName,
         'rating': syncedRating,
         'badgeIds': badgeIds,
+        'playerIconId': playerIconId,
         'updatedAt': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
@@ -328,11 +343,23 @@ class MultiplayerManager {
 
     try {
       final badgeIds = await _currentEquippedBadgeIds();
+      final playerIconId = await _currentEquippedPlayerIconId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'badgeIds': badgeIds,
+        'playerIconId': playerIconId,
         'updatedAt': ServerValue.timestamp,
       });
+      final roomId = currentRoomId;
+      final roleId = myRoleId;
+      if (roomId != null && roleId != null) {
+        await _db.child('rooms/$roomId/players/$roleId').update({
+          'name': displayPlayerName,
+          'badgeIds': badgeIds,
+          'playerIconId': playerIconId,
+          'updatedAt': ServerValue.timestamp,
+        });
+      }
     } on FirebaseException {
       // 名前のオンライン同期失敗はローカル保存と画面操作を止めない。
     }
@@ -367,10 +394,12 @@ class MultiplayerManager {
 
     try {
       final badgeIds = await _currentEquippedBadgeIds();
+      final playerIconId = await _currentEquippedPlayerIconId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'rating': newRating,
         'badgeIds': badgeIds,
+        'playerIconId': playerIconId,
         'updatedAt': ServerValue.timestamp,
       });
 
@@ -450,6 +479,7 @@ class MultiplayerManager {
 
       for (int attempt = 0; attempt < 10; attempt++) {
         final badgeIds = await _currentEquippedBadgeIds();
+        final playerIconId = await _currentEquippedPlayerIconId();
         final roomId = (_random.nextInt(9000) + 1000).toString();
         final roomRef = _db.child('rooms/$roomId');
         final existing = await roomRef.get();
@@ -467,6 +497,7 @@ class MultiplayerManager {
               'status': 'waiting',
               'name': displayPlayerName,
               'badgeIds': badgeIds,
+              'playerIconId': playerIconId,
             },
           },
         });
@@ -484,6 +515,7 @@ class MultiplayerManager {
               status: 'waiting',
               name: displayPlayerName,
               badgeIds: badgeIds,
+              playerIconId: playerIconId,
             ),
           },
         );
@@ -517,10 +549,13 @@ class MultiplayerManager {
         return false;
       }
 
+      final guestBadgeIds = await _currentEquippedBadgeIds();
+      final guestPlayerIconId = await _currentEquippedPlayerIconId();
       final guestData = <String, Object?>{
         'status': 'waiting',
         'name': displayPlayerName,
-        'badgeIds': await _currentEquippedBadgeIds(),
+        'badgeIds': guestBadgeIds,
+        'playerIconId': guestPlayerIconId,
       };
       if (room.isRanked) {
         guestData['uid'] = myUid;
@@ -544,7 +579,8 @@ class MultiplayerManager {
             name: displayPlayerName,
             uid: room.isRanked ? myUid : null,
             rating: room.isRanked ? currentRating : null,
-            badgeIds: guestData['badgeIds'] as List<String>,
+            badgeIds: guestBadgeIds,
+            playerIconId: guestPlayerIconId,
           ),
         },
       );
@@ -1048,12 +1084,14 @@ class MultiplayerManager {
   }
 
   Future<void> _writeWaitingMatchmakingEntry(String uid, int myRating) async {
+    final playerIconId = await _currentEquippedPlayerIconId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
       'roomId': null,
       'role': null,
       'name': displayPlayerName,
+      'playerIconId': playerIconId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1063,12 +1101,14 @@ class MultiplayerManager {
     String uid,
     int currentWins,
   ) async {
+    final playerIconId = await _currentEquippedPlayerIconId();
     await _db.child('arena_matchmaking/$uid').set({
       'status': 'waiting',
       'wins': currentWins,
       'roomId': null,
       'role': null,
       'name': displayPlayerName,
+      'playerIconId': playerIconId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1079,9 +1119,11 @@ class MultiplayerManager {
     int myRating,
   ) async {
     try {
+      final playerIconId = await _currentEquippedPlayerIconId();
       await _db.child('matchmaking/$uid').update({
         'rating': myRating,
         'name': displayPlayerName,
+        'playerIconId': playerIconId,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -1094,9 +1136,11 @@ class MultiplayerManager {
     int currentWins,
   ) async {
     try {
+      final playerIconId = await _currentEquippedPlayerIconId();
       await _db.child('arena_matchmaking/$uid').update({
         'wins': currentWins,
         'name': displayPlayerName,
+        'playerIconId': playerIconId,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -1284,12 +1328,14 @@ class MultiplayerManager {
       return;
     }
 
+    final playerIconId = await _currentEquippedPlayerIconId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
       'roomId': null,
       'role': null,
       'name': displayPlayerName,
+      'playerIconId': playerIconId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1303,12 +1349,14 @@ class MultiplayerManager {
       return;
     }
 
+    final playerIconId = await _currentEquippedPlayerIconId();
     await _db.child('arena_matchmaking/$uid').set({
       'status': 'waiting',
       'wins': currentWins,
       'roomId': null,
       'role': null,
       'name': displayPlayerName,
+      'playerIconId': playerIconId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1325,6 +1373,7 @@ class MultiplayerManager {
     }
 
     final badgeIds = await _currentEquippedBadgeIds();
+    final playerIconId = await _currentEquippedPlayerIconId();
     final seed = DateTime.now().millisecondsSinceEpoch;
     final roomRef = _db.child('rooms/$roomId');
     await roomRef.set({
@@ -1343,6 +1392,7 @@ class MultiplayerManager {
           'uid': uid,
           'rating': myRating,
           'badgeIds': badgeIds,
+          'playerIconId': playerIconId,
         },
       },
     });
@@ -1362,6 +1412,7 @@ class MultiplayerManager {
           uid: uid,
           rating: myRating,
           badgeIds: badgeIds,
+          playerIconId: playerIconId,
         ),
       },
     );
@@ -1384,6 +1435,7 @@ class MultiplayerManager {
     }
 
     final badgeIds = await _currentEquippedBadgeIds();
+    final playerIconId = await _currentEquippedPlayerIconId();
     final seed = DateTime.now().millisecondsSinceEpoch;
     final roomRef = _db.child('rooms/$roomId');
     await roomRef.set({
@@ -1402,6 +1454,7 @@ class MultiplayerManager {
           'uid': uid,
           'rating': currentRating,
           'badgeIds': badgeIds,
+          'playerIconId': playerIconId,
         },
       },
     });
@@ -1421,6 +1474,7 @@ class MultiplayerManager {
           uid: uid,
           rating: currentRating,
           badgeIds: badgeIds,
+          playerIconId: playerIconId,
         ),
       },
     );
@@ -1724,32 +1778,136 @@ class MultiplayerManager {
       final opponent = room.players[opponentRoleId];
       final opponentStatus = opponent?.status;
       final resultSnapshot =
-          await _db.child('rooms/${session.roomId}/results/$myRoleId').get();
-      final resultData = resultSnapshot.value is Map
-          ? resultSnapshot.value as Map
+          await _db.child('rooms/${session.roomId}/results').get();
+      final resultsMap = resultSnapshot.value is Map
+          ? resultSnapshot.value as Map<dynamic, dynamic>
           : null;
-      final explicitIsWin = resultData == null ? null : resultData['isWin'] == true;
+      Map<dynamic, dynamic>? resultData = resultsMap?[myRoleId] is Map
+          ? resultsMap![myRoleId] as Map<dynamic, dynamic>
+          : null;
+      final opponentResultData = resultsMap?[opponentRoleId] is Map
+          ? resultsMap![opponentRoleId] as Map<dynamic, dynamic>
+          : null;
+      final resumableSnapshot = await loadRoomBattleSnapshot(
+        roomId: session.roomId,
+        roleId: myRoleId,
+      );
+      final mirroredIsWin =
+          opponentResultData == null ? null : opponentResultData['isWin'] != true;
+      final explicitIsWin =
+          resultData == null ? mirroredIsWin : resultData['isWin'] == true;
+      final statusInferredIsWin = myStatus == 'dead'
+          ? false
+          : opponentStatus == 'dead'
+              ? true
+              : null;
+      final inferredIsWin = explicitIsWin ?? statusInferredIsWin;
+      if (session.isRankedMode &&
+          !session.isArenaMode &&
+          inferredIsWin != null &&
+          resultData == null) {
+        resultData = await _ensureRankedResultRecorded(
+          room: room,
+          myRoleId: myRoleId,
+          isWin: inferredIsWin,
+          existingOpponentResult: opponentResultData,
+        );
+      }
       final newRating = resultData == null
           ? await _loadLatestUserRating()
           : _intValue(resultData['newRating']) ?? await _loadLatestUserRating();
-      final inferredIsWin = explicitIsWin ??
-          (myStatus == 'dead'
-              ? false
-              : opponentStatus == 'dead'
-                  ? true
-                  : null);
-      final isResolved = room.status == 'game_over' || inferredIsWin != null;
+      final ratingDelta =
+          resultData == null ? null : _intValue(resultData['delta']);
+      final hasResumeData = (resumableSnapshot != null && resumableSnapshot.isNotEmpty) ||
+          session.snapshot != null;
+      final unrecoverablePlayingRoom = room.status == 'playing' &&
+          myStatus == 'left' &&
+          opponentStatus == 'left' &&
+          !hasResumeData;
+      final isResolved = room.status == 'game_over' ||
+          inferredIsWin != null ||
+          unrecoverablePlayingRoom;
 
       return SavedSessionResolution(
         session: session,
         isResolved: isResolved,
         isWin: inferredIsWin,
         newRating: newRating,
+        ratingDelta: ratingDelta,
         opponentName: opponent?.name,
       );
     } catch (_) {
       return SavedSessionResolution(session: session, isResolved: false);
     }
+  }
+
+  Future<Map<dynamic, dynamic>?> _ensureRankedResultRecorded({
+    required MultiplayerRoom room,
+    required String myRoleId,
+    required bool isWin,
+    Map<dynamic, dynamic>? existingOpponentResult,
+  }) async {
+    final roomId = room.roomId;
+    final opponentRoleId = myRoleId == 'host' ? 'guest' : 'host';
+    final myPlayer = room.players[myRoleId];
+    final opponentPlayer = room.players[opponentRoleId];
+    if (myPlayer == null) {
+      return null;
+    }
+
+    final myUidValue = myPlayer.uid ?? myUid ?? await _loadOrCreateUid();
+    myUid = myUidValue;
+    final myOldRating = myPlayer.rating ?? await _loadLatestUserRating();
+    final opponentOldRating = opponentPlayer?.rating ?? myOldRating;
+    final myNewRating = calculateNewRating(
+      myOldRating,
+      opponentOldRating,
+      isWin,
+    );
+    final myDelta = myNewRating - myOldRating;
+
+    final myResult = <String, Object?>{
+      'uid': myUidValue,
+      'isWin': isWin,
+      'oldRating': myOldRating,
+      'newRating': myNewRating,
+      'delta': myDelta,
+      'resolvedBy': myUidValue,
+      'timestamp': ServerValue.timestamp,
+    };
+
+    await _db.child('users/$myUidValue').update({
+      'rating': myNewRating,
+      'updatedAt': ServerValue.timestamp,
+    });
+    await _db.child('rooms/$roomId/results/$myRoleId').set(myResult);
+
+    if (existingOpponentResult == null &&
+        opponentPlayer?.uid != null &&
+        opponentPlayer?.rating != null) {
+      final opponentUidValue = opponentPlayer!.uid!;
+      final opponentNewRating = calculateNewRating(
+        opponentPlayer.rating!,
+        myOldRating,
+        !isWin,
+      );
+      final opponentDelta = opponentNewRating - opponentPlayer.rating!;
+      await _db.child('users/$opponentUidValue').update({
+        'rating': opponentNewRating,
+        'updatedAt': ServerValue.timestamp,
+      });
+      await _db.child('rooms/$roomId/results/$opponentRoleId').set({
+        'uid': opponentUidValue,
+        'isWin': !isWin,
+        'oldRating': opponentPlayer.rating,
+        'newRating': opponentNewRating,
+        'delta': opponentDelta,
+        'resolvedBy': myUidValue,
+        'timestamp': ServerValue.timestamp,
+      });
+    }
+
+    return myResult;
   }
 
   Future<void> restoreSession({
@@ -1776,6 +1934,7 @@ class MultiplayerManager {
     await _db.child('rooms/$roomId/players/$roleId').update({
       'name': displayPlayerName,
       'badgeIds': await _currentEquippedBadgeIds(),
+      'playerIconId': await _currentEquippedPlayerIconId(),
       if (restoredStatus != null) 'status': restoredStatus,
       'reconnectedAt': ServerValue.timestamp,
     });
@@ -1855,12 +2014,57 @@ class MultiplayerManager {
     required String roleId,
   }) async {
     try {
-      final snapshotEvent =
-          await _db.child('rooms/$roomId/players/$roleId/snapshot').get();
+      final playerEvent = await _db.child('rooms/$roomId/players/$roleId').get();
+      final playerData = playerEvent.value is Map
+          ? playerEvent.value as Map<dynamic, dynamic>
+          : null;
+      final snapshotEvent = await _db.child('rooms/$roomId/players/$roleId/snapshot').get();
       Map<String, dynamic>? resolvedSnapshot;
       if (snapshotEvent.value is Map) {
         resolvedSnapshot =
             Map<String, dynamic>.from(snapshotEvent.value as Map<dynamic, dynamic>);
+      } else if (playerData != null) {
+        final board = playerData['board'];
+        final activePiece = playerData['activePiece'];
+        resolvedSnapshot = {
+          if (board is Map) 'board': _stringDynamicMap(board),
+          if (activePiece is Map) 'activePiece': _stringDynamicMap(activePiece),
+          if (activePiece is Map && activePiece['nextColors'] != null)
+            'nextColors': _dynamicList(activePiece['nextColors']),
+        };
+      }
+
+      if (playerData != null) {
+        final mergedSnapshot = Map<String, dynamic>.from(
+          resolvedSnapshot ?? const {},
+        );
+        final board = playerData['board'];
+        final boardMap = board is Map ? _stringDynamicMap(board) : null;
+        final snapshotBoard = mergedSnapshot['board'];
+        final snapshotBoardMap =
+            snapshotBoard is Map ? _stringDynamicMap(snapshotBoard) : null;
+        if (boardMap != null &&
+            (boardMap.isNotEmpty ||
+                snapshotBoardMap == null ||
+                snapshotBoardMap.isEmpty)) {
+          mergedSnapshot['board'] = boardMap;
+        }
+
+        final activePiece = playerData['activePiece'];
+        if (activePiece is Map) {
+          mergedSnapshot['activePiece'] = _stringDynamicMap(activePiece);
+          if (activePiece['nextColors'] != null) {
+            mergedSnapshot['nextColors'] =
+                _dynamicList(activePiece['nextColors']);
+          }
+        }
+
+        final proxyControlledBy = playerData['proxyControlledBy'];
+        if (proxyControlledBy != null && '$proxyControlledBy'.isNotEmpty) {
+          mergedSnapshot['proxyControlledBy'] = '$proxyControlledBy';
+        }
+
+        resolvedSnapshot = mergedSnapshot;
       }
 
       final proxyQueueEvent =
@@ -1869,6 +2073,10 @@ class MultiplayerManager {
           .map(_ojamaTaskFromMap)
           .whereType<OjamaTask>()
           .toList();
+      if (queuedTasks.isEmpty &&
+          (resolvedSnapshot == null || resolvedSnapshot.isEmpty)) {
+        return null;
+      }
       if (queuedTasks.isEmpty) {
         return resolvedSnapshot;
       }

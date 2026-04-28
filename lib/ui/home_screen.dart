@@ -1307,7 +1307,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     const SizedBox(height: 2),
                     Text(
-                      '闘技場',
+                      'アリーナ',
                       textAlign:
                           alignment.x > 0 ? TextAlign.right : TextAlign.left,
                       style: TextStyle(
@@ -1345,7 +1345,7 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.lightBlueAccent,
-          title: 'ARENA再入場',
+          title: 'アリーナ再入場',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1399,12 +1399,12 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.lightBlueAccent,
-          title: 'ARENA入場',
+          title: 'アリーナ入場',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                'ARENAに入場しますか？',
+                'アリーナに入場しますか？',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white70,
@@ -1453,7 +1453,7 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.lightBlueAccent,
-          title: 'ARENA報酬',
+          title: 'アリーナ報酬',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2192,7 +2192,7 @@ class _HomeScreenState extends State<HomeScreen>
           builder: (dialogContext) {
             return _buildCyberDialog(
               accentColor: Colors.lightBlueAccent,
-              title: '闘技場',
+              title: 'アリーナ',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -2300,7 +2300,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (dialogOpen) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      await _showAlert(context, '闘技場マッチ失敗', '$error');
+      await _showAlert(context, 'アリーナマッチ失敗', '$error');
     } finally {
       if (mounted) {
         setState(() {
@@ -2593,7 +2593,11 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    final mode = resolution.session.isArenaMode ? 'ARENA' : 'RANKED';
+    final mode = resolution.session.isArenaMode
+        ? 'ARENA'
+        : resolution.session.isRankedMode
+            ? 'RANKED'
+            : 'FRIEND';
     await _playerDataManager.recordMatchResult(
       isWin: isWin,
       mode: mode,
@@ -2605,6 +2609,7 @@ class _HomeScreenState extends State<HomeScreen>
         'hexagon': 0,
       },
       ratingAfter: resolution.newRating,
+      ratingDelta: resolution.ratingDelta,
     );
     if (resolution.session.isArenaMode) {
       await _arenaManager.recordArenaMatch(isWin);
@@ -3126,14 +3131,14 @@ class _HomeScreenState extends State<HomeScreen>
                           children: [
                             Expanded(
                               child: _buildDebugNumberField(
-                                '闘技場 勝利数',
+                                'アリーナ 勝利数',
                                 arenaWinsController,
                               ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
                               child: _buildDebugNumberField(
-                                '闘技場 敗北数',
+                                'アリーナ 敗北数',
                                 arenaLossesController,
                               ),
                             ),
@@ -3149,7 +3154,7 @@ class _HomeScreenState extends State<HomeScreen>
                           },
                           activeThumbColor: Colors.lightBlueAccent,
                           title: const Text(
-                            '闘技場 エントリー中',
+                            'アリーナ エントリー中',
                             style: TextStyle(
                               color: Colors.white70,
                               fontWeight: FontWeight.bold,

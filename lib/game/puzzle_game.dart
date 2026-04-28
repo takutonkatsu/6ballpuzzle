@@ -86,6 +86,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
   int _pendingPreviewOjamaSpawns = 0;
+  bool _autonomousRemotePreviewEnabled = false;
+  int _remotePreviewRespawnVersion = 0;
   bool isReadyGoText = false;
   double _activePieceSyncCooldown = 0.0;
   bool _suppressNextLandingSfx = false;
@@ -182,6 +184,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     activeOjamaBlocks.clear();
     pendingOjamaSpawns = 0;
     _pendingPreviewOjamaSpawns = 0;
+    _autonomousRemotePreviewEnabled = false;
+    _remotePreviewRespawnVersion++;
     syncDropRng = null;
     _hasRemoteOjamaInFlight = false;
     _remoteOjamaSpawnedAt = null;
@@ -223,6 +227,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (!isRemotePlayerMode) {
       return;
     }
+    _autonomousRemotePreviewEnabled = true;
+    _remotePreviewRespawnVersion++;
 
     int numSets = 1;
     if (task.type == OjamaType.pyramidSet) numSets = 4;
@@ -232,8 +238,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       _pendingPreviewOjamaSpawns++;
       Future<void>.delayed(
         Duration(milliseconds: 2000 + (i * 500)),
-        () {
+        () async {
           _pendingPreviewOjamaSpawns = max(0, _pendingPreviewOjamaSpawns - 1);
+          if (gameStateWrapper.value != GameState.playing) {
+            return;
+          }
+          await _waitForRemotePieceSettlement();
           if (gameStateWrapper.value != GameState.playing) {
             return;
           }
@@ -270,6 +280,18 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       startColor: task.type == OjamaType.straightSet ? task.startColor : null,
       presetColors: _colorsForOjamaSet(task),
     );
+  }
+
+  Future<void> _waitForRemotePieceSettlement() async {
+    if (!isRemotePlayerMode) {
+      return;
+    }
+    for (var i = 0; i < 30; i++) {
+      if (activePiece == null || activePiece!.isLocked) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
   }
 
   void gameOver() {
@@ -655,6 +677,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _suppressNextLandingSfx = false;
 
     await _processGravityAndMatches();
+    if (isRemotePlayerMode && _autonomousRemotePreviewEnabled) {
+      _scheduleRemotePreviewRespawn();
+    }
   }
 
   bool _isProcessingGravity = false;
@@ -818,7 +843,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
             var task = incomingOjama.removeFirst();
             _dropOjamaTask(task);
             return;
-          } else if (activePiece == null) {
+          } else if (activePiece == null && !isRemotePlayerMode) {
             _isSpawning = true;
             await Future.delayed(const Duration(milliseconds: 500));
             if (gameStateWrapper.value != GameState.playing ||
@@ -948,6 +973,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _deferredRemoteBoardState = null;
     pendingOjamaSpawns = 0;
     _pendingPreviewOjamaSpawns = 0;
+    _autonomousRemotePreviewEnabled = snapshot['proxyControlledBy'] != null;
+    _remotePreviewRespawnVersion++;
     gameStateWrapper.value = GameState.playing;
 
     final board = snapshot['board'];
@@ -1032,6 +1059,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     );
     _updateHints();
     _notifyBoardUpdated();
+    if (isRemotePlayerMode) {
+      _scheduleRemotePreviewRespawn();
+    } else {
+      unawaited(_processGravityAndMatches());
+    }
   }
 
   void _clearLockedBalls() {
@@ -1087,6 +1119,32 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     ghostPiece = null;
   }
 
+  void setAutonomousRemotePreviewEnabled(bool enabled) {
+    if (!isRemotePlayerMode) {
+      return;
+    }
+    if (_autonomousRemotePreviewEnabled == enabled) {
+      return;
+    }
+    _autonomousRemotePreviewEnabled = enabled;
+    _remotePreviewRespawnVersion++;
+    if (enabled) {
+      _scheduleRemotePreviewRespawn();
+    }
+  }
+
+  void _spawnAutonomousRemotePreviewPiece() {
+    if (!isRemotePlayerMode) {
+      return;
+    }
+    if (nextPieceColors.value.isEmpty) {
+      nextPieceColors.value = _generatePieceColors();
+    }
+    final colors = List<BallColor>.from(nextPieceColors.value);
+    nextPieceColors.value = _generatePieceColors();
+    spawnRemotePiece(colors);
+  }
+
   void spawnRemotePiece(List<BallColor> colors) {
     if (!isRemotePlayerMode) {
       return;
@@ -1111,6 +1169,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     )..priority = 0;
     add(ghostPiece!);
     _updateGhostPosition();
+    if (_autonomousRemotePreviewEnabled) {
+      _notifyBoardUpdated();
+    }
   }
 
   void prepareSyncedOjamaDrop(int dropSeed) {
@@ -1244,6 +1305,29 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       _remoteOjamaSpawnedAt = null;
     }
     _processGravityAndMatches();
+    if (isRemotePlayerMode) {
+      _scheduleRemotePreviewRespawn();
+    }
+  }
+
+  void _scheduleRemotePreviewRespawn() {
+    if (!isRemotePlayerMode || !_autonomousRemotePreviewEnabled) {
+      return;
+    }
+    final respawnVersion = _remotePreviewRespawnVersion;
+    Future<void>.delayed(const Duration(milliseconds: 520), () {
+      if (respawnVersion != _remotePreviewRespawnVersion ||
+          !_autonomousRemotePreviewEnabled ||
+          gameStateWrapper.value != GameState.playing ||
+          activePiece != null ||
+          activeOjamaBlocks.isNotEmpty ||
+          _pendingPreviewOjamaSpawns > 0 ||
+          hasOverflowedDeathLine ||
+          nextPieceColors.value.length != 3) {
+        return;
+      }
+      _spawnAutonomousRemotePreviewPiece();
+    });
   }
 
   bool _shouldDeferRemoteBoardState(Map<String, dynamic> boardData) {
