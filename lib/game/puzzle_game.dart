@@ -22,6 +22,16 @@ import 'game_models.dart';
 
 enum GameState { title, ready, playing, gameover }
 
+class _QueuedPreviewOjamaTask {
+  final OjamaTask task;
+  final DateTime readyAt;
+
+  const _QueuedPreviewOjamaTask({
+    required this.task,
+    required this.readyAt,
+  });
+}
+
 class PuzzleGame extends FlameGame with KeyboardEvents {
   static const String _spawnSfx = '決定ボタンを押す33_スポーン02.mp3';
   static const String _hardDropSfx = 'カーソル移動5_落下02.mp3';
@@ -86,6 +96,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
   int _pendingPreviewOjamaSpawns = 0;
+  final Queue<_QueuedPreviewOjamaTask> _previewOjamaQueue = Queue();
+  bool _isProcessingPreviewOjamaQueue = false;
   bool _autonomousRemotePreviewEnabled = false;
   int _remotePreviewRespawnVersion = 0;
   bool isReadyGoText = false;
@@ -184,6 +196,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     activeOjamaBlocks.clear();
     pendingOjamaSpawns = 0;
     _pendingPreviewOjamaSpawns = 0;
+    _previewOjamaQueue.clear();
+    _isProcessingPreviewOjamaQueue = false;
     _autonomousRemotePreviewEnabled = false;
     _remotePreviewRespawnVersion++;
     syncDropRng = null;
@@ -229,36 +243,90 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     _autonomousRemotePreviewEnabled = true;
     _remotePreviewRespawnVersion++;
+    _pendingPreviewOjamaSpawns += _ojamaSetCountFor(task);
+    _previewOjamaQueue.add(
+      _QueuedPreviewOjamaTask(
+        task: _cloneOjamaTask(task),
+        readyAt: DateTime.now().add(const Duration(seconds: 2)),
+      ),
+    );
+    unawaited(_drainPreviewOjamaQueue());
+  }
 
-    int numSets = 1;
-    if (task.type == OjamaType.pyramidSet) numSets = 4;
-    if (task.type == OjamaType.hexagonSet) numSets = 6;
+  OjamaTask _cloneOjamaTask(OjamaTask task) {
+    return OjamaTask(
+      task.type,
+      startColor: task.startColor,
+      presetColors: task.presetColors == null
+          ? null
+          : List<BallColor>.from(task.presetColors!),
+    );
+  }
+
+  Future<void> _drainPreviewOjamaQueue() async {
+    if (!isRemotePlayerMode || _isProcessingPreviewOjamaQueue) {
+      return;
+    }
+
+    _isProcessingPreviewOjamaQueue = true;
+    try {
+      while (_previewOjamaQueue.isNotEmpty &&
+          gameStateWrapper.value == GameState.playing) {
+        final queuedTask = _previewOjamaQueue.removeFirst();
+        final waitDuration = queuedTask.readyAt.difference(DateTime.now());
+        if (waitDuration > Duration.zero) {
+          await Future<void>.delayed(waitDuration);
+        }
+        if (gameStateWrapper.value != GameState.playing) {
+          return;
+        }
+
+        await _waitForRemotePieceSettlement();
+        if (gameStateWrapper.value != GameState.playing) {
+          return;
+        }
+
+        final numSets = _ojamaSetCountFor(queuedTask.task);
+        await _runPreviewOjamaSequence(queuedTask.task, numSets);
+      }
+    } finally {
+      _isProcessingPreviewOjamaQueue = false;
+    }
+  }
+
+  int _ojamaSetCountFor(OjamaTask task) {
+    if (task.type == OjamaType.pyramidSet) {
+      return 4;
+    }
+    if (task.type == OjamaType.hexagonSet) {
+      return 6;
+    }
+    return 1;
+  }
+
+  Future<void> _runPreviewOjamaSequence(OjamaTask task, int numSets) async {
+    clearRemoteActivePiece();
 
     for (var i = 0; i < numSets; i++) {
-      _pendingPreviewOjamaSpawns++;
-      Future<void>.delayed(
-        Duration(milliseconds: 2000 + (i * 500)),
-        () async {
-          _pendingPreviewOjamaSpawns = max(0, _pendingPreviewOjamaSpawns - 1);
-          if (gameStateWrapper.value != GameState.playing) {
-            return;
-          }
-          await _waitForRemotePieceSettlement();
-          if (gameStateWrapper.value != GameState.playing) {
-            return;
-          }
-          clearRemoteActivePiece();
-          final block = _buildPreviewOjamaBlock(task, i);
-          activeOjamaBlocks.add(block);
-          add(block);
-          if (i == 0 && _playsBoardSfx) {
-            _playSfx(_ojamaSpawnSfx, volume: 0.9);
-          }
-          if (_playsBoardSfx) {
-            _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
-          }
-        },
-      );
+      if (gameStateWrapper.value != GameState.playing) {
+        return;
+      }
+
+      clearRemoteActivePiece();
+      final block = _buildPreviewOjamaBlock(task, i);
+      activeOjamaBlocks.add(block);
+      add(block);
+      if (i == 0 && _playsBoardSfx) {
+        _playSfx(_ojamaSpawnSfx, volume: 0.9);
+      }
+      if (_playsBoardSfx) {
+        _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+      }
+
+      _pendingPreviewOjamaSpawns = max(0, _pendingPreviewOjamaSpawns - 1);
+      if (i < numSets - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
     }
   }
 
@@ -286,7 +354,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (!isRemotePlayerMode) {
       return;
     }
-    for (var i = 0; i < 30; i++) {
+    while (gameStateWrapper.value == GameState.playing) {
       if (activePiece == null || activePiece!.isLocked) {
         return;
       }
@@ -954,6 +1022,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     clearRemoteActivePiece();
     _clearActiveOjamaBlocks();
     incomingOjama.clear();
+    _previewOjamaQueue.clear();
     scoreManager.restoreSnapshot(snapshot['score'] is Map<String, dynamic>
         ? snapshot['score'] as Map<String, dynamic>
         : snapshot['score'] is Map
@@ -973,6 +1042,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _deferredRemoteBoardState = null;
     pendingOjamaSpawns = 0;
     _pendingPreviewOjamaSpawns = 0;
+    _isProcessingPreviewOjamaQueue = false;
     _autonomousRemotePreviewEnabled = snapshot['proxyControlledBy'] != null;
     _remotePreviewRespawnVersion++;
     gameStateWrapper.value = GameState.playing;

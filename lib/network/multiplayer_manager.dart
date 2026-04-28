@@ -232,7 +232,10 @@ class MultiplayerManager {
 
   static const int initialRating = 1000;
   static const String _userIdPrefsKey = 'multiplayer_user_id';
-  static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v1';
+  static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v2';
+  static const List<String> _legacySavedSessionPrefsKeys = [
+    'multiplayer_saved_session_v1',
+  ];
 
   final Random _random = Random();
 
@@ -1730,6 +1733,11 @@ class MultiplayerManager {
   Future<SavedOnlineSession?> loadSavedSession() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      for (final legacyKey in _legacySavedSessionPrefsKeys) {
+        if (prefs.containsKey(legacyKey)) {
+          await prefs.remove(legacyKey);
+        }
+      }
       final raw = prefs.getString(_savedSessionPrefsKey);
       if (raw == null || raw.isEmpty) {
         return null;
@@ -1753,6 +1761,9 @@ class MultiplayerManager {
   Future<void> clearSavedSession() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_savedSessionPrefsKey);
+    for (final legacyKey in _legacySavedSessionPrefsKeys) {
+      await prefs.remove(legacyKey);
+    }
   }
 
   Future<SavedSessionResolution?> inspectSavedSession() async {

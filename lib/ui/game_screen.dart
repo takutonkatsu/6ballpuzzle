@@ -1464,8 +1464,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         titleColor: textColor,
         children: [
           _buildResultExpSummary(),
-          const SizedBox(height: 12),
-          _buildOnlineMatchSummary(),
+          if (!widget.isArenaMode) ...[
+            const SizedBox(height: 12),
+            _buildOnlineMatchSummary(),
+          ],
           if (widget.isArenaMode) ...[
             const SizedBox(height: 12),
             _buildArenaResultSummary(),
