@@ -101,8 +101,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.cyanAccent),
                 ),
-                child: const Icon(
-                  Icons.person,
+                child: Icon(
+                  _playerIconData(_playerData.equippedPlayerIconId),
                   color: Colors.cyanAccent,
                   size: 30,
                 ),
@@ -145,9 +145,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 22),
           _buildRateAndSkin(),
           const SizedBox(height: 22),
-          Row(
+          const Row(
             children: [
-              const Text(
+              Text(
                 'BADGES',
                 style: TextStyle(
                   color: Colors.cyanAccent,
@@ -155,12 +155,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   fontWeight: FontWeight.w900,
                   letterSpacing: 1.5,
                 ),
-              ),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: _showBadgeSheet,
-                icon: const Icon(Icons.workspace_premium, size: 16),
-                label: const Text('装備変更'),
               ),
             ],
           ),
@@ -322,11 +316,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return AlertDialog(
           backgroundColor: const Color(0xFF151827),
           title: const Text('名前変更'),
-          content: TextField(
-            controller: controller,
-            maxLength: 10,
-            maxLengthEnforcement: MaxLengthEnforcement.enforced,
-            decoration: const InputDecoration(counterText: ''),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '・10文字以内\n・不適切な名前の使用はアカウント停止に繋がる恐れがあります',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                maxLength: 10,
+                maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                decoration: const InputDecoration(counterText: ''),
+              ),
+            ],
           ),
           actions: [
             TextButton(
@@ -351,103 +360,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     controller.dispose();
   }
 
-  Future<void> _showBadgeSheet() async {
-    await _playerData.load();
-    final unlocked = _playerData.unlockedBadgeIds.toSet();
-    final selected = _playerData.equippedBadgeIds.toSet();
-
-    if (!mounted) {
-      return;
-    }
-
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF111421),
-      showDragHandle: true,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-                children: [
-                  const Text(
-                    '装備するバッジを2つまで選択',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  for (final badge in BadgeCatalog.allBadges)
-                    _badgeSheetTile(
-                      badge: badge,
-                      unlocked: unlocked.contains(badge.id),
-                      selected: selected.contains(badge.id),
-                      onTap: () {
-                        if (!unlocked.contains(badge.id)) {
-                          return;
-                        }
-                        setSheetState(() {
-                          if (selected.contains(badge.id)) {
-                            selected.remove(badge.id);
-                          } else if (selected.length < 2) {
-                            selected.add(badge.id);
-                          }
-                        });
-                      },
-                    ),
-                  const SizedBox(height: 10),
-                  ElevatedButton(
-                    onPressed: () async {
-                      await _playerData.setEquippedBadgeIds(selected.toList());
-                      if (!context.mounted) {
-                        return;
-                      }
-                      Navigator.of(context).pop();
-                      setState(() {});
-                    },
-                    child: const Text('装備を保存'),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _badgeSheetTile({
-    required BadgeItem badge,
-    required bool unlocked,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return Opacity(
-      opacity: unlocked ? 1 : 0.45,
-      child: ListTile(
-        onTap: onTap,
-        leading: Icon(
-          badge.icon,
-          color: selected ? Colors.amberAccent : Colors.cyanAccent,
-        ),
-        title: Text(badge.label),
-        subtitle: Text(badge.unlockedCondition.description),
-        trailing: selected
-            ? const Icon(Icons.check_circle, color: Colors.greenAccent)
-            : unlocked
-                ? const Icon(Icons.radio_button_unchecked)
-                : const Icon(Icons.lock),
-      ),
-    );
-  }
-
   String _skinLabel(String skinId) {
     return switch (skinId) {
       'skin_neon_chrome' => 'NEON CHROME',
       'skin_black_ice' => 'BLACK ICE',
       _ => 'DEFAULT',
+    };
+  }
+
+  IconData _playerIconData(String iconId) {
+    return switch (iconId) {
+      'bolt' => Icons.bolt,
+      'star' => Icons.star,
+      'gamepad' => Icons.sports_esports,
+      _ => Icons.person,
     };
   }
 }

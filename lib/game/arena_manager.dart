@@ -153,16 +153,10 @@ class ArenaManager {
 
     return ArenaReward(
       coins: coins,
-      exp: wins * 120,
-      gachaTickets: wins >= 12
-          ? 3
-          : wins >= 7
-              ? 2
-              : wins >= 3
-                  ? 1
-                  : 0,
-      cyberScrap: wins * 5,
-      title: wins >= maxWins ? 'ARENA LEGEND' : null,
+      exp: 0,
+      gachaTickets: 0,
+      cyberScrap: 0,
+      title: wins >= maxWins ? 'ARENALEGEND' : null,
     );
   }
 

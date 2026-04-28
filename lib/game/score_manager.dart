@@ -25,6 +25,39 @@ class ScoreManager {
 
   int get maxChainThisRun => _maxChain;
 
+  Map<String, int> exportSnapshot() {
+    return {
+      'score': state.value.score,
+      'level': state.value.level,
+      'totalClearedBalls': state.value.totalClearedBalls,
+      'chain': _chain,
+      'maxChain': _maxChain,
+    };
+  }
+
+  void restoreSnapshot(Map<String, dynamic>? snapshot) {
+    if (snapshot == null) {
+      reset();
+      return;
+    }
+
+    final score = snapshot['score'];
+    final level = snapshot['level'];
+    final totalClearedBalls = snapshot['totalClearedBalls'];
+    final chain = snapshot['chain'];
+    final maxChain = snapshot['maxChain'];
+
+    _chain = chain is num ? chain.toInt() : 0;
+    _maxChain = maxChain is num ? maxChain.toInt() : 0;
+    state.value = ScoreState(
+      score: score is num ? score.toInt() : 0,
+      level: level is num ? level.toInt() : 1,
+      totalClearedBalls: totalClearedBalls is num
+          ? totalClearedBalls.toInt()
+          : 0,
+    );
+  }
+
   void reset() {
     _chain = 0;
     _maxChain = 0;

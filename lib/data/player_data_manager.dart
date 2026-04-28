@@ -88,6 +88,7 @@ class PlayerDataManager {
   static const String _equippedBadgeIdsKey = 'player_equipped_badge_ids_json';
   static const String _currentRatingKey = 'player_current_rating';
   static const String _equippedBallSkinIdKey = 'player_equipped_ball_skin_id';
+  static const String _equippedPlayerIconIdKey = 'player_equipped_player_icon_id';
   static const String _highestRatingKey = 'player_highest_rating';
   static const String _maxArenaWinsKey = 'player_max_arena_wins';
   static const String _arenaChallengeCountKey = 'player_arena_challenge_count';
@@ -98,6 +99,7 @@ class PlayerDataManager {
   static const String _maxComboKey = 'player_max_combo';
   static const String _wazaCountsKey = 'player_waza_counts_json';
   static const String _matchHistoryKey = 'player_match_history_json';
+  static const String _modePlayCountsKey = 'player_mode_play_counts_json';
   static const int _debugBuildCoins = 1000000;
 
   final Random _random = Random();
@@ -116,6 +118,7 @@ class PlayerDataManager {
   List<String> _equippedBadgeIds = [];
   int _currentRating = 1000;
   String _equippedBallSkinId = 'default';
+  String _equippedPlayerIconId = 'default';
   int _highestRating = 1000;
   int _maxArenaWins = 0;
   int _arenaChallengeCount = 0;
@@ -130,6 +133,13 @@ class PlayerDataManager {
     'hexagon': 0,
   };
   List<MatchHistoryEntry> _matchHistory = [];
+  Map<String, int> _modePlayCounts = {
+    'RANKED': 0,
+    'ARENA': 0,
+    'CPU': 0,
+    'SOLO': 0,
+    'FRIEND': 0,
+  };
 
   int get coins => _coins;
   int get exp => _exp;
@@ -153,6 +163,7 @@ class PlayerDataManager {
   List<String> get equippedBadgeIds => List.unmodifiable(_equippedBadgeIds);
   int get currentRating => _currentRating;
   String get equippedBallSkinId => _equippedBallSkinId;
+  String get equippedPlayerIconId => _equippedPlayerIconId;
   int get highestRating => _highestRating;
   int get maxArenaWins => _maxArenaWins;
   int get arenaChallengeCount => _arenaChallengeCount;
@@ -164,6 +175,7 @@ class PlayerDataManager {
   int get maxCombo => _maxCombo;
   Map<String, int> get wazaCounts => Map.unmodifiable(_wazaCounts);
   List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
+  Map<String, int> get modePlayCounts => Map.unmodifiable(_modePlayCounts);
   List<String> get unlockedBadgeIds => BadgeCatalog.allBadges
       .where(
         (badge) => badge.unlockedCondition.isUnlocked(
@@ -249,6 +261,8 @@ class PlayerDataManager {
       _currentRating,
     );
     _equippedBallSkinId = prefs.getString(_equippedBallSkinIdKey) ?? 'default';
+    _equippedPlayerIconId =
+        prefs.getString(_equippedPlayerIconIdKey) ?? 'default';
 
     final createdAtRaw = prefs.getString(_accountCreatedAtKey);
     final parsedCreatedAt = DateTime.tryParse(createdAtRaw ?? '');
@@ -271,6 +285,14 @@ class PlayerDataManager {
       ..._intMapFromJson(prefs.getString(_wazaCountsKey)),
     };
     _matchHistory = _historyFromJson(prefs.getString(_matchHistoryKey));
+    _modePlayCounts = {
+      'RANKED': 0,
+      'ARENA': 0,
+      'CPU': 0,
+      'SOLO': 0,
+      'FRIEND': 0,
+      ..._intMapFromJson(prefs.getString(_modePlayCountsKey)),
+    };
 
     _loaded = true;
 
@@ -482,6 +504,12 @@ class PlayerDataManager {
     await _savePublicProfile();
   }
 
+  Future<void> setEquippedPlayerIconId(String iconId) async {
+    await load();
+    _equippedPlayerIconId = iconId.trim().isEmpty ? 'default' : iconId.trim();
+    await _savePublicProfile();
+  }
+
   Future<void> recordArenaChallengeStarted() async {
     await load();
     _arenaChallengeCount++;
@@ -510,6 +538,7 @@ class PlayerDataManager {
       _totalLosses++;
     }
     _maxCombo = max(_maxCombo, maxCombo);
+    _modePlayCounts[mode] = (_modePlayCounts[mode] ?? 0) + 1;
     for (final entry in wazaCounts.entries) {
       _wazaCounts[entry.key] = (_wazaCounts[entry.key] ?? 0) + entry.value;
     }
@@ -561,6 +590,7 @@ class PlayerDataManager {
     await prefs.setString(_equippedBadgeIdsKey, jsonEncode(_equippedBadgeIds));
     await prefs.setInt(_currentRatingKey, _currentRating);
     await prefs.setString(_equippedBallSkinIdKey, _equippedBallSkinId);
+    await prefs.setString(_equippedPlayerIconIdKey, _equippedPlayerIconId);
   }
 
   Future<void> _saveStats() async {
@@ -577,6 +607,7 @@ class PlayerDataManager {
     await prefs.setInt(_totalLossesKey, _totalLosses);
     await prefs.setInt(_maxComboKey, _maxCombo);
     await prefs.setString(_wazaCountsKey, jsonEncode(_wazaCounts));
+    await prefs.setString(_modePlayCountsKey, jsonEncode(_modePlayCounts));
     await prefs.setString(
       _matchHistoryKey,
       jsonEncode(_matchHistory.map((entry) => entry.toJson()).toList()),

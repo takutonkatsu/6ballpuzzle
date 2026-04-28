@@ -40,9 +40,9 @@ class _RecordScreenState extends State<RecordScreen> {
           title: const Text('レコード'),
           bottom: const TabBar(
             tabs: [
-              Tab(text: 'COMBAT'),
-              Tab(text: 'TECHNIQUE'),
-              Tab(text: 'HISTORY'),
+              Tab(text: '対戦'),
+              Tab(text: 'ワザ'),
+              Tab(text: '履歴'),
             ],
           ),
         ),
@@ -62,14 +62,24 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   Widget _combatTab() {
+    final counts = _playerData.modePlayCounts;
     final winRate = _playerData.totalMatches == 0
         ? 0.0
         : (_playerData.totalWins / _playerData.totalMatches) * 100;
     return _tabList(
       children: [
         _bigStat('勝率', '${winRate.toStringAsFixed(1)}%', Colors.cyanAccent),
+        _sectionTitle('モード別プレイ回数'),
         _statGrid([
-          _StatItem('総対戦数', '${_playerData.totalMatches}'),
+          _StatItem('総プレイ回数', '${_playerData.totalMatches}'),
+          _StatItem('ランク戦', '${counts['RANKED'] ?? 0}'),
+          _StatItem('闘技場', '${counts['ARENA'] ?? 0}'),
+          _StatItem('CPU戦', '${counts['CPU'] ?? 0}'),
+          _StatItem('1Pモード', '${counts['SOLO'] ?? 0}'),
+          _StatItem('フレンド対戦', '${counts['FRIEND'] ?? 0}'),
+        ]),
+        _sectionTitle('全体成績'),
+        _statGrid([
           _StatItem('勝利', '${_playerData.totalWins}'),
           _StatItem('敗北', '${_playerData.totalLosses}'),
           _StatItem('最高レート', '${_playerData.highestRating}'),
@@ -124,6 +134,21 @@ class _RecordScreenState extends State<RecordScreen> {
           .expand((child) => [child, const SizedBox(height: 14)])
           .toList()
         ..removeLast(),
+    );
+  }
+
+  Widget _sectionTitle(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2, bottom: 2),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.8,
+        ),
+      ),
     );
   }
 
@@ -249,7 +274,7 @@ class _RecordScreenState extends State<RecordScreen> {
             width: 46,
             alignment: Alignment.center,
             child: Text(
-              entry.isWin ? 'WIN' : 'LOSE',
+              entry.isWin ? '勝利' : '敗北',
               style: TextStyle(
                 color: color,
                 fontWeight: FontWeight.w900,
@@ -271,7 +296,7 @@ class _RecordScreenState extends State<RecordScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${entry.mode}  ${_formatDate(entry.playedAt)}',
+                  '${_localizedMode(entry.mode)}  ${_formatDate(entry.playedAt)}',
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
               ],
@@ -308,6 +333,17 @@ class _RecordScreenState extends State<RecordScreen> {
     final local = date.toLocal();
     String two(int value) => value.toString().padLeft(2, '0');
     return '${local.year}/${two(local.month)}/${two(local.day)}';
+  }
+
+  String _localizedMode(String mode) {
+    return switch (mode) {
+      'RANKED' => 'ランク戦',
+      'ARENA' => '闘技場',
+      'CPU' => 'CPU戦',
+      'SOLO' => '1Pモード',
+      'FRIEND' => 'フレンド対戦',
+      _ => mode,
+    };
   }
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -6,6 +7,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../data/player_data_manager.dart';
 import '../firebase_options.dart';
 import '../game/game_models.dart';
 
@@ -22,18 +24,27 @@ typedef OpponentGameOverCallback = void Function();
 typedef OpponentDisconnectedCallback = void Function();
 typedef RematchStartedCallback = void Function(int newSeed);
 
+int? _globalIntValue(Object? value) {
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse('$value');
+}
+
 class MultiplayerPlayer {
   const MultiplayerPlayer({
     required this.status,
     this.name = 'Player',
     this.uid,
     this.rating,
+    this.badgeIds = const [],
   });
 
   final String status;
   final String name;
   final String? uid;
   final int? rating;
+  final List<String> badgeIds;
 
   factory MultiplayerPlayer.fromMap(Map<dynamic, dynamic>? data) {
     return MultiplayerPlayer(
@@ -41,6 +52,7 @@ class MultiplayerPlayer {
       name: _normalizePlayerName(data?['name'] as String?),
       uid: data?['uid'] as String?,
       rating: _intValue(data?['rating']),
+      badgeIds: _stringList(data?['badgeIds']),
     );
   }
 
@@ -50,10 +62,22 @@ class MultiplayerPlayer {
   }
 
   static int? _intValue(Object? value) {
-    if (value is num) {
-      return value.toInt();
+    return _globalIntValue(value);
+  }
+
+  static List<String> _stringList(Object? value) {
+    if (value is List) {
+      return value.map((item) => '$item').where((item) => item.isNotEmpty).toList();
     }
-    return int.tryParse('$value');
+    if (value is Map) {
+      final entries = value.entries.toList()
+        ..sort((a, b) => a.key.toString().compareTo(b.key.toString()));
+      return entries
+          .map((entry) => '${entry.value}')
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
+    return const [];
   }
 }
 
@@ -118,6 +142,66 @@ class RankedRatingChange {
   final int delta;
 }
 
+class SavedOnlineSession {
+  const SavedOnlineSession({
+    required this.roomId,
+    required this.roleId,
+    required this.isRankedMode,
+    required this.isArenaMode,
+    required this.savedAt,
+    this.snapshot,
+  });
+
+  final String roomId;
+  final String roleId;
+  final bool isRankedMode;
+  final bool isArenaMode;
+  final int savedAt;
+  final Map<String, dynamic>? snapshot;
+
+  bool get isHost => roleId == 'host';
+
+  Map<String, dynamic> toJson() {
+    return {
+      'roomId': roomId,
+      'roleId': roleId,
+      'isRankedMode': isRankedMode,
+      'isArenaMode': isArenaMode,
+      'savedAt': savedAt,
+      if (snapshot != null) 'snapshot': snapshot,
+    };
+  }
+
+  factory SavedOnlineSession.fromJson(Map<String, dynamic> json) {
+    return SavedOnlineSession(
+      roomId: json['roomId']?.toString() ?? '',
+      roleId: json['roleId']?.toString() ?? '',
+      isRankedMode: json['isRankedMode'] == true,
+      isArenaMode: json['isArenaMode'] == true,
+      savedAt: _globalIntValue(json['savedAt']) ?? 0,
+      snapshot: json['snapshot'] is Map
+          ? Map<String, dynamic>.from(json['snapshot'] as Map)
+          : null,
+    );
+  }
+}
+
+class SavedSessionResolution {
+  const SavedSessionResolution({
+    required this.session,
+    required this.isResolved,
+    this.isWin,
+    this.newRating,
+    this.opponentName,
+  });
+
+  final SavedOnlineSession session;
+  final bool isResolved;
+  final bool? isWin;
+  final int? newRating;
+  final String? opponentName;
+}
+
 class _MatchmakingCandidate {
   const _MatchmakingCandidate({
     required this.uid,
@@ -141,6 +225,7 @@ class MultiplayerManager {
 
   static const int initialRating = 1000;
   static const String _userIdPrefsKey = 'multiplayer_user_id';
+  static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v1';
 
   final Random _random = Random();
   bool _didResetRatingForThisRun = false;
@@ -202,6 +287,11 @@ class MultiplayerManager {
     return database.ref();
   }
 
+  Future<List<String>> _currentEquippedBadgeIds() async {
+    await PlayerDataManager.instance.load();
+    return PlayerDataManager.instance.equippedBadgeIds.toList();
+  }
+
   Future<int> initializeUser({String? name}) async {
     if (name != null) {
       setPlayerName(name);
@@ -221,9 +311,11 @@ class MultiplayerManager {
 
       _didResetRatingForThisRun = true;
       currentRating = syncedRating;
+      final badgeIds = await _currentEquippedBadgeIds();
       await userRef.update({
         'name': displayPlayerName,
         'rating': syncedRating,
+        'badgeIds': badgeIds,
         'updatedAt': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
@@ -241,8 +333,10 @@ class MultiplayerManager {
     }
 
     try {
+      final badgeIds = await _currentEquippedBadgeIds();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
+        'badgeIds': badgeIds,
         'updatedAt': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -278,9 +372,11 @@ class MultiplayerManager {
     currentRating = newRating;
 
     try {
+      final badgeIds = await _currentEquippedBadgeIds();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'rating': newRating,
+        'badgeIds': badgeIds,
         'updatedAt': ServerValue.timestamp,
       });
 
@@ -359,6 +455,7 @@ class MultiplayerManager {
       await leaveRoom();
 
       for (int attempt = 0; attempt < 10; attempt++) {
+        final badgeIds = await _currentEquippedBadgeIds();
         final roomId = (_random.nextInt(9000) + 1000).toString();
         final roomRef = _db.child('rooms/$roomId');
         final existing = await roomRef.get();
@@ -375,6 +472,7 @@ class MultiplayerManager {
             'host': {
               'status': 'waiting',
               'name': displayPlayerName,
+              'badgeIds': badgeIds,
             },
           },
         });
@@ -391,6 +489,7 @@ class MultiplayerManager {
             'host': MultiplayerPlayer(
               status: 'waiting',
               name: displayPlayerName,
+              badgeIds: badgeIds,
             ),
           },
         );
@@ -427,6 +526,7 @@ class MultiplayerManager {
       final guestData = <String, Object?>{
         'status': 'waiting',
         'name': displayPlayerName,
+        'badgeIds': await _currentEquippedBadgeIds(),
       };
       if (room.isRanked) {
         guestData['uid'] = myUid;
@@ -450,6 +550,7 @@ class MultiplayerManager {
             name: displayPlayerName,
             uid: room.isRanked ? myUid : null,
             rating: room.isRanked ? currentRating : null,
+            badgeIds: guestData['badgeIds'] as List<String>,
           ),
         },
       );
@@ -1229,6 +1330,7 @@ class MultiplayerManager {
       throw StateError('ユーザーIDの初期化に失敗しました。');
     }
 
+    final badgeIds = await _currentEquippedBadgeIds();
     final seed = DateTime.now().millisecondsSinceEpoch;
     final roomRef = _db.child('rooms/$roomId');
     await roomRef.set({
@@ -1246,6 +1348,7 @@ class MultiplayerManager {
           'name': displayPlayerName,
           'uid': uid,
           'rating': myRating,
+          'badgeIds': badgeIds,
         },
       },
     });
@@ -1264,6 +1367,7 @@ class MultiplayerManager {
           name: displayPlayerName,
           uid: uid,
           rating: myRating,
+          badgeIds: badgeIds,
         ),
       },
     );
@@ -1285,6 +1389,7 @@ class MultiplayerManager {
       throw StateError('ユーザーIDの初期化に失敗しました。');
     }
 
+    final badgeIds = await _currentEquippedBadgeIds();
     final seed = DateTime.now().millisecondsSinceEpoch;
     final roomRef = _db.child('rooms/$roomId');
     await roomRef.set({
@@ -1302,6 +1407,7 @@ class MultiplayerManager {
           'name': displayPlayerName,
           'uid': uid,
           'rating': currentRating,
+          'badgeIds': badgeIds,
         },
       },
     });
@@ -1320,6 +1426,7 @@ class MultiplayerManager {
           name: displayPlayerName,
           uid: uid,
           rating: currentRating,
+          badgeIds: badgeIds,
         ),
       },
     );
@@ -1533,6 +1640,124 @@ class MultiplayerManager {
     _isMatchmakingAttemptInProgress = false;
   }
 
+  Future<void> saveActiveSession({
+    required bool isArenaMode,
+    Map<String, dynamic>? snapshot,
+  }) async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final session = SavedOnlineSession(
+      roomId: roomId,
+      roleId: roleId,
+      isRankedMode: isRankedMode || (currentRoom?.isRanked ?? false),
+      isArenaMode: isArenaMode,
+      savedAt: DateTime.now().millisecondsSinceEpoch,
+      snapshot: snapshot,
+    );
+    await prefs.setString(_savedSessionPrefsKey, jsonEncode(session.toJson()));
+  }
+
+  Future<void> saveBattleSnapshot(Map<String, dynamic> snapshot) async {
+    final existing = await loadSavedSession();
+    if (existing == null) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final updated = SavedOnlineSession(
+      roomId: existing.roomId,
+      roleId: existing.roleId,
+      isRankedMode: existing.isRankedMode,
+      isArenaMode: existing.isArenaMode,
+      savedAt: DateTime.now().millisecondsSinceEpoch,
+      snapshot: snapshot,
+    );
+    await prefs.setString(_savedSessionPrefsKey, jsonEncode(updated.toJson()));
+  }
+
+  Future<SavedOnlineSession?> loadSavedSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_savedSessionPrefsKey);
+      if (raw == null || raw.isEmpty) {
+        return null;
+      }
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        return null;
+      }
+      final session = SavedOnlineSession.fromJson(
+        Map<String, dynamic>.from(decoded),
+      );
+      if (session.roomId.isEmpty || session.roleId.isEmpty) {
+        return null;
+      }
+      return session;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearSavedSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_savedSessionPrefsKey);
+  }
+
+  Future<SavedSessionResolution?> inspectSavedSession() async {
+    final session = await loadSavedSession();
+    if (session == null) {
+      return null;
+    }
+
+    try {
+      final snapshot = await _db.child('rooms/${session.roomId}').get();
+      if (!snapshot.exists) {
+        return SavedSessionResolution(
+          session: session,
+          isResolved: true,
+          newRating: await _loadLatestUserRating(),
+        );
+      }
+
+      final room = MultiplayerRoom.fromSnapshot(session.roomId, snapshot.value);
+      final myRoleId = session.roleId;
+      final opponentRoleId = myRoleId == 'host' ? 'guest' : 'host';
+      final myStatus = room.players[myRoleId]?.status;
+      final opponent = room.players[opponentRoleId];
+      final opponentStatus = opponent?.status;
+      final resultSnapshot =
+          await _db.child('rooms/${session.roomId}/results/$myRoleId').get();
+      final resultData = resultSnapshot.value is Map
+          ? resultSnapshot.value as Map
+          : null;
+      final explicitIsWin = resultData == null ? null : resultData['isWin'] == true;
+      final newRating = resultData == null
+          ? await _loadLatestUserRating()
+          : _intValue(resultData['newRating']) ?? await _loadLatestUserRating();
+      final inferredIsWin = explicitIsWin ??
+          (myStatus == 'dead'
+              ? false
+              : opponentStatus == 'dead'
+                  ? true
+                  : null);
+      final isResolved = room.status == 'game_over' || inferredIsWin != null;
+
+      return SavedSessionResolution(
+        session: session,
+        isResolved: isResolved,
+        isWin: inferredIsWin,
+        newRating: newRating,
+        opponentName: opponent?.name,
+      );
+    } catch (_) {
+      return SavedSessionResolution(session: session, isResolved: false);
+    }
+  }
+
   Future<void> restoreSession({
     required String roomId,
     required String roleId,
@@ -1547,15 +1772,18 @@ class MultiplayerManager {
     final room = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
     final previousStatus = room.players[roleId]?.status;
     final restoredStatus = room.status == 'game_over' ||
+            room.status == 'playing' ||
             previousStatus == 'dead' ||
-            previousStatus == 'rematch_ready'
+            previousStatus == 'rematch_ready' ||
+            previousStatus == 'ready'
         ? previousStatus
         : 'waiting';
-    await _db.child('rooms/$roomId/players/$roleId').update({
-      'name': displayPlayerName,
-      if (restoredStatus != null) 'status': restoredStatus,
-      'reconnectedAt': ServerValue.timestamp,
-    });
+      await _db.child('rooms/$roomId/players/$roleId').update({
+        'name': displayPlayerName,
+        'badgeIds': await _currentEquippedBadgeIds(),
+        if (restoredStatus != null) 'status': restoredStatus,
+        'reconnectedAt': ServerValue.timestamp,
+      });
     final refreshedSnapshot = await _db.child('rooms/$roomId').get();
     currentRoom = MultiplayerRoom.fromSnapshot(roomId, refreshedSnapshot.value);
     isRankedMode = currentRoom?.isRanked ?? false;
@@ -1713,6 +1941,25 @@ class MultiplayerManager {
       await _db.child('rooms/$roomId').update({'status': 'game_over'});
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('ゲーム終了送信', error));
+    }
+  }
+
+  Future<void> forceOpponentGameOver() async {
+    final roomId = currentRoomId;
+    final opponentRole = myRoleId == 'host' ? 'guest' : 'host';
+    if (roomId == null || myRoleId == null) {
+      throw StateError('参加中のルームがありません。');
+    }
+
+    try {
+      await _db.child('rooms/$roomId/players/$opponentRole').update({
+        'status': 'dead',
+        'resolvedBy': myUid,
+        'resolvedAt': ServerValue.timestamp,
+      });
+      await _db.child('rooms/$roomId').update({'status': 'game_over'});
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('相手側ゲーム終了確定', error));
     }
   }
 
@@ -1921,9 +2168,36 @@ class MultiplayerManager {
 
   Future<void> cancelLobby() => leaveRoom();
 
+  Future<void> suspendActiveSession() async {
+    _roomSubscription?.cancel();
+    _opponentBoardSubscription?.cancel();
+    _opponentPieceSubscription?.cancel();
+    _attackSubscription?.cancel();
+    _stampSubscription?.cancel();
+    _opponentOjamaSpawnSubscription?.cancel();
+    _opponentStatusSubscription?.cancel();
+    _roomSubscription = null;
+    _opponentBoardSubscription = null;
+    _opponentPieceSubscription = null;
+    _attackSubscription = null;
+    _stampSubscription = null;
+    _opponentOjamaSpawnSubscription = null;
+    _opponentStatusSubscription = null;
+    onRoomUpdated = null;
+    onOpponentBoardUpdated = null;
+    onOpponentPieceUpdated = null;
+    onAttackReceived = null;
+    onOpponentOjamaSpawned = null;
+    onOpponentStampReceived = null;
+    onOpponentGameOver = null;
+    onOpponentDisconnected = null;
+    onRematchStarted = null;
+  }
+
   Future<void> leaveRoom() async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
+    final preserveRoom = isRankedMode || (currentRoom?.isRanked ?? false);
 
     _roomSubscription?.cancel();
     _opponentBoardSubscription?.cancel();
@@ -1944,7 +2218,12 @@ class MultiplayerManager {
         await roomRef.child('players/$roleId').onDisconnect().cancel();
         await roomRef.onDisconnect().cancel();
 
-        if (roleId == 'host') {
+        if (preserveRoom) {
+          await roomRef.child('players/$roleId').update({
+            'status': 'left',
+            'disconnectedAt': ServerValue.timestamp,
+          });
+        } else if (roleId == 'host') {
           await roomRef.remove();
         } else {
           await roomRef.child('players/$roleId').remove();
@@ -1968,9 +2247,26 @@ class MultiplayerManager {
     onOpponentPieceUpdated = null;
     onAttackReceived = null;
     onOpponentOjamaSpawned = null;
+    onOpponentStampReceived = null;
     onOpponentGameOver = null;
     onOpponentDisconnected = null;
     onRematchStarted = null;
+  }
+
+  Future<int> _loadLatestUserRating() async {
+    final uid = myUid ?? await _loadOrCreateUid();
+    myUid = uid;
+    try {
+      final snapshot = await _db.child('users/$uid/rating').get();
+      final latest = _intValue(snapshot.value);
+      if (latest != null) {
+        currentRating = latest;
+        return latest;
+      }
+    } catch (_) {
+      // 読み出し失敗時は手元の値をそのまま使う。
+    }
+    return currentRating;
   }
 
   String _firebaseErrorMessage(String action, FirebaseException error) {
@@ -2042,10 +2338,7 @@ class MultiplayerManager {
   }
 
   int? _intValue(Object? value) {
-    if (value is num) {
-      return value.toInt();
-    }
-    return int.tryParse('$value');
+    return _globalIntValue(value);
   }
 
   Future<void> _setupPresence() async {

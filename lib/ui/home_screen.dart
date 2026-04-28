@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app_settings.dart';
 import '../audio/seamless_bgm.dart';
+import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/mission_catalog.dart';
@@ -18,6 +20,7 @@ import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
+import 'collection_screen.dart';
 import 'game_screen.dart';
 import 'profile_screen.dart';
 import 'ranking_screen.dart';
@@ -56,6 +59,10 @@ class _HomeScreenState extends State<HomeScreen>
   late AnimationController _animController;
   bool _isHomeBgmPlaying = false;
 
+  void _playUiTap() {
+    AppSfx.playUiTap();
+  }
+
   List<BallColor> _randomRotatingBallColors() {
     final random = math.Random();
     return List.generate(
@@ -70,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addObserver(this);
     _loadPlayerName();
     unawaited(_loadPlayerEconomy());
+    unawaited(_maybeResumeSavedOnlineSession());
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
@@ -99,6 +107,9 @@ class _HomeScreenState extends State<HomeScreen>
     }
     try {
       _isHomeBgmPlaying = true;
+      await SeamlessBgm.instance.setMasterVolume(
+        AppSettings.instance.musicVolume.value,
+      );
       await SeamlessBgm.instance.play(
         assetPath: 'audio/home_screen_bgm01.wav',
         duration: _homeBgmDuration,
@@ -233,7 +244,10 @@ class _HomeScreenState extends State<HomeScreen>
           child: Row(
             children: [
               InkWell(
-                onTap: () => unawaited(_showLevelDetailsDialog()),
+                onTap: () {
+                  _playUiTap();
+                  unawaited(_showLevelDetailsDialog());
+                },
                 borderRadius: BorderRadius.circular(20),
                 child: Container(
                   padding: EdgeInsets.symmetric(
@@ -370,7 +384,10 @@ class _HomeScreenState extends State<HomeScreen>
         : _playerNameController.text.trim();
 
     return InkWell(
-      onTap: () => unawaited(_openProfileScreen()),
+      onTap: () {
+        _playUiTap();
+        unawaited(_openProfileScreen());
+      },
       borderRadius: BorderRadius.circular(18),
       child: Container(
         height: compact ? 34 : 36,
@@ -447,11 +464,23 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _multiplayerManager.setPlayerName(savedName);
     unawaited(_multiplayerManager.updateUserName(savedName));
+    unawaited(
+      _rankingManager.updateMyRating(
+        rating: _rating,
+        displayName: savedName,
+      ),
+    );
   }
 
   void _openRecordScreen() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const RecordScreen()),
+    );
+  }
+
+  void _openCollectionScreen() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CollectionScreen()),
     );
   }
 
@@ -531,7 +560,7 @@ class _HomeScreenState extends State<HomeScreen>
               _buildRoundIcon(
                 Icons.settings,
                 Colors.purpleAccent,
-                () => unawaited(_showAlert(context, '設定', '設定画面は準備中です。')),
+                () => unawaited(_showSettingsDialog()),
                 tooltip: '設定',
               ),
               const SizedBox(width: 8),
@@ -544,6 +573,13 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 const SizedBox(width: 8),
               ],
+              _buildRoundIcon(
+                Icons.bar_chart,
+                Colors.lightBlueAccent,
+                _openRecordScreen,
+                tooltip: 'レコード',
+              ),
+              const SizedBox(width: 8),
               _buildRoundIcon(
                 Icons.assignment_turned_in,
                 Colors.amberAccent,
@@ -568,7 +604,10 @@ class _HomeScreenState extends State<HomeScreen>
     return Tooltip(
       message: tooltip,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          _playUiTap();
+          onTap();
+        },
         borderRadius: BorderRadius.circular(20),
         child: Stack(
           clipBehavior: Clip.none,
@@ -846,7 +885,10 @@ class _HomeScreenState extends State<HomeScreen>
                 return InkWell(
                   onTap: _isBusy || _isLoadingProfile
                       ? null
-                      : () => _startRandomMatch(context),
+                      : () {
+                          _playUiTap();
+                          _startRandomMatch(context);
+                        },
                   borderRadius: BorderRadius.circular(84),
                   child: Container(
                     width: 150,
@@ -961,7 +1003,12 @@ class _HomeScreenState extends State<HomeScreen>
             : TextAlign.center;
 
     return InkWell(
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : () {
+              _playUiTap();
+              onTap();
+            },
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
@@ -1011,6 +1058,8 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildArenaGridButton(Color accentColor, VoidCallback? onTap,
       {Alignment alignment = Alignment.center}) {
     final isActive = _arenaManager.isArenaActive;
+    final hasFinishedRun = !isActive &&
+        (_arenaManager.currentWins > 0 || _arenaManager.currentLosses > 0);
     final losses = _arenaManager.currentLosses.clamp(0, 3).toInt();
     final lossMarks =
         List.generate(3, (index) => index < losses ? '×' : '·').join(' ');
@@ -1023,11 +1072,26 @@ class _HomeScreenState extends State<HomeScreen>
         _arenaManager.previewRewardForWins(_arenaManager.currentWins);
     final maxReward = _arenaManager.previewRewardForWins(ArenaManager.maxWins);
     final infoText = isActive
-        ? '現在 ${currentReward.coins}コイン'
-        : '5000必要  最大${maxReward.coins}コイン';
+        ? '現在報酬 ${currentReward.coins}コイン'
+        : hasFinishedRun
+            ? '再入場 ${ArenaManager.entryCost}コイン'
+            : '入場 ${ArenaManager.entryCost}コイン';
+    final rewardText = isActive || hasFinishedRun
+        ? '最大報酬 ${maxReward.coins}コイン'
+        : '12勝で ${maxReward.coins}コイン';
+    final badgeLabel = isActive
+        ? '${_arenaManager.currentWins}勝  $lossMarks'
+        : hasFinishedRun
+            ? '${_arenaManager.currentWins}勝  $lossMarks'
+            : '${ArenaManager.entryCost}コイン';
 
     return InkWell(
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : () {
+              _playUiTap();
+              onTap();
+            },
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
@@ -1111,14 +1175,16 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                               ],
                             )
-                          : const Text(
-                              '未入場',
+                          : Text(
+                              badgeLabel,
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
+                                color: hasFinishedRun
+                                    ? Colors.amberAccent
+                                    : Colors.white70,
+                                fontSize: hasFinishedRun ? 12 : 11,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: 0.6,
+                                letterSpacing: 0.4,
                               ),
                             ),
                     ),
@@ -1140,6 +1206,29 @@ class _HomeScreenState extends State<HomeScreen>
                             color: Colors.white70,
                             fontSize: 9.5,
                             fontWeight: FontWeight.w800,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 96),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: alignment.x > 0
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Text(
+                          rewardText,
+                          textAlign: alignment.x > 0
+                              ? TextAlign.right
+                              : TextAlign.left,
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
                             letterSpacing: 0,
                           ),
                         ),
@@ -1175,17 +1264,156 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   String _arenaRewardSummaryText(ArenaReward reward) {
-    final parts = <String>[
-      '${reward.coins}コイン',
-      'EXP ${reward.exp}',
-    ];
-    if (reward.gachaTickets > 0) {
-      parts.add('チケット${reward.gachaTickets}');
-    }
-    if (reward.cyberScrap > 0) {
-      parts.add('スクラップ${reward.cyberScrap}');
+    final parts = <String>['${reward.coins}コイン'];
+    if (reward.title != null) {
+      parts.add(reward.title!);
     }
     return parts.join('  ');
+  }
+
+  bool get _hasArenaFinishedRun =>
+      !_arenaManager.isArenaActive &&
+      (_arenaManager.currentWins >= ArenaManager.maxWins ||
+          _arenaManager.currentLosses >= ArenaManager.maxLosses);
+
+  Future<bool> _showArenaReentryDialog(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.lightBlueAccent,
+          title: 'ARENA再入場',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${_arenaManager.currentWins}勝 ${_arenaManager.currentLosses}敗 の戦績です。\n'
+                '${ArenaManager.entryCost}コインを払って再入場しますか？',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'キャンセル',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: '再入場',
+                      accentColor: Colors.lightBlueAccent,
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    return result == true;
+  }
+
+  Future<void> _showArenaEntryRewardsDialog(BuildContext context) {
+    final milestones = List<int>.generate(ArenaManager.maxWins + 1, (i) => i);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.lightBlueAccent,
+          title: 'ARENA報酬',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '敗北3回で終了 / 12勝で最大報酬',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 300),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      for (final wins in milestones) ...[
+                        _buildArenaRewardMilestone(wins),
+                        if (wins != milestones.last) const SizedBox(height: 8),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildCyberDialogButton(
+                label: 'OK',
+                accentColor: Colors.lightBlueAccent,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildArenaRewardMilestone(int wins) {
+    final reward = _arenaManager.previewRewardForWins(wins);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.lightBlueAccent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Colors.lightBlueAccent.withValues(alpha: 0.32),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black38,
+              borderRadius: BorderRadius.circular(999),
+              border:
+                  Border.all(color: Colors.amberAccent.withValues(alpha: 0.6)),
+            ),
+            child: Text(
+              '$wins勝',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.amberAccent,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _arenaRewardSummaryText(reward),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _missionDisplayTitle(Map<String, dynamic> mission) {
@@ -1207,9 +1435,9 @@ class _HomeScreenState extends State<HomeScreen>
             () => _openDailyShop(context),
           ),
           _buildBottomTextButton(
-            Icons.bar_chart,
-            'レコード',
-            _openRecordScreen,
+            Icons.collections_bookmark,
+            'コレクション',
+            _openCollectionScreen,
           ),
           _buildBottomTextButton(
             Icons.help_outline,
@@ -1236,7 +1464,10 @@ class _HomeScreenState extends State<HomeScreen>
     VoidCallback onTap,
   ) {
     return InkWell(
-      onTap: onTap,
+      onTap: () {
+        _playUiTap();
+        onTap();
+      },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1350,7 +1581,10 @@ class _HomeScreenState extends State<HomeScreen>
     required VoidCallback onTap,
   }) {
     return InkWell(
-      onTap: onTap,
+      onTap: () {
+        _playUiTap();
+        onTap();
+      },
       borderRadius: BorderRadius.circular(10),
       child: Container(
         width: double.infinity,
@@ -1784,6 +2018,15 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       await _arenaManager.load();
       if (!_arenaManager.isArenaActive) {
+        if (_hasArenaFinishedRun) {
+          if (!context.mounted) {
+            return;
+          }
+          final shouldReenter = await _showArenaReentryDialog(context);
+          if (!shouldReenter) {
+            return;
+          }
+        }
         try {
           await _arenaManager.enterArena();
           await _missionManager.recordEvent('enter_arena');
@@ -1798,11 +2041,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (!context.mounted) {
           return;
         }
-        await _showAlert(
-          context,
-          '闘技場に入場しました',
-          '0勝0敗でエントリーしました。もう一度「闘技場」を押すとマッチングを開始します。',
-        );
+        await _showArenaEntryRewardsDialog(context);
         return;
       }
       if (!context.mounted) {
@@ -1898,12 +2137,12 @@ class _HomeScreenState extends State<HomeScreen>
       }
       await _showAlert(context, '闘技場マッチ失敗', '$error');
     } finally {
-      await _multiplayerManager.cancelArenaMatchmaking();
       if (mounted) {
         setState(() {
           _isBusy = false;
         });
       }
+      unawaited(_multiplayerManager.cancelArenaMatchmaking());
     }
   }
 
@@ -2037,6 +2276,9 @@ class _HomeScreenState extends State<HomeScreen>
     BuildContext context, {
     bool isArenaMode = false,
   }) async {
+    if (_isBusy) {
+      return;
+    }
     setState(() {
       _isBusy = true;
     });
@@ -2128,13 +2370,79 @@ class _HomeScreenState extends State<HomeScreen>
       }
       await _showAlert(context, 'ランダムマッチに失敗しました', '$error');
     } finally {
-      await _multiplayerManager.cancelMatchmaking();
       if (mounted) {
         setState(() {
           _isBusy = false;
           _rating = _multiplayerManager.currentRating;
         });
       }
+      unawaited(_multiplayerManager.cancelMatchmaking());
+    }
+  }
+
+  Future<void> _maybeResumeSavedOnlineSession() async {
+    final resolution = await _multiplayerManager.inspectSavedSession();
+    if (!mounted || resolution == null) {
+      return;
+    }
+
+    final session = resolution.session;
+    if (!resolution.isResolved) {
+      unawaited(_stopHomeBgm());
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => GameScreen.online(
+            roomId: session.roomId,
+            isHost: session.isHost,
+            isRankedMode: session.isRankedMode,
+            isArenaMode: session.isArenaMode,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (resolution.newRating != null) {
+      _multiplayerManager.currentRating = resolution.newRating!;
+      unawaited(_playerDataManager.setCurrentRating(resolution.newRating!));
+      unawaited(
+        _rankingManager.updateMyRating(rating: resolution.newRating!),
+      );
+    }
+    await _applyResolvedOnlineSessionLocally(resolution);
+    await _multiplayerManager.clearSavedSession();
+    await _refreshPlayerEconomy();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _rating = resolution.newRating ?? _multiplayerManager.currentRating;
+    });
+  }
+
+  Future<void> _applyResolvedOnlineSessionLocally(
+    SavedSessionResolution resolution,
+  ) async {
+    final isWin = resolution.isWin;
+    if (isWin == null) {
+      return;
+    }
+
+    final mode = resolution.session.isArenaMode ? 'ARENA' : 'RANKED';
+    await _playerDataManager.recordMatchResult(
+      isWin: isWin,
+      mode: mode,
+      opponentName: resolution.opponentName ?? 'UNKNOWN',
+      maxCombo: 0,
+      wazaCounts: const {
+        'straight': 0,
+        'pyramid': 0,
+        'hexagon': 0,
+      },
+      ratingAfter: resolution.newRating,
+    );
+    if (resolution.session.isArenaMode) {
+      await _arenaManager.recordArenaMatch(isWin);
     }
   }
 
@@ -2250,6 +2558,217 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _showSettingsDialog() async {
+    double musicVolume = AppSettings.instance.musicVolume.value;
+    double sfxVolume = AppSettings.instance.sfxVolume.value;
+    var layout = AppSettings.instance.controlLayout.value;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> updateMusic(double value) async {
+              setDialogState(() {
+                musicVolume = value;
+              });
+              await AppSettings.instance.setMusicVolume(value);
+              await SeamlessBgm.instance.setMasterVolume(value);
+            }
+
+            Future<void> updateSfx(double value) async {
+              setDialogState(() {
+                sfxVolume = value;
+              });
+              await AppSettings.instance.setSfxVolume(value);
+            }
+
+            Future<void> updateLayout(ControlLayoutPreset preset) async {
+              setDialogState(() {
+                layout = preset;
+              });
+              await AppSettings.instance.setControlLayout(preset);
+            }
+
+            return _buildCyberDialog(
+              accentColor: Colors.purpleAccent,
+              title: '設定',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildSettingsSectionTitle('オーディオ'),
+                  _buildSettingsSlider(
+                    label: '音楽',
+                    value: musicVolume,
+                    onChanged: updateMusic,
+                  ),
+                  const SizedBox(height: 10),
+                  _buildSettingsSlider(
+                    label: '効果音',
+                    value: sfxVolume,
+                    onChanged: updateSfx,
+                  ),
+                  const SizedBox(height: 18),
+                  _buildSettingsSectionTitle('操作パネル'),
+                  const SizedBox(height: 8),
+                  for (final preset in ControlLayoutPreset.values) ...[
+                    _buildControlLayoutOption(
+                      preset: preset,
+                      selected: preset == layout,
+                      onTap: () => unawaited(updateLayout(preset)),
+                    ),
+                    if (preset != ControlLayoutPreset.values.last)
+                      const SizedBox(height: 10),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildCyberDialogButton(
+                    label: '閉じる',
+                    accentColor: Colors.white54,
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSettingsSectionTitle(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        color: Colors.cyanAccent,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 1.2,
+      ),
+    );
+  }
+
+  Widget _buildSettingsSlider({
+    required String label,
+    required double value,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$label ${(value * 100).round()}%',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Slider(
+            value: value,
+            onChanged: onChanged,
+            activeColor: Colors.cyanAccent,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlLayoutOption({
+    required ControlLayoutPreset preset,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final icons = switch (preset) {
+      ControlLayoutPreset.rotateMoveMoveRotate => const [
+          Icons.rotate_left,
+          Icons.arrow_left,
+          Icons.arrow_right,
+          Icons.rotate_right,
+        ],
+      ControlLayoutPreset.moveMoveRotateRotate => const [
+          Icons.arrow_left,
+          Icons.arrow_right,
+          Icons.rotate_left,
+          Icons.rotate_right,
+        ],
+      ControlLayoutPreset.rotateRotateMoveMove => const [
+          Icons.rotate_left,
+          Icons.rotate_right,
+          Icons.arrow_left,
+          Icons.arrow_right,
+        ],
+      ControlLayoutPreset.moveRotateRotateMove => const [
+          Icons.arrow_left,
+          Icons.rotate_left,
+          Icons.rotate_right,
+          Icons.arrow_right,
+        ],
+    };
+
+    return InkWell(
+      onTap: () {
+        _playUiTap();
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? Colors.cyanAccent.withValues(alpha: 0.12)
+              : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? Colors.cyanAccent.withValues(alpha: 0.72)
+                : Colors.white.withValues(alpha: 0.12),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  for (final icon in icons)
+                    Expanded(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: const Color(0x1100FFFF),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.cyanAccent.withValues(alpha: 0.28),
+                          ),
+                        ),
+                        child: Icon(
+                          icon,
+                          color: Colors.cyanAccent,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            if (selected)
+              const Icon(
+                Icons.check_circle,
+                color: Colors.cyanAccent,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCyberDialog({
     required String title,
     required Widget child,
@@ -2309,7 +2828,10 @@ class _HomeScreenState extends State<HomeScreen>
     required VoidCallback onPressed,
   }) {
     return OutlinedButton(
-      onPressed: onPressed,
+      onPressed: () {
+        _playUiTap();
+        onPressed();
+      },
       style: OutlinedButton.styleFrom(
         foregroundColor: accentColor,
         side: BorderSide(

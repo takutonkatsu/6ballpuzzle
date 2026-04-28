@@ -13,7 +13,8 @@ class SeamlessBgm {
   Timer? _fadeTimer;
   String? _assetPath;
   Duration? _trackDuration;
-  double _volume = 1;
+  double _baseVolume = 1;
+  double _masterVolume = 1;
   bool _usingA = true;
   bool _isPlaying = false;
   int _generation = 0;
@@ -41,6 +42,10 @@ class SeamlessBgm {
     return _enqueue(_stopNow);
   }
 
+  Future<void> setMasterVolume(double volume) {
+    return _enqueue(() => _setMasterVolumeNow(volume));
+  }
+
   Future<void> dispose() async {
     await stop();
     await Future.wait([
@@ -66,11 +71,11 @@ class SeamlessBgm {
     _generation++;
     _assetPath = assetPath;
     _trackDuration = duration;
-    _volume = volume;
+    _baseVolume = volume;
     _usingA = true;
     _isPlaying = true;
 
-    await _prepare(_playerA, assetPath, volume);
+    await _prepare(_playerA, assetPath, _effectiveVolume);
     await _prepare(_playerB, assetPath, 0);
     await _playerA.resume();
     _scheduleNext(_generation);
@@ -104,6 +109,21 @@ class SeamlessBgm {
     await player.setReleaseMode(ReleaseMode.stop);
     await player.setVolume(volume);
     await player.setSource(AssetSource(assetPath));
+  }
+
+  double get _effectiveVolume => (_baseVolume * _masterVolume).clamp(0.0, 1.0);
+
+  Future<void> _setMasterVolumeNow(double volume) async {
+    _masterVolume = volume.clamp(0.0, 1.0);
+    if (!_isPlaying) {
+      return;
+    }
+    final current = _usingA ? _playerA : _playerB;
+    final next = _usingA ? _playerB : _playerA;
+    await Future.wait([
+      current.setVolume(_effectiveVolume),
+      next.setVolume(0),
+    ]);
   }
 
   void _scheduleNext(int generation) {
@@ -150,8 +170,9 @@ class SeamlessBgm {
 
       step++;
       final t = step / steps;
-      unawaited(current.setVolume(_volume * (1 - t)));
-      unawaited(next.setVolume(_volume * t));
+      final effectiveVolume = _effectiveVolume;
+      unawaited(current.setVolume(effectiveVolume * (1 - t)));
+      unawaited(next.setVolume(effectiveVolume * t));
 
       if (step >= steps) {
         timer.cancel();

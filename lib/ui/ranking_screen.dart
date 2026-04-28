@@ -286,7 +286,7 @@ class _RankingScreenState extends State<RankingScreen> {
           ),
           const SizedBox(width: 12),
           Text(
-            'R${entry.rating}',
+            '${entry.rating}',
             style: TextStyle(
               color: accent,
               fontSize: 16,

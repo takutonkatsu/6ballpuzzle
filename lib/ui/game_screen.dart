@@ -5,7 +5,10 @@ import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 
+import '../app_settings.dart';
 import '../audio/seamless_bgm.dart';
+import '../audio/sfx.dart';
+import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
@@ -54,7 +57,7 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen> {
+class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   static const double _gameViewportWidth = 308;
   static const double _gameViewportHeight = 480;
   static const double _gridBallDiameter = 30;
@@ -80,18 +83,22 @@ class _GameScreenState extends State<GameScreen> {
   bool _isDisconnectDialogVisible = false;
   bool _opponentDisconnectedDuringBattle = false;
   bool _isReturningToHome = false;
-  bool _cpuBattleFinished = false;
   bool? _cpuBattlePlayerWon;
   bool _rankedRatingApplied = false;
   RankedRatingChange? _rankedRatingChange;
   Timer? _rankedAutoStartTimer;
   bool _rankedAutoStartScheduled = false;
+  bool _matchingSfxPlayed = false;
+  bool _autoReadyRequested = false;
   String? _readyGoOverlayText;
   bool _isBattleBgmPlaying = false;
+  bool _resultRevealPending = false;
   bool _arenaResultApplied = false;
   ArenaMatchResult? _arenaMatchResult;
   bool _matchExpApplied = false;
   int? _matchExpEarned;
+  bool _soloExpApplied = false;
+  int? _soloExpEarned;
   bool _didLevelUpFromResultExp = false;
   int? _resultLevelAfterExp;
   final Map<WazaType, int> _playerWazaCounts = {
@@ -113,6 +120,11 @@ class _GameScreenState extends State<GameScreen> {
   bool get _showsOpponentBoard => widget.isCpuMode || _isOnlineMode;
   bool get _blocksOnlineExit =>
       _isOnlineMode && _onlineGameStarted && _onlineResultMessage == null;
+  bool get _shouldPreserveOnlineSession =>
+      _isOnlineMode &&
+      !_isReturningToHome &&
+      (widget.isRankedMode || widget.isArenaMode) &&
+      _onlineResultMessage == null;
 
   String get _myDisplayName {
     if (_isOnlineMode) {
@@ -137,16 +149,26 @@ class _GameScreenState extends State<GameScreen> {
   int get _arenaRewardExp => _arenaMatchResult?.reward.exp ?? 0;
 
   int? get _totalResultExpEarned {
-    final matchExp = _matchExpEarned;
-    if (matchExp == null) {
+    final baseExp = _matchExpEarned ?? _soloExpEarned;
+    if (baseExp == null) {
       return null;
     }
-    return matchExp + _arenaRewardExp;
+    return baseExp + _arenaRewardExp;
+  }
+
+  bool get _isFriendMode =>
+      _isOnlineMode && !widget.isRankedMode && !widget.isArenaMode;
+
+  int get _currentPlayerScore => _playerGame.scoreManager.state.value.score;
+
+  void _playUiTap() {
+    AppSfx.playUiTap();
   }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_arenaManager.load().then((_) {
       if (mounted) {
         setState(() {});
@@ -173,6 +195,16 @@ class _GameScreenState extends State<GameScreen> {
         isRemotePlayerMode: true,
         wallColor: Colors.redAccent,
       );
+      _cpuGame!.onGameOverTriggered = () {
+        if (_opponentDisconnectedDuringBattle) {
+          unawaited(
+            _presentBattleResult(
+              playerWon: true,
+              opponentCrossedDeathLine: true,
+            ),
+          );
+        }
+      };
     }
 
     if (_isOnlineMode) {
@@ -187,6 +219,11 @@ class _GameScreenState extends State<GameScreen> {
       _multiplayerManager.onOpponentGameOver = _handleOpponentGameOver;
       _multiplayerManager.onOpponentDisconnected = _handleOpponentDisconnected;
       _multiplayerManager.onRematchStarted = _handleRematchStarted;
+      if (widget.isRankedMode || widget.isArenaMode) {
+        unawaited(_multiplayerManager.saveActiveSession(
+          isArenaMode: widget.isArenaMode,
+        ));
+      }
       if (_room == null && widget.roomId != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _restoreOnlineSession();
@@ -197,9 +234,10 @@ class _GameScreenState extends State<GameScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           unawaited(_startOnlineBattleWithReadyGo(_room!.seed));
         });
-      } else if (widget.isRankedMode && (_room?.bothPlayersJoined ?? false)) {
+      } else if (_room?.bothPlayersJoined ?? false) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scheduleRankedAutoStart(_room!);
+          _playMatchedSfxOnce();
+          unawaited(_attemptAutoReady());
         });
       }
     }
@@ -215,14 +253,19 @@ class _GameScreenState extends State<GameScreen> {
         _cpuGame!.cpuAgent!.setDifficulty(widget.cpuDifficulty);
       }
       _cpuGame!.onGameOverTriggered = () {
-        _finishCpuBattle(playerWon: true);
-        unawaited(_stopBattleBgm());
+        unawaited(
+          _presentBattleResult(
+            playerWon: true,
+            opponentCrossedDeathLine: true,
+          ),
+        );
       };
     }
 
     _playerGame.onBoardUpdated = (boardData) {
       if (_isOnlineMode && _onlineGameStarted) {
         unawaited(_multiplayerManager.sendBoardState(boardData));
+        unawaited(_persistOnlineSessionSnapshot());
       }
     };
     _playerGame.onActivePieceChanged =
@@ -241,30 +284,25 @@ class _GameScreenState extends State<GameScreen> {
                 .toList(),
           ),
         );
+        unawaited(_persistOnlineSessionSnapshot());
       }
     };
     _playerGame.onOjamaSpawned = (ojamaData, dropSeed) {
       if (_isOnlineMode && _onlineGameStarted) {
         unawaited(_multiplayerManager.sendOjamaSpawn(ojamaData, dropSeed));
+        unawaited(_persistOnlineSessionSnapshot());
       }
     };
     _playerGame.onGameOverTriggered = () {
-      unawaited(_stopBattleBgm());
       if (widget.isCpuMode) {
-        _finishCpuBattle(playerWon: false);
+        unawaited(_presentBattleResult(playerWon: false, opponentCrossedDeathLine: false));
         return;
       }
       if (_isOnlineMode) {
-        _freezeBattleBoards();
-        unawaited(_missionManager.recordEvent('play_match'));
-        setState(() {
-          _onlineResultMessage = 'YOU LOSE...';
-          _isWaitingForRematch = false;
-        });
-        unawaited(_applyMatchExpReward(isWin: false));
-        unawaited(_applyRankedRatingResult(isWin: false));
-        unawaited(_recordArenaResult(isWin: false));
         unawaited(_multiplayerManager.declareGameOver());
+        unawaited(_presentBattleResult(playerWon: false, opponentCrossedDeathLine: false));
+      } else {
+        unawaited(_presentBattleResult(playerWon: false, opponentCrossedDeathLine: false));
       }
     };
     _playerGame.onWazaFired = (waza, color) {
@@ -273,6 +311,9 @@ class _GameScreenState extends State<GameScreen> {
         final task = _createOjamaTaskForAttack(waza, color);
         if (task != null) {
           unawaited(_multiplayerManager.sendAttack(task));
+          if (_opponentDisconnectedDuringBattle) {
+            _cpuGame?.simulateOjamaTaskOnPreview(task);
+          }
         }
       } else if (_cpuGame != null) {
         _sendOjamaWithDelay(_cpuGame!, waza, color);
@@ -323,14 +364,32 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_isOnlineMode) {
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_persistOnlineSessionSnapshot());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _clearAllPendingAttacks();
     _rankedAutoStartTimer?.cancel();
     if (!_isReturningToHome) {
       unawaited(_stopBattleBgm());
     }
     if (widget.isOnlineMultiplayer && !_isReturningToHome) {
-      unawaited(_multiplayerManager.leaveRoom());
+      if (_shouldPreserveOnlineSession) {
+        unawaited(_persistOnlineSessionSnapshot());
+        unawaited(_multiplayerManager.suspendActiveSession());
+      } else {
+        unawaited(_multiplayerManager.leaveRoom());
+      }
     }
     _playerFocusNode.dispose();
     super.dispose();
@@ -650,7 +709,7 @@ class _GameScreenState extends State<GameScreen> {
     final rewardText = result?.isCompleted == true && reward != null
         ? reward.title == null
             ? 'コイン +${reward.coins}'
-            : '称号 ${reward.title}'
+            : '称号 ${reward.title} / ${reward.coins}コイン'
         : '$wins勝 $losses敗';
 
     return _buildResultInfoRow(
@@ -692,6 +751,34 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _buildResultScoreSummary() {
+    return _buildResultInfoRow(
+      label: 'SCORE',
+      value: '$_currentPlayerScore',
+      color: Colors.amberAccent,
+    );
+  }
+
+  Widget _buildOnlineMatchSummary() {
+    if (widget.isArenaMode) {
+      final wins = _arenaMatchResult?.wins ?? _arenaManager.currentWins;
+      final losses = _arenaMatchResult?.losses ?? _arenaManager.currentLosses;
+      return _buildResultInfoRow(
+        label: 'ARENA',
+        value: '$wins勝 $losses敗',
+        color: Colors.lightBlueAccent,
+      );
+    }
+    if (widget.isRankedMode) {
+      return _buildRankedRatingChange();
+    }
+    return _buildResultInfoRow(
+      label: 'BATTLE',
+      value: 'FRIEND MATCH',
+      color: Colors.cyanAccent,
     );
   }
 
@@ -858,7 +945,12 @@ class _GameScreenState extends State<GameScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildNameBadge(_myDisplayName, isCpu: false),
+                    _buildNameBadge(
+                      _myDisplayName,
+                      isCpu: false,
+                      roleLabel: 'あなた',
+                      badgeIds: _badgeIdsForRole(_multiplayerManager.myRoleId),
+                    ),
                     const SizedBox(height: 16),
                     _buildNextBadge(
                       game,
@@ -932,7 +1024,13 @@ class _GameScreenState extends State<GameScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildNameBadge(_opponentDisplayName, isCpu: true),
+                    _buildNameBadge(
+                      _opponentDisplayName,
+                      isCpu: true,
+                      roleLabel: '相手',
+                      badgeIds:
+                          _badgeIdsForRole(_multiplayerManager.opponentRoleId),
+                    ),
                     const SizedBox(height: 16),
                     _buildNextBadge(
                       game,
@@ -988,7 +1086,10 @@ class _GameScreenState extends State<GameScreen> {
     return Tooltip(
       message: 'Settings',
       child: InkWell(
-        onTap: _showSettingsMenu,
+        onTap: () {
+          _playUiTap();
+          _showSettingsMenu();
+        },
         borderRadius: BorderRadius.circular(10),
         child: Container(
           width: 38,
@@ -1055,42 +1156,123 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
-  Widget _buildNameBadge(String name, {required bool isCpu}) {
+  Widget _buildNameBadge(
+    String name, {
+    required bool isCpu,
+    required String roleLabel,
+    List<String> badgeIds = const [],
+  }) {
     final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
-    return Container(
-      width: 112,
-      height: 34,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E28),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: neonColor.withValues(alpha: 0.8),
-          width: 1.5,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 112,
+              height: 38,
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E28),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: neonColor.withValues(alpha: 0.8),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: neonColor.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      shadows: [Shadow(color: neonColor, blurRadius: 4)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 6,
+              top: -8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0F0F13),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: neonColor.withValues(alpha: 0.85)),
+                ),
+                child: Text(
+                  roleLabel,
+                  style: TextStyle(
+                    color: neonColor,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: neonColor.withValues(alpha: 0.3),
-            blurRadius: 8,
-          ),
+        if (badgeIds.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          _buildBadgeIconRow(badgeIds),
         ],
-      ),
-      child: Center(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              shadows: [Shadow(color: neonColor, blurRadius: 4)],
+      ],
+    );
+  }
+
+  List<String> _badgeIdsForRole(String? roleId) {
+    if (roleId == null) {
+      return const [];
+    }
+    return _room?.players[roleId]?.badgeIds ?? const [];
+  }
+
+  Widget _buildBadgeIconRow(List<String> badgeIds) {
+    final badges = badgeIds
+        .map(BadgeCatalog.findById)
+        .whereType<BadgeItem>()
+        .take(2)
+        .toList();
+    if (badges.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final badge in badges)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: Colors.amberAccent.withValues(alpha: 0.7),
+              ),
+            ),
+            child: Icon(
+              badge.icon,
+              size: 14,
+              color: Colors.amberAccent,
             ),
           ),
-        ),
-      ),
+      ],
     );
   }
 
@@ -1158,84 +1340,79 @@ class _GameScreenState extends State<GameScreen> {
             return const SizedBox.shrink();
           }
 
-          var message = '待機中';
-          var textColor = Colors.white;
-
           if (pState == GameState.ready) {
-            message = _playerGame.isReadyGoText ? 'GO!' : 'READY';
-            textColor = Colors.orangeAccent;
-          } else if (pState == GameState.gameover ||
-              (cState == GameState.gameover && widget.isCpuMode)) {
-            if (widget.isCpuMode) {
-              final playerWon =
-                  _cpuBattlePlayerWon ?? (pState != GameState.gameover);
-              message = playerWon ? 'YOU WIN!!' : 'YOU LOSE...';
-              textColor = playerWon ? Colors.amberAccent : Colors.blueGrey;
-            } else {
-              message = 'GAME OVER';
-              textColor = Colors.redAccent;
-            }
-          } else {
+            return Container(
+              color: const Color(0xFF0F0F13).withValues(alpha: 0.90),
+              child: Center(
+                child: Text(
+                  _playerGame.isReadyGoText ? 'GO!' : 'READY',
+                  style: const TextStyle(
+                    fontSize: 48,
+                    fontFamily: 'Courier',
+                    fontWeight: FontWeight.w900,
+                    color: Colors.orangeAccent,
+                    letterSpacing: 2,
+                    shadows: [
+                      Shadow(color: Colors.orangeAccent, blurRadius: 16),
+                      Shadow(color: Colors.white, blurRadius: 4),
+                    ],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+
+          final gameOver = pState == GameState.gameover ||
+              (cState == GameState.gameover && widget.isCpuMode);
+          if (!gameOver || _resultRevealPending) {
             return const SizedBox.shrink();
           }
 
-          return Container(
-            color: const Color(0xFF0F0F13).withValues(alpha: 0.90),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    message,
-                    style: TextStyle(
-                      fontSize: 48,
-                      fontFamily: 'Courier',
-                      fontWeight: FontWeight.w900,
-                      color: textColor,
-                      letterSpacing: 2,
-                      shadows: [
-                        Shadow(color: textColor, blurRadius: 16),
-                        const Shadow(color: Colors.white, blurRadius: 4),
-                      ],
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (widget.isCpuMode &&
-                      (pState == GameState.gameover ||
-                          cState == GameState.gameover)) ...[
-                    const SizedBox(height: 24),
-                    _buildResultExpSummary(),
-                  ],
-                  if (pState == GameState.gameover ||
-                      (cState == GameState.gameover && widget.isCpuMode)) ...[
-                    const SizedBox(height: 48),
-                    _buildCyberResultButton(
-                      label: 'RESTART',
-                      baseColor: Colors.cyanAccent,
-                      isWaiting: false,
-                      onPressed: () {
-                        _clearAllPendingAttacks();
-                        unawaited(
-                          _startLocalBattleWithReadyGo(
-                            DateTime.now().millisecondsSinceEpoch,
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    _buildCyberResultButton(
-                      label: 'HOME',
-                      baseColor: Colors.white54,
-                      isWaiting: false,
-                      onPressed: () {
-                        _clearAllPendingAttacks();
-                        unawaited(_returnHomeAfterMatch());
-                      },
-                    ),
-                  ],
-                ],
+          final cpuPlayerWon =
+              _cpuBattlePlayerWon ?? (pState != GameState.gameover);
+          final title =
+              widget.isCpuMode ? (cpuPlayerWon ? '勝利' : '敗北') : 'GAME OVER';
+          final titleColor = widget.isCpuMode
+              ? (cpuPlayerWon ? Colors.cyanAccent : Colors.pinkAccent)
+              : Colors.orangeAccent;
+
+          return _buildUnifiedResultSheet(
+            title: title,
+            titleColor: titleColor,
+          children: [
+              _buildResultExpSummary(),
+              if (!widget.isCpuMode) ...[
+                const SizedBox(height: 12),
+                _buildResultScoreSummary(),
+              ],
+              const SizedBox(height: 18),
+              if (!widget.isCpuMode) ...[
+                _buildCyberResultButton(
+                  label: 'RESTART',
+                  baseColor: Colors.cyanAccent,
+                  isWaiting: false,
+                  onPressed: () {
+                    _clearAllPendingAttacks();
+                    unawaited(
+                      _startLocalBattleWithReadyGo(
+                        DateTime.now().millisecondsSinceEpoch,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+              _buildCyberResultButton(
+                label: 'HOME',
+                baseColor: Colors.white54,
+                isWaiting: false,
+                onPressed: () {
+                  _clearAllPendingAttacks();
+                  unawaited(_returnHomeAfterMatch());
+                },
               ),
-            ),
+            ],
           );
         },
       ),
@@ -1255,56 +1432,91 @@ class _GameScreenState extends State<GameScreen> {
     final textColor = win ? Colors.cyanAccent : Colors.pinkAccent;
 
     return Positioned.fill(
-      child: Container(
-        color: const Color(0xFF0F0F13).withValues(alpha: 0.90),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 360),
+      child: _buildUnifiedResultSheet(
+        title: win ? '勝利' : '敗北',
+        titleColor: textColor,
+        children: [
+          _buildResultExpSummary(),
+          const SizedBox(height: 12),
+          _buildOnlineMatchSummary(),
+          if (widget.isArenaMode) ...[
+            const SizedBox(height: 12),
+            _buildArenaResultSummary(),
+          ],
+          const SizedBox(height: 18),
+          if (!widget.isRankedMode) ...[
+            _buildCyberResultButton(
+              label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH',
+              baseColor: Colors.blueAccent,
+              isWaiting: _isWaitingForRematch,
+              onPressed: _isWaitingForRematch
+                  ? null
+                  : () {
+                      _requestRematch();
+                    },
+            ),
+            const SizedBox(height: 12),
+          ],
+          _buildCyberResultButton(
+            label: 'HOME',
+            baseColor: Colors.white54,
+            isWaiting: false,
+            onPressed: () {
+              _leaveOnlineBattle();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnifiedResultSheet({
+    required String title,
+    required Color titleColor,
+    required List<Widget> children,
+  }) {
+    return Container(
+      color: const Color(0xFF0F0F13).withValues(alpha: 0.90),
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141421),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: titleColor.withValues(alpha: 0.7),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: titleColor.withValues(alpha: 0.24),
+                      blurRadius: 24,
+                    ),
+                  ],
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      win ? '勝利' : '敗北',
+                      title,
                       style: TextStyle(
                         fontSize: 34,
                         fontWeight: FontWeight.w900,
-                        color: textColor,
+                        color: titleColor,
                         letterSpacing: 2,
-                        shadows: [Shadow(color: textColor, blurRadius: 10)],
+                        shadows: [
+                          Shadow(color: titleColor, blurRadius: 10),
+                        ],
                       ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 18),
-                    _buildResultExpSummary(),
-                    const SizedBox(height: 12),
-                    if (widget.isRankedMode) ...[
-                      _buildRankedRatingChange(),
-                      const SizedBox(height: 12),
-                      if (widget.isArenaMode) ...[
-                        _buildArenaResultSummary(),
-                        const SizedBox(height: 12),
-                      ],
-                    ] else ...[
-                      _buildCyberResultButton(
-                        label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH',
-                        baseColor: Colors.blueAccent,
-                        isWaiting: _isWaitingForRematch,
-                        onPressed:
-                            _isWaitingForRematch ? null : _requestRematch,
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    _buildCyberResultButton(
-                      label: 'HOME',
-                      baseColor: Colors.white54,
-                      isWaiting: false,
-                      onPressed: () {
-                        _leaveOnlineBattle();
-                      },
-                    ),
+                    ...children,
                   ],
                 ),
               ),
@@ -1378,7 +1590,12 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     return InkWell(
-      onTap: onPressed,
+      onTap: onPressed == null
+          ? null
+          : () {
+              _playUiTap();
+              onPressed();
+            },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         width: 280,
@@ -1451,6 +1668,7 @@ class _GameScreenState extends State<GameScreen> {
     final guestReady = room?.players['guest']?.status == 'ready';
     final opponentName =
         _displayNameForRole(_multiplayerManager.opponentRoleId);
+    final showAutoStart = widget.isRankedMode || _isFriendMode;
 
     if (_onlineGameStarted || room == null) {
       return const SizedBox.shrink();
@@ -1539,8 +1757,8 @@ class _GameScreenState extends State<GameScreen> {
                     const SizedBox(height: 16),
                   ],
                   Text(
-                    widget.isRankedMode && canShowReady
-                        ? 'READYで開始準備をしてください。'
+                    showAutoStart && canShowReady
+                        ? 'マッチ成立です。まもなく自動で開始します。'
                         : canShowReady && opponentName != null
                             ? '$opponentName が参加しました。READYで開始準備をしてください。'
                             : canShowReady
@@ -1560,21 +1778,29 @@ class _GameScreenState extends State<GameScreen> {
                     _displayNameForRole('host') ?? 'プレイヤー',
                     hostReady,
                     isOccupied: room.players['host'] != null,
-                    rating: widget.isRankedMode
-                        ? room.players['host']?.rating
-                        : null,
+                    badgeIds: room.players['host']?.badgeIds ?? const [],
+                    subLabel: widget.isArenaMode
+                        ? _buildArenaLobbySubLabel(isHostSlot: true)
+                        : widget.isRankedMode
+                            ? _buildLobbyRatingLabel(
+                                room.players['host']?.rating)
+                            : null,
                   ),
                   const SizedBox(height: 12),
                   _buildLobbyStatusRow(
                     _displayNameForRole('guest') ?? '対戦相手',
                     guestReady,
                     isOccupied: room.players['guest'] != null,
-                    rating: widget.isRankedMode
-                        ? room.players['guest']?.rating
-                        : null,
+                    badgeIds: room.players['guest']?.badgeIds ?? const [],
+                    subLabel: widget.isArenaMode
+                        ? _buildArenaLobbySubLabel(isHostSlot: false)
+                        : widget.isRankedMode
+                            ? _buildLobbyRatingLabel(
+                                room.players['guest']?.rating)
+                            : null,
                   ),
                   const SizedBox(height: 28),
-                  if (widget.isRankedMode && canShowReady)
+                  if (showAutoStart && canShowReady)
                     const SizedBox(
                       height: 56,
                       child: Center(
@@ -1588,7 +1814,7 @@ class _GameScreenState extends State<GameScreen> {
                         ),
                       ),
                     )
-                  else if (canShowReady)
+                  else if (canShowReady && !showAutoStart)
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -1653,6 +1879,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Future<void> _cancelFriendLobby() async {
+    _playUiTap();
     _clearAllPendingAttacks();
     await _stopBattleBgm();
     await _multiplayerManager.cancelLobby();
@@ -1668,7 +1895,8 @@ class _GameScreenState extends State<GameScreen> {
     String name,
     bool isReady, {
     required bool isOccupied,
-    int? rating,
+    String? subLabel,
+    List<String> badgeIds = const [],
   }) {
     final accentColor = isOccupied ? Colors.cyanAccent : Colors.white38;
     final nameColor = isOccupied ? Colors.white : Colors.white54;
@@ -1717,7 +1945,7 @@ class _GameScreenState extends State<GameScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  rating == null || !isOccupied ? 'レート -' : 'レート $rating',
+                  !isOccupied ? '-' : (subLabel ?? '-'),
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
@@ -1725,6 +1953,10 @@ class _GameScreenState extends State<GameScreen> {
                     letterSpacing: 0.2,
                   ),
                 ),
+                if (isOccupied && badgeIds.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _buildBadgeIconRow(badgeIds),
+                ],
               ],
             ),
           ),
@@ -1759,6 +1991,19 @@ class _GameScreenState extends State<GameScreen> {
     );
   }
 
+  String _buildLobbyRatingLabel(int? rating) {
+    return rating == null ? 'レート -' : 'レート $rating';
+  }
+
+  String _buildArenaLobbySubLabel({required bool isHostSlot}) {
+    final wins = _arenaManager.currentWins;
+    final losses = _arenaManager.currentLosses;
+    final myRoleId = _multiplayerManager.myRoleId;
+    final isMySlot = (isHostSlot && myRoleId == 'host') ||
+        (!isHostSlot && myRoleId == 'guest');
+    return isMySlot ? '$wins勝 $losses敗' : '戦績 非公開';
+  }
+
   Future<void> _handleReadyPressed() async {
     setState(() {
       _readySubmitting = true;
@@ -1787,6 +2032,7 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     try {
+      final savedSession = await _multiplayerManager.loadSavedSession();
       await _multiplayerManager.restoreSession(
         roomId: roomId,
         roleId: widget.isHost ? 'host' : 'guest',
@@ -1794,9 +2040,26 @@ class _GameScreenState extends State<GameScreen> {
       if (!mounted) {
         return;
       }
+      final room = _multiplayerManager.currentRoom;
+      final canResumeBattle = room?.status == 'playing' &&
+          savedSession != null &&
+          savedSession.roomId == roomId &&
+          savedSession.roleId == (widget.isHost ? 'host' : 'guest') &&
+          savedSession.snapshot != null;
       setState(() {
-        _room = _multiplayerManager.currentRoom;
+        _room = room;
+        if (canResumeBattle) {
+          _onlineGameStarted = true;
+        }
       });
+      if (canResumeBattle) {
+        _playerGame.restoreFromSnapshot(savedSession.snapshot!);
+        _cpuGame?.startGame(newSeed: room?.seed, spawnInitialPiece: false);
+        _playerGame.resumeEngine();
+        _cpuGame?.resumeEngine();
+        unawaited(_startBattleBgm());
+        unawaited(_persistOnlineSessionSnapshot());
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -1823,17 +2086,18 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
-    if (widget.isRankedMode && room.bothPlayersJoined) {
-      _scheduleRankedAutoStart(room);
-      return;
+    if (room.bothPlayersJoined) {
+      _playMatchedSfxOnce();
+      unawaited(_attemptAutoReady());
     }
 
-    if (!widget.isRankedMode && room.bothPlayersReady) {
-      unawaited(_startOnlineBattleWithReadyGo(room.seed));
+    if (room.bothPlayersReady) {
+      _scheduleOnlineAutoStart(room);
+      return;
     }
   }
 
-  void _scheduleRankedAutoStart(MultiplayerRoom room) {
+  void _scheduleOnlineAutoStart(MultiplayerRoom room) {
     if (_rankedAutoStartScheduled || _onlineGameStarted) {
       return;
     }
@@ -1848,12 +2112,43 @@ class _GameScreenState extends State<GameScreen> {
     });
   }
 
+  void _playMatchedSfxOnce() {
+    if (_matchingSfxPlayed) {
+      return;
+    }
+    _matchingSfxPlayed = true;
+    AppSfx.playMatched();
+  }
+
+  Future<void> _attemptAutoReady() async {
+    final room = _room;
+    if (room == null || !room.bothPlayersJoined || _onlineGameStarted) {
+      return;
+    }
+
+    final myRoleId = _multiplayerManager.myRoleId;
+    if (myRoleId == null) {
+      return;
+    }
+    final myStatus = room.players[myRoleId]?.status;
+    if (_autoReadyRequested || myStatus == 'ready') {
+      return;
+    }
+
+    _autoReadyRequested = true;
+    try {
+      await _multiplayerManager.setReady();
+    } catch (_) {
+      _autoReadyRequested = false;
+    }
+  }
+
   Future<void> _startLocalBattleWithReadyGo(int seed) async {
     if (!mounted) {
       return;
     }
 
-    _cpuBattleFinished = false;
+    await _stopBattleBgm();
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
     _playerGame.resumeEngine();
@@ -1908,7 +2203,6 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
-    _cpuBattleFinished = false;
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
     _rankedAutoStartTimer?.cancel();
@@ -1948,6 +2242,7 @@ class _GameScreenState extends State<GameScreen> {
     _cpuGame?.resumeEngine();
     _cpuGame?.startGame(newSeed: seed);
     _playerGame.startGame(newSeed: seed);
+    unawaited(_persistOnlineSessionSnapshot());
   }
 
   String? _displayNameForRole(String? roleId) {
@@ -2083,6 +2378,9 @@ class _GameScreenState extends State<GameScreen> {
 
   void _handleAttackReceived(OjamaTask task) {
     _queueOjamaTask(_playerGame, task);
+    if (_isOnlineMode) {
+      unawaited(_persistOnlineSessionSnapshot());
+    }
   }
 
   void _handleOpponentOjamaSpawned(List<dynamic> ojamaData, int dropSeed) {
@@ -2090,25 +2388,7 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _handleOpponentGameOver() {
-    _finishOnlineWin();
-  }
-
-  void _finishOnlineWin() {
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _onlineResultMessage = 'YOU WIN!!';
-      _isWaitingForRematch = false;
-    });
-    unawaited(_stopBattleBgm());
-    unawaited(_missionManager.recordEvent('play_match'));
-    unawaited(_missionManager.recordEvent('win_match'));
-    unawaited(_applyMatchExpReward(isWin: true));
-    unawaited(_applyRankedRatingResult(isWin: true));
-    unawaited(_recordArenaResult(isWin: true));
-    _freezeBattleBoards();
+    unawaited(_presentBattleResult(playerWon: true, opponentCrossedDeathLine: true));
   }
 
   Future<void> _applyRankedRatingResult({required bool isWin}) async {
@@ -2149,11 +2429,15 @@ class _GameScreenState extends State<GameScreen> {
   void _resetResultProgressionState() {
     _matchExpApplied = false;
     _matchExpEarned = null;
+    _soloExpApplied = false;
+    _soloExpEarned = null;
     _didLevelUpFromResultExp = false;
     _resultLevelAfterExp = null;
     _arenaResultApplied = false;
     _arenaMatchResult = null;
     _opponentDisconnectedDuringBattle = false;
+    _autoReadyRequested = false;
+    _resultRevealPending = false;
     _playerWazaCounts[WazaType.straight] = 0;
     _playerWazaCounts[WazaType.pyramid] = 0;
     _playerWazaCounts[WazaType.hexagon] = 0;
@@ -2209,6 +2493,47 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  int _calculateSoloExp() {
+    final scoreState = _playerGame.scoreManager.state.value;
+    final scoreBonus = scoreState.score ~/ 120;
+    final levelBonus = scoreState.level * 45;
+    final chainBonus = _playerGame.scoreManager.maxChainThisRun * 30;
+    return max(100, scoreBonus + levelBonus + chainBonus);
+  }
+
+  Future<void> _applySoloExpReward() async {
+    if (_soloExpApplied) {
+      return;
+    }
+
+    _soloExpApplied = true;
+    final earnedExp = _calculateSoloExp();
+
+    try {
+      await _playerDataManager.load();
+      final previousLevel = _playerDataManager.level;
+      await _playerDataManager.addExp(earnedExp);
+      final currentLevel = _playerDataManager.level;
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _soloExpEarned = earnedExp;
+        if (currentLevel > previousLevel) {
+          _didLevelUpFromResultExp = true;
+          _resultLevelAfterExp = currentLevel;
+        }
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _soloExpEarned = earnedExp;
+      });
+    }
+  }
+
   Future<void> _recordMatchStats({required bool isWin}) async {
     final mode = widget.isArenaMode
         ? 'ARENA'
@@ -2224,6 +2549,20 @@ class _GameScreenState extends State<GameScreen> {
       isWin: isWin,
       mode: mode,
       opponentName: opponentName,
+      maxCombo: _playerGame.scoreManager.maxChainThisRun,
+      wazaCounts: {
+        'straight': _playerWazaCounts[WazaType.straight] ?? 0,
+        'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
+        'hexagon': _playerWazaCounts[WazaType.hexagon] ?? 0,
+      },
+    );
+  }
+
+  Future<void> _recordSoloStats() async {
+    await _playerDataManager.recordMatchResult(
+      isWin: false,
+      mode: 'SOLO',
+      opponentName: '1Pモード',
       maxCombo: _playerGame.scoreManager.maxChainThisRun,
       wazaCounts: {
         'straight': _playerWazaCounts[WazaType.straight] ?? 0,
@@ -2260,6 +2599,7 @@ class _GameScreenState extends State<GameScreen> {
     await _stopBattleBgm();
     if (_isOnlineMode) {
       await _multiplayerManager.leaveRoom();
+      await _multiplayerManager.clearSavedSession();
     }
     await InterstitialAdManager.instance.showIfNeeded();
     if (!mounted) {
@@ -2303,7 +2643,6 @@ class _GameScreenState extends State<GameScreen> {
       return;
     }
 
-    _cpuBattleFinished = false;
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
     _clearAllPendingAttacks();
@@ -2317,6 +2656,12 @@ class _GameScreenState extends State<GameScreen> {
     _cpuGame?.resumeEngine();
     _cpuGame?.startGame(newSeed: newSeed);
     _playerGame.startGame(newSeed: newSeed);
+    if (widget.isRankedMode || widget.isArenaMode) {
+      unawaited(_multiplayerManager.saveActiveSession(
+        isArenaMode: widget.isArenaMode,
+        snapshot: _playerGame.exportRestorableSnapshot(),
+      ));
+    }
     unawaited(_startBattleBgm());
   }
 
@@ -2334,6 +2679,9 @@ class _GameScreenState extends State<GameScreen> {
     }
     _isBattleBgmPlaying = true;
     try {
+      await SeamlessBgm.instance.setMasterVolume(
+        AppSettings.instance.musicVolume.value,
+      );
       await SeamlessBgm.instance.play(
         assetPath: 'audio/battle_bgm01.wav',
         duration: _battleBgmDuration,
@@ -2341,20 +2689,6 @@ class _GameScreenState extends State<GameScreen> {
       );
     } catch (_) {
       _isBattleBgmPlaying = false;
-    }
-  }
-
-  void _finishCpuBattle({required bool playerWon}) {
-    if (_cpuBattleFinished) {
-      return;
-    }
-
-    _cpuBattleFinished = true;
-    _cpuBattlePlayerWon = playerWon;
-    _freezeBattleBoards();
-    unawaited(_applyMatchExpReward(isWin: playerWon));
-    if (mounted) {
-      setState(() {});
     }
   }
 
@@ -2456,6 +2790,7 @@ class _GameScreenState extends State<GameScreen> {
                 const SizedBox(height: 20),
                 OutlinedButton.icon(
                   onPressed: () {
+                    _playUiTap();
                     Navigator.of(dialogContext).pop();
                     unawaited(_returnHomeFromSettings());
                   },
@@ -2477,9 +2812,44 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                   ),
                 ),
+                if (!_isOnlineMode && !widget.isCpuMode) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      _playUiTap();
+                      Navigator.of(dialogContext).pop();
+                      _clearAllPendingAttacks();
+                      unawaited(
+                        _startLocalBattleWithReadyGo(
+                          DateTime.now().millisecondsSinceEpoch,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.restart_alt, size: 18),
+                    label: const Text('リスタート'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.cyanAccent,
+                      side: BorderSide(
+                        color: Colors.cyanAccent.withValues(alpha: 0.72),
+                        width: 1.3,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 OutlinedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  onPressed: () {
+                    _playUiTap();
+                    Navigator.of(dialogContext).pop();
+                  },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white70,
                     side: BorderSide(
@@ -2561,8 +2931,87 @@ class _GameScreenState extends State<GameScreen> {
               : List<BallColor>.from(task.presetColors!),
         ),
       );
+      if (_isOnlineMode && identical(targetGame, _playerGame)) {
+        unawaited(_persistOnlineSessionSnapshot());
+      }
     });
     _pendingAttackTimers.add(timer);
+  }
+
+  Future<void> _persistOnlineSessionSnapshot() async {
+    if (!_shouldPreserveOnlineSession) {
+      return;
+    }
+    await _multiplayerManager.saveActiveSession(
+      isArenaMode: widget.isArenaMode,
+      snapshot: _playerGame.exportRestorableSnapshot(),
+    );
+  }
+
+  Future<void> _presentBattleResult({
+    required bool playerWon,
+    required bool opponentCrossedDeathLine,
+  }) async {
+    if (_resultRevealPending) {
+      return;
+    }
+
+    _resultRevealPending = true;
+    _freezeBattleBoards();
+    final targetGame =
+        playerWon && opponentCrossedDeathLine && _cpuGame != null
+            ? _cpuGame!
+            : _playerGame;
+    unawaited(_stopBattleBgm());
+    await targetGame.animateDeathLineToRed();
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    if (playerWon) {
+      AppSfx.playWin();
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+    } else {
+      AppSfx.playLose();
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+    }
+    if (!mounted) {
+      return;
+    }
+
+    if (widget.isCpuMode) {
+      _cpuBattlePlayerWon = playerWon;
+      unawaited(_applyMatchExpReward(isWin: playerWon));
+      setState(() {
+        _resultRevealPending = false;
+      });
+      return;
+    }
+
+    if (_isOnlineMode) {
+      if (playerWon &&
+          opponentCrossedDeathLine &&
+          _opponentDisconnectedDuringBattle) {
+        unawaited(_multiplayerManager.forceOpponentGameOver());
+      }
+      unawaited(_missionManager.recordEvent('play_match'));
+      if (playerWon) {
+        unawaited(_missionManager.recordEvent('win_match'));
+      }
+      unawaited(_applyMatchExpReward(isWin: playerWon));
+      unawaited(_applyRankedRatingResult(isWin: playerWon));
+      unawaited(_recordArenaResult(isWin: playerWon));
+      unawaited(_multiplayerManager.clearSavedSession());
+      setState(() {
+        _onlineResultMessage = playerWon ? 'YOU WIN!!' : 'YOU LOSE...';
+        _isWaitingForRematch = false;
+        _resultRevealPending = false;
+      });
+      return;
+    }
+
+    unawaited(_applySoloExpReward());
+    unawaited(_recordSoloStats());
+    setState(() {
+      _resultRevealPending = false;
+    });
   }
 
   OjamaTask? _createOjamaTaskForAttack(WazaType waza, BallColor? color) {
@@ -2661,40 +3110,79 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   Widget _buildControls(PuzzleGame game) {
-    return SizedBox(
-      height: 90,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: _buildAreaButton(
-              icon: Icons.rotate_left,
-              onDown: () => game.rotateLeft(),
-            ),
+    return ValueListenableBuilder<ControlLayoutPreset>(
+      valueListenable: AppSettings.instance.controlLayout,
+      builder: (context, preset, child) {
+        final actions = _controlActionsFor(game, preset);
+        return SizedBox(
+          height: 90,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final action in actions)
+                Expanded(
+                  child: _buildAreaButton(
+                    icon: action.icon,
+                    onDown: action.onDown,
+                    onUp: action.onUp,
+                  ),
+                ),
+            ],
           ),
-          Expanded(
-            child: _buildAreaButton(
-              icon: Icons.arrow_left,
-              onDown: () => game.startMovingLeft(),
-              onUp: () => game.stopMovingLeft(),
-            ),
-          ),
-          Expanded(
-            child: _buildAreaButton(
-              icon: Icons.arrow_right,
-              onDown: () => game.startMovingRight(),
-              onUp: () => game.stopMovingRight(),
-            ),
-          ),
-          Expanded(
-            child: _buildAreaButton(
-              icon: Icons.rotate_right,
-              onDown: () => game.rotateRight(),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  List<_ControlAction> _controlActionsFor(
+    PuzzleGame game,
+    ControlLayoutPreset preset,
+  ) {
+    final rotateLeft = _ControlAction(
+      icon: Icons.rotate_left,
+      onDown: game.rotateLeft,
+    );
+    final moveLeft = _ControlAction(
+      icon: Icons.arrow_left,
+      onDown: game.startMovingLeft,
+      onUp: game.stopMovingLeft,
+    );
+    final moveRight = _ControlAction(
+      icon: Icons.arrow_right,
+      onDown: game.startMovingRight,
+      onUp: game.stopMovingRight,
+    );
+    final rotateRight = _ControlAction(
+      icon: Icons.rotate_right,
+      onDown: game.rotateRight,
+    );
+
+    return switch (preset) {
+      ControlLayoutPreset.rotateMoveMoveRotate => [
+          rotateLeft,
+          moveLeft,
+          moveRight,
+          rotateRight,
+        ],
+      ControlLayoutPreset.moveMoveRotateRotate => [
+          moveLeft,
+          moveRight,
+          rotateLeft,
+          rotateRight,
+        ],
+      ControlLayoutPreset.rotateRotateMoveMove => [
+          rotateLeft,
+          rotateRight,
+          moveLeft,
+          moveRight,
+        ],
+      ControlLayoutPreset.moveRotateRotateMove => [
+          moveLeft,
+          rotateLeft,
+          rotateRight,
+          moveRight,
+        ],
+    };
   }
 
   Widget _buildAreaButton({
@@ -2726,4 +3214,16 @@ class _GameScreenState extends State<GameScreen> {
       ),
     );
   }
+}
+
+class _ControlAction {
+  const _ControlAction({
+    required this.icon,
+    required this.onDown,
+    this.onUp,
+  });
+
+  final IconData icon;
+  final VoidCallback onDown;
+  final VoidCallback? onUp;
 }

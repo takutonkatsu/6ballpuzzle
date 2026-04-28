@@ -6,7 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'app_settings.dart';
 import 'firebase_options.dart';
+import 'game/components/ball_component.dart';
+import 'game/game_models.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
@@ -23,6 +26,7 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: firebaseOptions,
   );
+  await AppSettings.instance.load();
   await FlameAudio.bgm.initialize();
   runApp(const MyApp());
 }
@@ -49,7 +53,167 @@ class MyApp extends StatelessWidget {
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF1E1E1E),
       ),
-      home: const HomeScreen(),
+      home: const StartupLoadingScreen(),
+    );
+  }
+}
+
+class StartupLoadingScreen extends StatefulWidget {
+  const StartupLoadingScreen({super.key});
+
+  @override
+  State<StartupLoadingScreen> createState() => _StartupLoadingScreenState();
+}
+
+class _StartupLoadingScreenState extends State<StartupLoadingScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _progressController;
+
+  @override
+  void initState() {
+    super.initState();
+    _progressController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+    _boot();
+  }
+
+  Future<void> _boot() async {
+    await Future.wait([
+      _progressController.forward(from: 0),
+      Future<void>.delayed(const Duration(milliseconds: 1800)),
+    ]);
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, animation, __) => FadeTransition(
+          opacity: animation,
+          child: const HomeScreen(),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _progressController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF090B12),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          child: Column(
+            children: [
+              const Spacer(),
+              Container(
+                width: 138,
+                height: 138,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.04),
+                  border: Border.all(
+                    color: Colors.cyanAccent.withValues(alpha: 0.4),
+                    width: 1.8,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.cyanAccent.withValues(alpha: 0.18),
+                      blurRadius: 24,
+                    ),
+                  ],
+                ),
+                child: const Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned(
+                      top: 20,
+                      child: MiniBallWidget(
+                        ballColor: BallColor.blue,
+                        size: 52,
+                      ),
+                    ),
+                    Positioned(
+                      left: 24,
+                      bottom: 24,
+                      child: MiniBallWidget(
+                        ballColor: BallColor.green,
+                        size: 52,
+                      ),
+                    ),
+                    Positioned(
+                      right: 24,
+                      bottom: 24,
+                      child: MiniBallWidget(
+                        ballColor: BallColor.red,
+                        size: 52,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
+              const Text(
+                '6-BALL PUZZLE',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 3,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Takutonkatsu',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.72),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const Spacer(),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'LOADING',
+                  style: TextStyle(
+                    color: Colors.cyanAccent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.8,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: AnimatedBuilder(
+                  animation: _progressController,
+                  builder: (context, child) {
+                    return LinearProgressIndicator(
+                      value: _progressController.value,
+                      minHeight: 12,
+                      backgroundColor: Colors.white12,
+                      valueColor: const AlwaysStoppedAnimation(
+                        Colors.cyanAccent,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,5 +1,5 @@
 import 'dart:async' as async;
-import 'dart:async' show unawaited;
+import 'dart:async' show Completer, unawaited;
 import 'dart:math';
 import 'dart:collection';
 import 'package:flame/game.dart';
@@ -9,6 +9,7 @@ import 'package:flame/components.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../app_settings.dart';
 import 'components/active_piece_component.dart';
 import 'components/ball_component.dart';
 import 'components/effect_components.dart';
@@ -93,17 +94,25 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Map<String, dynamic>? _deferredRemoteBoardState;
   static const Duration _minimumRemoteOjamaVisibleDuration =
       Duration(milliseconds: 180);
+  static const Duration _deathLineTransitionDuration =
+      Duration(milliseconds: 650);
+  static const double _defaultDeathLineProgress = 0.0;
 
   double get currentFallSpeed => isCpuMode
-      ? constantFallSpeed
+      ? (useConstantFallSpeed ? constantFallSpeed : scoreManager.currentFallSpeed)
       : useConstantFallSpeed
           ? constantFallSpeed
           : scoreManager.currentFallSpeed;
 
   bool get _playsBoardSfx => true;
 
+  double _deathLineDangerProgress = _defaultDeathLineProgress;
+  async.Timer? _deathLineTransitionTimer;
+
   void _playSfx(String fileName, {double volume = 1.0}) {
-    final adjustedVolume = (volume * _sfxVolumeMultiplier).clamp(0.0, 1.0);
+    final masterVolume = AppSettings.instance.sfxVolume.value;
+    final adjustedVolume =
+        (volume * _sfxVolumeMultiplier * masterVolume).clamp(0.0, 1.0);
     unawaited(_playSfxSafely(fileName, volume: adjustedVolume));
   }
 
@@ -160,7 +169,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     syncDropRng = null;
     currentDropSeed = 0;
-    _clearLockedBalls();
+    _clearAllBoardComponents();
     _clearHints();
     incomingOjama.clear();
 
@@ -177,6 +186,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _deferredRemoteBoardTimer?.cancel();
     _deferredRemoteBoardTimer = null;
     _deferredRemoteBoardState = null;
+    _deathLineTransitionTimer?.cancel();
+    _deathLineTransitionTimer = null;
+    _deathLineDangerProgress = _defaultDeathLineProgress;
 
     scoreManager.reset();
     _idleGlowTime = 0.0;
@@ -205,10 +217,88 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
   }
 
+  void simulateOjamaTaskOnPreview(OjamaTask task) {
+    if (!isRemotePlayerMode) {
+      return;
+    }
+
+    int numSets = 1;
+    if (task.type == OjamaType.pyramidSet) numSets = 4;
+    if (task.type == OjamaType.hexagonSet) numSets = 6;
+
+    clearRemoteActivePiece();
+    for (var i = 0; i < numSets; i++) {
+      double spawnX;
+      if (task.type == OjamaType.pyramidSet) {
+        const cols = [0, 2, 4, 6];
+        spawnX = grid.offset.x + cols[i % 4] * 30.0;
+      } else if (task.type == OjamaType.hexagonSet) {
+        const cols = [0, 3, 6, 1, 4, 7];
+        spawnX = grid.offset.x + cols[i % 6] * 30.0;
+      } else {
+        spawnX = grid.offset.x;
+      }
+
+      final colors = _colorsForOjamaSet(task);
+      final spawnY = grid.offset.y - _ojamaSpawnYOffset;
+      final block = OjamaBlockComponent(
+        ojamaType: task.type,
+        position: Vector2(spawnX, spawnY),
+        startColor: task.type == OjamaType.straightSet ? task.startColor : null,
+        presetColors: colors,
+      );
+      activeOjamaBlocks.add(block);
+      add(block);
+      if (i == 0 && _playsBoardSfx) {
+        _playSfx(_ojamaSpawnSfx, volume: 0.9);
+      }
+      if (_playsBoardSfx) {
+        _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+      }
+    }
+  }
+
   void gameOver() {
     gameStateWrapper.value = GameState.gameover;
     if (activePiece != null) activePiece!.isLocked = true;
     onGameOverTriggered?.call();
+  }
+
+  void setDeathLineDangerProgress(double progress) {
+    _deathLineDangerProgress = progress.clamp(0.0, 1.0);
+  }
+
+  Future<void> animateDeathLineToRed({
+    Duration duration = _deathLineTransitionDuration,
+  }) async {
+    _deathLineTransitionTimer?.cancel();
+    if (duration <= Duration.zero) {
+      _deathLineDangerProgress = 1.0;
+      return;
+    }
+
+    final completer = Completer<void>();
+    final totalMicros = duration.inMicroseconds;
+    const tick = Duration(milliseconds: 16);
+    final startedAt = DateTime.now();
+    _deathLineTransitionTimer = async.Timer.periodic(tick, (timer) {
+      final elapsedMicros = DateTime.now()
+          .difference(startedAt)
+          .inMicroseconds
+          .clamp(0, totalMicros)
+          .toInt();
+      final t = elapsedMicros / totalMicros;
+      _deathLineDangerProgress = Curves.easeOutCubic.transform(t);
+      if (elapsedMicros >= totalMicros) {
+        timer.cancel();
+        _deathLineTransitionTimer = null;
+        _deathLineDangerProgress = 1.0;
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      }
+    });
+    return completer.future;
   }
 
   @override
@@ -368,9 +458,15 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       canvas.drawPath(path, wallPaint);
 
+      final lineColor = Color.lerp(
+            Colors.white,
+            Colors.redAccent,
+            _deathLineDangerProgress,
+          ) ??
+          Colors.white;
       final deathLinePaint = Paint()
-        ..color = Colors.orangeAccent.withValues(alpha: 0.8)
-        ..strokeWidth = 2.0;
+        ..color = lineColor
+        ..strokeWidth = 3.4;
 
       canvas.drawLine(Offset(grid.leftWallX, deathLineY),
           Offset(grid.rightWallX, deathLineY), deathLinePaint);
@@ -775,11 +871,164 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     };
   }
 
+  Map<String, dynamic> exportRestorableSnapshot() {
+    final piece = activePiece;
+    return {
+      'board': exportBoardState(),
+      'nextColors': nextPieceColors.value.map((color) => color.index).toList(),
+      'incomingOjama': incomingOjama
+          .map(
+            (task) => {
+              'type': task.type.name,
+              if (task.startColor != null) 'startColor': task.startColor!.index,
+              if (task.presetColors != null)
+                'presetColors':
+                    task.presetColors!.map((color) => color.index).toList(),
+            },
+          )
+          .toList(),
+      'score': scoreManager.exportSnapshot(),
+      'deathLineProgress': _deathLineDangerProgress,
+      if (piece != null && !piece.isLocked)
+        'activePiece': {
+          'x': piece.position.x,
+          'y': piece.position.y,
+          'rotation': activePieceRotation,
+          'colors': piece.colors.map((color) => color.index).toList(),
+          'dropSeed': currentDropSeed,
+        },
+    };
+  }
+
+  void restoreFromSnapshot(Map<String, dynamic> snapshot) {
+    _deathLineTransitionTimer?.cancel();
+    _deathLineTransitionTimer = null;
+    _clearLockedBalls();
+    _clearHints();
+    clearRemoteActivePiece();
+    _clearActiveOjamaBlocks();
+    incomingOjama.clear();
+    scoreManager.restoreSnapshot(snapshot['score'] is Map<String, dynamic>
+        ? snapshot['score'] as Map<String, dynamic>
+        : snapshot['score'] is Map
+            ? Map<String, dynamic>.from(snapshot['score'] as Map)
+            : null);
+    _idleGlowTime = 0.0;
+    _idleGlowIndex = 0;
+    _isSpawning = false;
+    isMovingLeft = false;
+    isMovingRight = false;
+    _activePieceSyncCooldown = 0.0;
+    _suppressNextLandingSfx = false;
+    _hasRemoteOjamaInFlight = false;
+    _remoteOjamaSpawnedAt = null;
+    _deferredRemoteBoardTimer?.cancel();
+    _deferredRemoteBoardTimer = null;
+    _deferredRemoteBoardState = null;
+    pendingOjamaSpawns = 0;
+    gameStateWrapper.value = GameState.playing;
+
+    final board = snapshot['board'];
+    if (board is Map) {
+      applyRemoteBoardState(Map<String, dynamic>.from(board));
+    }
+
+    final nextColors = _parseBallColors(snapshot['nextColors']);
+    nextPieceColors.value =
+        nextColors.isNotEmpty ? nextColors : _generatePieceColors();
+
+    final queuedOjama = snapshot['incomingOjama'];
+    if (queuedOjama is List) {
+      for (final item in queuedOjama) {
+        if (item is! Map) {
+          continue;
+        }
+        final typeName = item['type']?.toString();
+        OjamaType? type;
+        for (final candidate in OjamaType.values) {
+          if (candidate.name == typeName) {
+            type = candidate;
+            break;
+          }
+        }
+        if (type == null) {
+          continue;
+        }
+        final startColorIndex = _asInt(item['startColor']);
+        incomingOjama.add(
+          OjamaTask(
+            type,
+            startColor: startColorIndex != null &&
+                    startColorIndex >= 0 &&
+                    startColorIndex < BallColor.values.length
+                ? BallColor.values[startColorIndex]
+                : null,
+            presetColors: _parseBallColors(item['presetColors']),
+          ),
+        );
+      }
+    }
+
+    final activeSnapshot = snapshot['activePiece'];
+    if (activeSnapshot is Map) {
+      final colors = _parseBallColors(activeSnapshot['colors']);
+      final x = _asDouble(activeSnapshot['x']);
+      final y = _asDouble(activeSnapshot['y']);
+      final rotation = _asInt(activeSnapshot['rotation']);
+      final dropSeed = _asInt(activeSnapshot['dropSeed']);
+      if (colors.length == 3 && x != null && y != null) {
+        if (!isRemotePlayerMode) {
+          currentDropSeed = dropSeed ?? currentDropSeed;
+          syncDropRng = dropSeed == null ? null : Random(dropSeed);
+        }
+        activePiece = ActivePieceComponent(
+          position: Vector2(x, y),
+          ballRadius: _ballRadius,
+          fallSpeed: currentFallSpeed,
+          presetColors: colors,
+        )..priority = 10;
+        add(activePiece!);
+        ghostPiece = ActivePieceComponent(
+          position: Vector2(x, y),
+          ballRadius: _ballRadius,
+          isGhost: true,
+          fallSpeed: currentFallSpeed,
+          presetColors: colors,
+        )..priority = 0;
+        add(ghostPiece!);
+        if (rotation != null) {
+          activePiece!.setRotationIndex(rotation);
+          ghostPiece!.setRotationIndex(rotation);
+        }
+        _updateGhostPosition();
+      }
+    }
+
+    final deathLineProgress = snapshot['deathLineProgress'];
+    setDeathLineDangerProgress(
+      deathLineProgress is num ? deathLineProgress.toDouble() : 0.0,
+    );
+    _updateHints();
+    _notifyBoardUpdated();
+  }
+
   void _clearLockedBalls() {
     for (final ball in grid.lockedBalls.values) {
       remove(ball);
     }
     grid.lockedBalls.clear();
+  }
+
+  void _clearAllBoardComponents() {
+    final snapshot = children.toList();
+    for (final child in snapshot) {
+      remove(child);
+    }
+    grid.lockedBalls.clear();
+    activePiece = null;
+    ghostPiece = null;
+    activeOjamaBlocks.clear();
+    _hintComponents.clear();
   }
 
   void _clearActiveOjamaBlocks() {
