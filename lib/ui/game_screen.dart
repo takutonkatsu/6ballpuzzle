@@ -2744,13 +2744,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     await _playerDataManager.recordMatchResult(
       isWin: false,
       mode: 'SOLO',
-      opponentName: '1Pモード',
+      opponentName: 'エンドレス',
       maxCombo: _playerGame.scoreManager.maxChainThisRun,
       wazaCounts: {
         'straight': _playerWazaCounts[WazaType.straight] ?? 0,
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
         'hexagon': _playerWazaCounts[WazaType.hexagon] ?? 0,
       },
+      score: _currentPlayerScore,
     );
   }
 

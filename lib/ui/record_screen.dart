@@ -75,7 +75,7 @@ class _RecordScreenState extends State<RecordScreen> {
           _StatItem('ランク戦', '${counts['RANKED'] ?? 0}'),
           _StatItem('アリーナ', '${counts['ARENA'] ?? 0}'),
           _StatItem('CPU戦', '${counts['CPU'] ?? 0}'),
-          _StatItem('1Pモード', '${counts['SOLO'] ?? 0}'),
+          _StatItem('エンドレス', '${counts['SOLO'] ?? 0}'),
           _StatItem('フレンド対戦', '${counts['FRIEND'] ?? 0}'),
         ]),
         _sectionTitle('全体成績'),
@@ -265,6 +265,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
   Widget _historyTile(MatchHistoryEntry entry) {
     final color = entry.isWin ? Colors.cyanAccent : Colors.pinkAccent;
+    final title = entry.mode == 'SOLO' ? 'エンドレス' : entry.opponentName;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: _panelDecoration(color),
@@ -287,7 +288,7 @@ class _RecordScreenState extends State<RecordScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  entry.opponentName,
+                  title,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white,
@@ -302,6 +303,27 @@ class _RecordScreenState extends State<RecordScreen> {
               ],
             ),
           ),
+          if (entry.mode == 'SOLO' && entry.score != null)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                const Text(
+                  'SCORE',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  '${entry.score}',
+                  style: const TextStyle(
+                    color: Colors.greenAccent,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
           if (entry.mode == 'RANKED' && entry.ratingAfter != null)
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -358,7 +380,7 @@ class _RecordScreenState extends State<RecordScreen> {
       'RANKED' => 'ランク戦',
       'ARENA' => 'アリーナ',
       'CPU' => 'CPU戦',
-      'SOLO' => '1Pモード',
+      'SOLO' => 'エンドレス',
       'FRIEND' => 'フレンド対戦',
       _ => mode,
     };

@@ -2539,7 +2539,7 @@ class MultiplayerManager {
   Future<void> leaveRoom() async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
-    final preserveRoom = isRankedMode || (currentRoom?.isRanked ?? false);
+    final preserveRoom = _shouldPreserveRoomOnDisconnect;
 
     _roomSubscription?.cancel();
     _opponentBoardSubscription?.cancel();
@@ -2690,9 +2690,9 @@ class MultiplayerManager {
       return;
     }
 
-    final isRanked = isRankedMode || (currentRoom?.isRanked ?? false);
+    final preserveRoom = _shouldPreserveRoomOnDisconnect;
     final playerRef = _db.child('rooms/$roomId/players/$roleId');
-    if (isRanked) {
+    if (preserveRoom) {
       await playerRef.onDisconnect().update({
         'status': 'left',
         'disconnectedAt': ServerValue.timestamp,
@@ -2708,6 +2708,11 @@ class MultiplayerManager {
             .update({'status': 'waiting'});
       }
     }
+  }
+
+  bool get _shouldPreserveRoomOnDisconnect {
+    final room = currentRoom;
+    return isRankedMode || (room?.isRanked ?? false) || room?.status == 'playing';
   }
 
   Future<void> _startRematch(String roomId) async {

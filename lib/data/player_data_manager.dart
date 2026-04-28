@@ -29,6 +29,7 @@ class MatchHistoryEntry {
     required this.opponentName,
     required this.mode,
     required this.playedAt,
+    this.score,
     this.ratingAfter,
     this.ratingDelta,
   });
@@ -37,6 +38,7 @@ class MatchHistoryEntry {
   final String opponentName;
   final String mode;
   final DateTime playedAt;
+  final int? score;
   final int? ratingAfter;
   final int? ratingDelta;
 
@@ -46,6 +48,7 @@ class MatchHistoryEntry {
       'opponentName': opponentName,
       'mode': mode,
       'playedAt': playedAt.toIso8601String(),
+      if (score != null) 'score': score,
       if (ratingAfter != null) 'ratingAfter': ratingAfter,
       if (ratingDelta != null) 'ratingDelta': ratingDelta,
     };
@@ -58,6 +61,7 @@ class MatchHistoryEntry {
       mode: json['mode']?.toString() ?? 'MATCH',
       playedAt: DateTime.tryParse(json['playedAt']?.toString() ?? '') ??
           DateTime.now(),
+      score: _intValue(json['score']),
       ratingAfter: _intValue(json['ratingAfter']),
       ratingDelta: _intValue(json['ratingDelta']),
     );
@@ -532,6 +536,7 @@ class PlayerDataManager {
     required String opponentName,
     required int maxCombo,
     required Map<String, int> wazaCounts,
+    int? score,
     int? ratingAfter,
     int? ratingDelta,
   }) async {
@@ -557,6 +562,7 @@ class PlayerDataManager {
         opponentName: opponentName.trim().isEmpty ? 'UNKNOWN' : opponentName,
         mode: mode,
         playedAt: DateTime.now(),
+        score: score,
         ratingAfter: ratingAfter,
         ratingDelta: ratingDelta,
       ),
@@ -581,6 +587,7 @@ class PlayerDataManager {
       opponentName: target.opponentName,
       mode: target.mode,
       playedAt: target.playedAt,
+      score: target.score,
       ratingAfter: ratingAfter,
       ratingDelta: ratingDelta,
     );

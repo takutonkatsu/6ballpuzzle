@@ -937,9 +937,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       return;
     }
 
+    final preserveAutonomousPreviewPiece =
+        isRemotePlayerMode && _autonomousRemotePreviewEnabled;
     _clearLockedBalls();
     _clearHints();
-    clearRemoteActivePiece();
+    if (!preserveAutonomousPreviewPiece) {
+      clearRemoteActivePiece();
+    }
     _clearActiveOjamaBlocks();
 
     for (final entry in boardData.entries) {
