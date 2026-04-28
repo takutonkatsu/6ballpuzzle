@@ -85,6 +85,7 @@ class _StampWidgetState extends State<StampWidget> with SingleTickerProviderStat
     if (widget.level <= 1) {
       return Text(
         text,
+        softWrap: false,
         style: TextStyle(
           color: Colors.white,
           fontSize: 14 * scale,
@@ -99,6 +100,7 @@ class _StampWidgetState extends State<StampWidget> with SingleTickerProviderStat
     if (widget.level == 2) {
       return Text(
         text,
+        softWrap: false,
         style: TextStyle(
           color: color,
           fontSize: 16 * scale,
@@ -126,6 +128,7 @@ class _StampWidgetState extends State<StampWidget> with SingleTickerProviderStat
         SizedBox(width: 8 * scale),
         Text(
           text,
+          softWrap: false,
           style: TextStyle(
             color: color,
             fontSize: 18 * scale,

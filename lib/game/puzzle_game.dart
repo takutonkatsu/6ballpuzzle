@@ -85,6 +85,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
+  int _pendingPreviewOjamaSpawns = 0;
   bool isReadyGoText = false;
   double _activePieceSyncCooldown = 0.0;
   bool _suppressNextLandingSfx = false;
@@ -180,6 +181,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     activeOjamaBlocks.clear();
     pendingOjamaSpawns = 0;
+    _pendingPreviewOjamaSpawns = 0;
     syncDropRng = null;
     _hasRemoteOjamaInFlight = false;
     _remoteOjamaSpawnedAt = null;
@@ -226,36 +228,48 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (task.type == OjamaType.pyramidSet) numSets = 4;
     if (task.type == OjamaType.hexagonSet) numSets = 6;
 
-    clearRemoteActivePiece();
     for (var i = 0; i < numSets; i++) {
-      double spawnX;
-      if (task.type == OjamaType.pyramidSet) {
-        const cols = [0, 2, 4, 6];
-        spawnX = grid.offset.x + cols[i % 4] * 30.0;
-      } else if (task.type == OjamaType.hexagonSet) {
-        const cols = [0, 3, 6, 1, 4, 7];
-        spawnX = grid.offset.x + cols[i % 6] * 30.0;
-      } else {
-        spawnX = grid.offset.x;
-      }
-
-      final colors = _colorsForOjamaSet(task);
-      final spawnY = grid.offset.y - _ojamaSpawnYOffset;
-      final block = OjamaBlockComponent(
-        ojamaType: task.type,
-        position: Vector2(spawnX, spawnY),
-        startColor: task.type == OjamaType.straightSet ? task.startColor : null,
-        presetColors: colors,
+      _pendingPreviewOjamaSpawns++;
+      Future<void>.delayed(
+        Duration(milliseconds: 2000 + (i * 500)),
+        () {
+          _pendingPreviewOjamaSpawns = max(0, _pendingPreviewOjamaSpawns - 1);
+          if (gameStateWrapper.value != GameState.playing) {
+            return;
+          }
+          clearRemoteActivePiece();
+          final block = _buildPreviewOjamaBlock(task, i);
+          activeOjamaBlocks.add(block);
+          add(block);
+          if (i == 0 && _playsBoardSfx) {
+            _playSfx(_ojamaSpawnSfx, volume: 0.9);
+          }
+          if (_playsBoardSfx) {
+            _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+          }
+        },
       );
-      activeOjamaBlocks.add(block);
-      add(block);
-      if (i == 0 && _playsBoardSfx) {
-        _playSfx(_ojamaSpawnSfx, volume: 0.9);
-      }
-      if (_playsBoardSfx) {
-        _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
-      }
     }
+  }
+
+  OjamaBlockComponent _buildPreviewOjamaBlock(OjamaTask task, int index) {
+    double spawnX;
+    if (task.type == OjamaType.pyramidSet) {
+      const cols = [0, 2, 4, 6];
+      spawnX = grid.offset.x + cols[index % 4] * 30.0;
+    } else if (task.type == OjamaType.hexagonSet) {
+      const cols = [0, 3, 6, 1, 4, 7];
+      spawnX = grid.offset.x + cols[index % 6] * 30.0;
+    } else {
+      spawnX = grid.offset.x;
+    }
+
+    return OjamaBlockComponent(
+      ojamaType: task.type,
+      position: Vector2(spawnX, grid.offset.y - _ojamaSpawnYOffset),
+      startColor: task.type == OjamaType.straightSet ? task.startColor : null,
+      presetColors: _colorsForOjamaSet(task),
+    );
   }
 
   void gameOver() {
@@ -267,6 +281,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void setDeathLineDangerProgress(double progress) {
     _deathLineDangerProgress = progress.clamp(0.0, 1.0);
   }
+
+  bool get hasOverflowedDeathLine =>
+      grid.lockedBalls.keys.any((hex) => hex.row < 0);
+
+  bool get hasActiveOjamaAnimation => activeOjamaBlocks.isNotEmpty;
+
+  bool get hasPendingPreviewOjamaSpawns => _pendingPreviewOjamaSpawns > 0;
 
   Future<void> animateDeathLineToRed({
     Duration duration = _deathLineTransitionDuration,
@@ -460,7 +481,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       final lineColor = Color.lerp(
             Colors.white,
-            Colors.redAccent,
+            Colors.red,
             _deathLineDangerProgress,
           ) ??
           Colors.white;
@@ -926,6 +947,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _deferredRemoteBoardTimer = null;
     _deferredRemoteBoardState = null;
     pendingOjamaSpawns = 0;
+    _pendingPreviewOjamaSpawns = 0;
     gameStateWrapper.value = GameState.playing;
 
     final board = snapshot['board'];

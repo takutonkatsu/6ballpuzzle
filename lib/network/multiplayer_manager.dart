@@ -228,7 +228,6 @@ class MultiplayerManager {
   static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v1';
 
   final Random _random = Random();
-  bool _didResetRatingForThisRun = false;
 
   String? currentRoomId;
   String? myRoleId;
@@ -304,12 +303,7 @@ class MultiplayerManager {
       final userRef = _db.child('users/$uid');
       final snapshot = await userRef.get();
       final userData = snapshot.value is Map ? snapshot.value as Map : null;
-      final shouldResetRating = !_didResetRatingForThisRun;
-      final syncedRating = shouldResetRating
-          ? initialRating
-          : _intValue(userData?['rating']) ?? initialRating;
-
-      _didResetRatingForThisRun = true;
+      final syncedRating = _intValue(userData?['rating']) ?? currentRating;
       currentRating = syncedRating;
       final badgeIds = await _currentEquippedBadgeIds();
       await userRef.update({
@@ -1771,19 +1765,20 @@ class MultiplayerManager {
     myRoleId = roleId;
     final room = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
     final previousStatus = room.players[roleId]?.status;
-    final restoredStatus = room.status == 'game_over' ||
-            room.status == 'playing' ||
-            previousStatus == 'dead' ||
-            previousStatus == 'rematch_ready' ||
-            previousStatus == 'ready'
-        ? previousStatus
-        : 'waiting';
-      await _db.child('rooms/$roomId/players/$roleId').update({
-        'name': displayPlayerName,
-        'badgeIds': await _currentEquippedBadgeIds(),
-        if (restoredStatus != null) 'status': restoredStatus,
-        'reconnectedAt': ServerValue.timestamp,
-      });
+    final restoredStatus = room.status == 'playing'
+        ? 'playing'
+        : room.status == 'game_over' ||
+                previousStatus == 'dead' ||
+                previousStatus == 'rematch_ready' ||
+                previousStatus == 'ready'
+            ? previousStatus
+            : 'waiting';
+    await _db.child('rooms/$roomId/players/$roleId').update({
+      'name': displayPlayerName,
+      'badgeIds': await _currentEquippedBadgeIds(),
+      if (restoredStatus != null) 'status': restoredStatus,
+      'reconnectedAt': ServerValue.timestamp,
+    });
     final refreshedSnapshot = await _db.child('rooms/$roomId').get();
     currentRoom = MultiplayerRoom.fromSnapshot(roomId, refreshedSnapshot.value);
     isRankedMode = currentRoom?.isRanked ?? false;
@@ -1838,6 +1833,64 @@ class MultiplayerManager {
     }
   }
 
+  Future<void> sendBattleSnapshot(Map<String, dynamic> snapshot) async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      throw StateError('参加中のルームがありません。');
+    }
+
+    final payload = Map<String, dynamic>.from(snapshot)
+      ..['savedAt'] = ServerValue.timestamp;
+
+    try {
+      await _db.child('rooms/$roomId/players/$roleId/snapshot').set(payload);
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('対戦状態の保存', error));
+    }
+  }
+
+  Future<Map<String, dynamic>?> loadRoomBattleSnapshot({
+    required String roomId,
+    required String roleId,
+  }) async {
+    try {
+      final snapshotEvent =
+          await _db.child('rooms/$roomId/players/$roleId/snapshot').get();
+      Map<String, dynamic>? resolvedSnapshot;
+      if (snapshotEvent.value is Map) {
+        resolvedSnapshot =
+            Map<String, dynamic>.from(snapshotEvent.value as Map<dynamic, dynamic>);
+      }
+
+      final proxyQueueEvent =
+          await _db.child('rooms/$roomId/players/$roleId/proxyIncomingOjama').get();
+      final queuedTasks = _dynamicList(proxyQueueEvent.value)
+          .map(_ojamaTaskFromMap)
+          .whereType<OjamaTask>()
+          .toList();
+      if (queuedTasks.isEmpty) {
+        return resolvedSnapshot;
+      }
+
+      final baseSnapshot = Map<String, dynamic>.from(resolvedSnapshot ?? const {});
+      final incoming = <Map<String, dynamic>>[];
+      final existingIncoming = baseSnapshot['incomingOjama'];
+      if (existingIncoming is List) {
+        incoming.addAll(
+          existingIncoming.whereType<Map>().map(
+                (item) => Map<String, dynamic>.from(item),
+              ),
+        );
+      }
+      incoming.addAll(queuedTasks.map(_ojamaTaskToMap));
+      baseSnapshot['incomingOjama'] = incoming;
+      return baseSnapshot;
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('復帰用データ取得', error));
+    }
+  }
+
   Future<void> sendActivePiece(
     double x,
     double y,
@@ -1887,6 +1940,26 @@ class MultiplayerManager {
       });
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('攻撃送信', error));
+    }
+  }
+
+  Future<void> queueDisconnectedOpponentAttack(OjamaTask task) async {
+    final roomId = currentRoomId;
+    if (roomId == null || myRoleId == null) {
+      throw StateError('参加中のルームがありません。');
+    }
+
+    try {
+      await _db
+          .child('rooms/$roomId/players/$opponentRoleId/proxyIncomingOjama')
+          .push()
+          .set({
+        ..._ojamaTaskToMap(task),
+        'queuedBy': myUid,
+        'timestamp': ServerValue.timestamp,
+      });
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('切断相手への攻撃保存', error));
     }
   }
 
@@ -1960,6 +2033,56 @@ class MultiplayerManager {
       await _db.child('rooms/$roomId').update({'status': 'game_over'});
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('相手側ゲーム終了確定', error));
+    }
+  }
+
+  Future<void> syncDisconnectedOpponentSnapshot(
+    Map<String, dynamic> snapshot, {
+    bool clearQueuedOjama = true,
+  }) async {
+    final roomId = currentRoomId;
+    if (roomId == null || myRoleId == null) {
+      throw StateError('参加中のルームがありません。');
+    }
+
+    final opponentRole = myRoleId == 'host' ? 'guest' : 'host';
+    final updatePayload = <String, Object?>{
+      'players/$opponentRole/snapshot': Map<String, dynamic>.from(snapshot)
+        ..['savedAt'] = ServerValue.timestamp
+        ..['proxyControlledBy'] = myUid,
+      'players/$opponentRole/board': snapshot['board'],
+      'players/$opponentRole/proxyControlledBy': myUid,
+      'players/$opponentRole/proxyUpdatedAt': ServerValue.timestamp,
+    };
+
+    if (snapshot['activePiece'] is Map) {
+      updatePayload['players/$opponentRole/activePiece'] =
+          Map<String, dynamic>.from(snapshot['activePiece'] as Map);
+    } else {
+      updatePayload['players/$opponentRole/activePiece'] = null;
+    }
+    if (clearQueuedOjama) {
+      updatePayload['players/$opponentRole/proxyIncomingOjama'] = null;
+    }
+
+    try {
+      await _db.child('rooms/$roomId').update(updatePayload);
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('切断相手の状態同期', error));
+    }
+  }
+
+  Future<void> clearQueuedProxyOjamaForSelf() async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      return;
+    }
+
+    try {
+      await _db.child('rooms/$roomId/players/$roleId/proxyIncomingOjama').remove();
+    } on FirebaseException {
+      // 復帰用補助キューの削除失敗は対戦継続を優先する。
     }
   }
 
@@ -2402,5 +2525,58 @@ class MultiplayerManager {
       return entries.map((entry) => entry.value).toList();
     }
     return const [];
+  }
+
+  Map<String, dynamic> _ojamaTaskToMap(OjamaTask task) {
+    return {
+      'type': task.type.name,
+      if (task.startColor != null) 'startColor': task.startColor!.index,
+      if (task.presetColors != null)
+        'presetColors': task.presetColors!.map((color) => color.index).toList(),
+    };
+  }
+
+  OjamaTask? _ojamaTaskFromMap(Object? raw) {
+    if (raw is! Map) {
+      return null;
+    }
+
+    final data = Map<String, dynamic>.from(raw);
+    final typeName = data['type']?.toString();
+    if (typeName == null || typeName.isEmpty) {
+      return null;
+    }
+
+    OjamaType? type;
+    for (final candidate in OjamaType.values) {
+      if (candidate.name == typeName) {
+        type = candidate;
+        break;
+      }
+    }
+    if (type == null) {
+      return null;
+    }
+
+    final startColorIndex = _intValue(data['startColor']);
+    final rawPresetColors = data['presetColors'];
+    final presetColors = rawPresetColors is List
+        ? rawPresetColors
+            .map((item) => item is num ? item.toInt() : int.tryParse('$item'))
+            .whereType<int>()
+            .where((index) => index >= 0 && index < BallColor.values.length)
+            .map((index) => BallColor.values[index])
+            .toList()
+        : null;
+
+    return OjamaTask(
+      type,
+      startColor: startColorIndex != null &&
+              startColorIndex >= 0 &&
+              startColorIndex < BallColor.values.length
+          ? BallColor.values[startColorIndex]
+          : null,
+      presetColors: presetColors,
+    );
   }
 }

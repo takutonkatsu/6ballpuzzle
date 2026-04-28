@@ -204,27 +204,45 @@ class _RankingScreenState extends State<RankingScreen> {
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final entry = _entries[index];
-        final rank = index + 1;
+        final rank = _displayRankAt(index);
         final isMe = entry.uid == _multiplayerManager.myUid;
         return _buildRankingRow(entry, rank, isMe);
       },
     );
   }
 
+  int _displayRankAt(int index) {
+    if (index <= 0) {
+      return 1;
+    }
+    final current = _entries[index];
+    final previous = _entries[index - 1];
+    if (current.rating == previous.rating) {
+      return _displayRankAt(index - 1);
+    }
+    return index + 1;
+  }
+
   Widget _buildRankingRow(RankingEntry entry, int rank, bool isMe) {
     final accent = switch (rank) {
       1 => Colors.amberAccent,
-      2 => Colors.cyanAccent,
-      3 => Colors.purpleAccent,
+      2 => const Color(0xFFE5E7EB),
+      3 => const Color(0xFFCD7F32),
       _ => isMe ? Colors.pinkAccent : Colors.white24,
+    };
+    final backgroundColor = switch (rank) {
+      1 => const Color(0x33D4AF37),
+      2 => const Color(0x33C0C7D1),
+      3 => const Color(0x33B87333),
+      _ => isMe
+          ? Colors.pinkAccent.withValues(alpha: 0.12)
+          : Colors.white.withValues(alpha: 0.04),
     };
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       decoration: BoxDecoration(
-        color: isMe
-            ? Colors.pinkAccent.withValues(alpha: 0.12)
-            : Colors.white.withValues(alpha: 0.04),
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.2),
         boxShadow: [
@@ -252,7 +270,7 @@ class _RankingScreenState extends State<RankingScreen> {
                   )
                 else
                   Text(
-                    '#$rank',
+                    '$rank',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.76),
                       fontWeight: FontWeight.bold,

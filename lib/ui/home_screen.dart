@@ -63,6 +63,82 @@ class _HomeScreenState extends State<HomeScreen>
     AppSfx.playUiTap();
   }
 
+  IconData _playerIconData(String iconId) {
+    return switch (iconId) {
+      'bolt' => Icons.bolt,
+      'star' => Icons.star,
+      'gamepad' => Icons.sports_esports,
+      _ => Icons.person,
+    };
+  }
+
+  Widget _buildCoinAmount(
+    int amount, {
+    Color color = Colors.amberAccent,
+    double iconSize = 12,
+    double fontSize = 10,
+    FontWeight fontWeight = FontWeight.w900,
+    MainAxisSize mainAxisSize = MainAxisSize.min,
+  }) {
+    return Row(
+      mainAxisSize: mainAxisSize,
+      children: [
+        Icon(Icons.monetization_on, color: color, size: iconSize),
+        const SizedBox(width: 2),
+        Text(
+          '$amount',
+          maxLines: 1,
+          style: TextStyle(
+            color: color,
+            fontSize: fontSize,
+            fontWeight: fontWeight,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildArenaInfoLine({
+    required String label,
+    required int amount,
+    required Alignment alignment,
+    required Color color,
+  }) {
+    final textAlign =
+        alignment.x > 0 ? TextAlign.right : TextAlign.left;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 112),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment:
+            alignment.x > 0 ? Alignment.centerRight : Alignment.centerLeft,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              textAlign: textAlign,
+              style: TextStyle(
+                color: color,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(width: 4),
+            _buildCoinAmount(
+              amount,
+              color: color,
+              iconSize: 11,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   List<BallColor> _randomRotatingBallColors() {
     final random = math.Random();
     return List.generate(
@@ -419,7 +495,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
               child: Icon(
-                Icons.person,
+                _playerIconData(_playerDataManager.equippedPlayerIconId),
                 color: Colors.white,
                 size: compact ? 13 : 15,
               ),
@@ -478,10 +554,11 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _openCollectionScreen() {
-    Navigator.of(context).push(
+  Future<void> _openCollectionScreen() async {
+    await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CollectionScreen()),
     );
+    await _refreshPlayerEconomy();
   }
 
   Widget _buildTopBanner2() {
@@ -1071,19 +1148,11 @@ class _HomeScreenState extends State<HomeScreen>
     final currentReward =
         _arenaManager.previewRewardForWins(_arenaManager.currentWins);
     final maxReward = _arenaManager.previewRewardForWins(ArenaManager.maxWins);
-    final infoText = isActive
-        ? '現在報酬 ${currentReward.coins}コイン'
-        : hasFinishedRun
-            ? '再入場 ${ArenaManager.entryCost}コイン'
-            : '入場 ${ArenaManager.entryCost}コイン';
-    final rewardText = isActive || hasFinishedRun
-        ? '最大報酬 ${maxReward.coins}コイン'
-        : '12勝で ${maxReward.coins}コイン';
     final badgeLabel = isActive
         ? '${_arenaManager.currentWins}勝  $lossMarks'
         : hasFinishedRun
             ? '${_arenaManager.currentWins}勝  $lossMarks'
-            : '${ArenaManager.entryCost}コイン';
+            : '未入場';
 
     return InkWell(
       onTap: onTap == null
@@ -1113,6 +1182,32 @@ class _HomeScreenState extends State<HomeScreen>
         ),
         child: Stack(
           children: [
+            Positioned(
+              top: 8,
+              right: 8,
+              child: InkWell(
+                onTap: () {
+                  _playUiTap();
+                  unawaited(_showArenaEntryRewardsDialog(context));
+                },
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.lightBlueAccent.withValues(alpha: 0.48),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.receipt_long,
+                    color: Colors.lightBlueAccent,
+                    size: 14,
+                  ),
+                ),
+              ),
+            ),
             Align(
               alignment: alignment,
               child: Padding(
@@ -1189,51 +1284,27 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                     ),
                     const SizedBox(height: 5),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 96),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: alignment.x > 0
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Text(
-                          infoText,
-                          textAlign: alignment.x > 0
-                              ? TextAlign.right
-                              : TextAlign.left,
-                          maxLines: 1,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0,
-                          ),
-                        ),
+                    if (isActive)
+                      _buildArenaInfoLine(
+                        label: '現在報酬',
+                        amount: currentReward.coins,
+                        alignment: alignment,
+                        color: Colors.amberAccent,
+                      )
+                    else if (hasFinishedRun)
+                      _buildArenaInfoLine(
+                        label: '再入場',
+                        amount: ArenaManager.entryCost,
+                        alignment: alignment,
+                        color: Colors.white70,
+                      )
+                    else
+                      _buildArenaInfoLine(
+                        label: '12勝で',
+                        amount: maxReward.coins,
+                        alignment: alignment,
+                        color: Colors.amberAccent,
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 96),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: alignment.x > 0
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Text(
-                          rewardText,
-                          textAlign: alignment.x > 0
-                              ? TextAlign.right
-                              : TextAlign.left,
-                          maxLines: 1,
-                          style: const TextStyle(
-                            color: Colors.amberAccent,
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0,
-                          ),
-                        ),
-                      ),
-                    ),
                     const SizedBox(height: 2),
                     Text(
                       '闘技場',
@@ -1263,14 +1334,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  String _arenaRewardSummaryText(ArenaReward reward) {
-    final parts = <String>['${reward.coins}コイン'];
-    if (reward.title != null) {
-      parts.add(reward.title!);
-    }
-    return parts.join('  ');
-  }
-
   bool get _hasArenaFinishedRun =>
       !_arenaManager.isArenaActive &&
       (_arenaManager.currentWins >= ArenaManager.maxWins ||
@@ -1288,12 +1351,19 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               Text(
                 '${_arenaManager.currentWins}勝 ${_arenaManager.currentLosses}敗 の戦績です。\n'
-                '${ArenaManager.entryCost}コインを払って再入場しますか？',
+                '再入場しますか？',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Colors.white70,
                   height: 1.5,
                 ),
+              ),
+              const SizedBox(height: 12),
+              _buildCoinAmount(
+                ArenaManager.entryCost,
+                color: Colors.amberAccent,
+                iconSize: 18,
+                fontSize: 18,
               ),
               const SizedBox(height: 16),
               Row(
@@ -1309,6 +1379,59 @@ class _HomeScreenState extends State<HomeScreen>
                   Expanded(
                     child: _buildCyberDialogButton(
                       label: '再入場',
+                      accentColor: Colors.lightBlueAccent,
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    return result == true;
+  }
+
+  Future<bool> _showArenaEntryConfirmDialog(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.lightBlueAccent,
+          title: 'ARENA入場',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'ARENAに入場しますか？',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildCoinAmount(
+                ArenaManager.entryCost,
+                color: Colors.amberAccent,
+                iconSize: 18,
+                fontSize: 18,
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'キャンセル',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: '入場',
                       accentColor: Colors.lightBlueAccent,
                       onPressed: () => Navigator.of(dialogContext).pop(true),
                     ),
@@ -1402,10 +1525,12 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              _arenaRewardSummaryText(reward),
-              style: const TextStyle(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _buildCoinAmount(
+                reward.coins,
                 color: Colors.white,
+                iconSize: 14,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
               ),
@@ -1437,7 +1562,7 @@ class _HomeScreenState extends State<HomeScreen>
           _buildBottomTextButton(
             Icons.collections_bookmark,
             'コレクション',
-            _openCollectionScreen,
+            () => unawaited(_openCollectionScreen()),
           ),
           _buildBottomTextButton(
             Icons.help_outline,
@@ -2026,6 +2151,14 @@ class _HomeScreenState extends State<HomeScreen>
           if (!shouldReenter) {
             return;
           }
+        } else {
+          if (!context.mounted) {
+            return;
+          }
+          final shouldEnter = await _showArenaEntryConfirmDialog(context);
+          if (!shouldEnter) {
+            return;
+          }
         }
         try {
           await _arenaManager.enterArena();
@@ -2049,9 +2182,8 @@ class _HomeScreenState extends State<HomeScreen>
       }
 
       final currentWins = _arenaManager.currentWins;
-      final currentReward = _arenaRewardSummaryText(
-        _arenaManager.previewRewardForWins(currentWins),
-      );
+      final currentReward =
+          _arenaManager.previewRewardForWins(currentWins).coins;
       dialogOpen = true;
       unawaited(
         showDialog<void>(
@@ -2065,9 +2197,42 @@ class _HomeScreenState extends State<HomeScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '${_arenaManager.currentWins}勝 ${_arenaManager.currentLosses}敗\n報酬 $currentReward\n対戦相手を検索中...',
+                    '${_arenaManager.currentWins}勝 ${_arenaManager.currentLosses}敗',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        '現在報酬',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _buildCoinAmount(
+                        currentReward,
+                        color: Colors.amberAccent,
+                        iconSize: 18,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '対戦相手を検索中...',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
                       color: Colors.white70,
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
