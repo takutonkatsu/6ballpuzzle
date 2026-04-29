@@ -73,6 +73,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Function(WazaType, BallColor?)? onWazaFired;
   Function(Map<String, dynamic>)? onBoardUpdated;
   Function()? onGameOverTriggered;
+  Function()? onDeathLineCrossed;
   Function(
     String action,
     double x,
@@ -114,7 +115,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const double _defaultDeathLineProgress = 0.0;
 
   double get currentFallSpeed => isCpuMode
-      ? (useConstantFallSpeed ? constantFallSpeed : scoreManager.currentFallSpeed)
+      ? (useConstantFallSpeed
+          ? constantFallSpeed
+          : scoreManager.currentFallSpeed)
       : useConstantFallSpeed
           ? constantFallSpeed
           : scoreManager.currentFallSpeed;
@@ -900,6 +903,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           }
 
           if (isGameOver) {
+            onDeathLineCrossed?.call();
             gameOver();
             return;
           }

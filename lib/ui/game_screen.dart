@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
@@ -10,11 +11,12 @@ import '../app_settings.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
+import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
+import '../game/components/effect_components.dart';
 import '../game/game_models.dart';
-import '../data/models/game_item.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
 import '../network/multiplayer_manager.dart';
@@ -118,6 +120,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _isRestoringOnlineSession = false;
   Map<String, dynamic>? _pendingOpponentBoardData;
   Map<String, dynamic>? _pendingOpponentPieceData;
+  Timer? _deferredOpponentResumeTimer;
+  bool _resultAudioStarted = false;
+  DateTime? _resultAudioStartedAt;
 
   final List<Timer> _pendingAttackTimers = [];
 
@@ -204,6 +209,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         if (_opponentDisconnectedDuringBattle) {
           unawaited(_showOpponentGameOverResult());
         }
+      };
+      _cpuGame!.onDeathLineCrossed = () {
+        _triggerResultAudio(playerWon: true);
       };
       _cpuGame!.onBoardUpdated = (_) {
         if (_opponentDisconnectedDuringBattle) {
@@ -300,15 +308,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     };
     _playerGame.onGameOverTriggered = () {
       if (widget.isCpuMode) {
-        unawaited(_presentBattleResult(playerWon: false, opponentCrossedDeathLine: false));
+        unawaited(_presentBattleResult(
+            playerWon: false, opponentCrossedDeathLine: false));
         return;
       }
       if (_isOnlineMode) {
         unawaited(_multiplayerManager.declareGameOver());
-        unawaited(_presentBattleResult(playerWon: false, opponentCrossedDeathLine: false));
+        unawaited(_presentBattleResult(
+            playerWon: false, opponentCrossedDeathLine: false));
       } else {
-        unawaited(_presentBattleResult(playerWon: false, opponentCrossedDeathLine: false));
+        unawaited(_presentBattleResult(
+            playerWon: false, opponentCrossedDeathLine: false));
       }
+    };
+    _playerGame.onDeathLineCrossed = () {
+      _triggerResultAudio(playerWon: false);
     };
     _playerGame.onWazaFired = (waza, color) {
       _recordPlayerWaza(waza);
@@ -382,6 +396,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _clearAllPendingAttacks();
     _rankedAutoStartTimer?.cancel();
+    _deferredOpponentResumeTimer?.cancel();
     if (!_isReturningToHome) {
       unawaited(_stopBattleBgm());
     }
@@ -418,6 +433,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   void _sendStamp(GameItem stamp) {
     if (!mounted || _isStampCoolingDown) return;
 
+    AppSfx.playUiTap();
     unawaited(_multiplayerManager.sendStamp(stamp.id));
 
     setState(() {
@@ -940,8 +956,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           roleLabel: 'あなた',
                           badgeIds:
                               _badgeIdsForRole(_multiplayerManager.myRoleId),
-                          playerIconId:
-                              _playerIconIdForRole(_multiplayerManager.myRoleId),
+                          playerIconId: _playerIconIdForRole(
+                              _multiplayerManager.myRoleId),
                         ),
                         const SizedBox(height: 16),
                         _buildNextBadge(
@@ -957,7 +973,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.cyanAccent.withValues(alpha: 0.08),
+                                color:
+                                    Colors.cyanAccent.withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color:
@@ -965,8 +982,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color:
-                                        Colors.cyanAccent.withValues(alpha: 0.12),
+                                    color: Colors.cyanAccent
+                                        .withValues(alpha: 0.12),
                                     blurRadius: 5,
                                   ),
                                 ],
@@ -1027,8 +1044,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       roleLabel: '相手',
                       badgeIds:
                           _badgeIdsForRole(_multiplayerManager.opponentRoleId),
-                      playerIconId:
-                          _playerIconIdForRole(_multiplayerManager.opponentRoleId),
+                      playerIconId: _playerIconIdForRole(
+                          _multiplayerManager.opponentRoleId),
                     ),
                     const SizedBox(height: 16),
                     _buildNextBadge(
@@ -1093,9 +1110,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         onTap: !canOpen
             ? null
             : () {
-          _playUiTap();
-          _showSettingsMenu();
-        },
+                _playUiTap();
+                _showSettingsMenu();
+              },
         borderRadius: BorderRadius.circular(10),
         child: Container(
           width: 38,
@@ -1108,7 +1125,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.cyanAccent.withValues(alpha: canOpen ? 0.08 : 0.03),
+                color:
+                    Colors.cyanAccent.withValues(alpha: canOpen ? 0.08 : 0.03),
                 blurRadius: 8,
               ),
             ],
@@ -1407,7 +1425,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           return _buildUnifiedResultSheet(
             title: title,
             titleColor: titleColor,
-          children: [
+            children: [
               _buildResultExpSummary(),
               if (!widget.isCpuMode) ...[
                 const SizedBox(height: 12),
@@ -2109,7 +2127,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           return;
         }
         final opponentRoleId = roleId == 'host' ? 'guest' : 'host';
-        final opponentSnapshot = await _multiplayerManager.loadRoomBattleSnapshot(
+        final opponentSnapshot =
+            await _multiplayerManager.loadRoomBattleSnapshot(
           roomId: roomId,
           roleId: opponentRoleId,
         );
@@ -2117,8 +2136,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           return;
         }
         _playerGame.restoreFromSnapshot(
-          roomSnapshot ??
-              savedSession!.snapshot!,
+          roomSnapshot ?? savedSession!.snapshot!,
         );
         if (_cpuGame != null) {
           if (opponentSnapshot != null && opponentSnapshot.isNotEmpty) {
@@ -2217,9 +2235,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Future<void> _playMatchedHaptic() async {
     await HapticFeedback.vibrate();
-    await Future<void>.delayed(const Duration(milliseconds: 140));
+    await Future<void>.delayed(const Duration(milliseconds: 180));
     await HapticFeedback.heavyImpact();
-    await Future<void>.delayed(const Duration(milliseconds: 140));
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    await HapticFeedback.heavyImpact();
+    await Future<void>.delayed(const Duration(milliseconds: 180));
     await HapticFeedback.vibrate();
   }
 
@@ -2383,6 +2403,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _pendingOpponentBoardData = Map<String, dynamic>.from(boardData);
       return;
     }
+    if (_shouldDelayOpponentResume()) {
+      _pendingOpponentBoardData = Map<String, dynamic>.from(boardData);
+      _scheduleDeferredOpponentResume();
+      return;
+    }
     final ignoreUntil = _ignoreEmptyOpponentBoardUntil;
     if (boardData.isEmpty &&
         ignoreUntil != null &&
@@ -2402,6 +2427,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     final opponentGame = _cpuGame;
     if (opponentGame == null) {
+      return;
+    }
+    if (_shouldDelayOpponentResume()) {
+      _pendingOpponentPieceData = Map<String, dynamic>.from(pieceData);
+      _scheduleDeferredOpponentResume();
       return;
     }
 
@@ -2524,6 +2554,40 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   void _handleOpponentOjamaSpawned(List<dynamic> ojamaData, int dropSeed) {
     _cpuGame?.spawnRemoteOjama(ojamaData, dropSeed);
+    _scheduleDeferredOpponentResume();
+  }
+
+  bool _shouldDelayOpponentResume() {
+    final opponentGame = _cpuGame;
+    return opponentGame != null && opponentGame.hasActiveOjamaAnimation;
+  }
+
+  void _scheduleDeferredOpponentResume() {
+    _deferredOpponentResumeTimer?.cancel();
+    _deferredOpponentResumeTimer = Timer(
+      const Duration(milliseconds: 140),
+      _flushDeferredOpponentResumeIfReady,
+    );
+  }
+
+  void _flushDeferredOpponentResumeIfReady() {
+    if (!mounted) {
+      return;
+    }
+    if (_shouldDelayOpponentResume()) {
+      _scheduleDeferredOpponentResume();
+      return;
+    }
+    final pendingBoard = _pendingOpponentBoardData;
+    final pendingPiece = _pendingOpponentPieceData;
+    _pendingOpponentBoardData = null;
+    _pendingOpponentPieceData = null;
+    if (pendingBoard != null && pendingBoard.isNotEmpty) {
+      _handleOpponentBoardUpdated(pendingBoard);
+    }
+    if (pendingPiece != null && pendingPiece.isNotEmpty) {
+      _handleOpponentPieceUpdated(pendingPiece);
+    }
   }
 
   void _handleOpponentGameOver() {
@@ -2618,6 +2682,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _opponentDisconnectedDuringBattle = false;
     _autoReadyRequested = false;
     _resultRevealPending = false;
+    _resultAudioStarted = false;
+    _resultAudioStartedAt = null;
     _playerWazaCounts[WazaType.straight] = 0;
     _playerWazaCounts[WazaType.pyramid] = 0;
     _playerWazaCounts[WazaType.hexagon] = 0;
@@ -2878,6 +2944,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   void _freezeBattleBoards() {
+    _applyBattleFinishEffect(_playerGame);
     _playerGame.gameStateWrapper.value = GameState.gameover;
     if (_playerGame.activePiece != null) {
       _playerGame.activePiece!.isLocked = true;
@@ -2886,6 +2953,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _playerGame.ghostPiece!.isLocked = true;
     }
     if (_cpuGame != null) {
+      _applyBattleFinishEffect(_cpuGame!);
       _cpuGame!.gameStateWrapper.value = GameState.gameover;
       if (_cpuGame!.activePiece != null) {
         _cpuGame!.activePiece!.isLocked = true;
@@ -2893,6 +2961,74 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (_cpuGame!.ghostPiece != null) {
         _cpuGame!.ghostPiece!.isLocked = true;
       }
+    }
+  }
+
+  void _applyBattleFinishEffect(PuzzleGame game) {
+    final piece = game.activePiece;
+    if (piece == null || piece.isLocked) {
+      return;
+    }
+
+    piece.add(
+      ScaleEffect.to(
+        Vector2.all(1.08),
+        EffectController(duration: 0.18, curve: Curves.easeOutCubic),
+      ),
+    );
+    piece.add(
+      RotateEffect.by(
+        0.16,
+        EffectController(duration: 0.28, curve: Curves.easeOutCubic),
+      ),
+    );
+
+    for (var i = 0; i < piece.absoluteBallPositions.length; i++) {
+      final position = piece.absoluteBallPositions[i];
+      final color = piece.colors[i];
+      game.add(
+        BallPopRingEffect(
+          position: position.clone(),
+          ringColor: color.glowColor,
+        ),
+      );
+      game.add(
+        SparkEffect(
+          position: position.clone(),
+          sparkColor: color.glowColor,
+        ),
+      );
+    }
+  }
+
+  void _triggerResultAudio({required bool playerWon}) {
+    if (_resultAudioStarted) {
+      return;
+    }
+    _resultAudioStarted = true;
+    _resultAudioStartedAt = DateTime.now();
+    unawaited(_stopBattleBgm());
+    if (playerWon) {
+      AppSfx.playWin();
+    } else {
+      AppSfx.playLose();
+    }
+  }
+
+  Future<void> _waitForResultAudioLead({required bool playerWon}) async {
+    final startedAt = _resultAudioStartedAt;
+    final expected = playerWon
+        ? const Duration(milliseconds: 1400)
+        : const Duration(milliseconds: 1800);
+    if (startedAt == null) {
+      await Future<void>.delayed(expected);
+      return;
+    }
+
+    final elapsed = DateTime.now().difference(startedAt);
+    final remaining = expected - elapsed;
+    if (remaining > Duration.zero) {
+      await Future<void>.delayed(remaining);
     }
   }
 
@@ -3146,7 +3282,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _syncDisconnectedOpponentSnapshot() async {
-    if (!_isOnlineMode || !_opponentDisconnectedDuringBattle || _cpuGame == null) {
+    if (!_isOnlineMode ||
+        !_opponentDisconnectedDuringBattle ||
+        _cpuGame == null) {
       return;
     }
     await _multiplayerManager.syncDisconnectedOpponentSnapshot(
@@ -3175,20 +3313,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _resultRevealPending = true;
     _freezeBattleBoards();
-    final targetGame =
-        playerWon && opponentCrossedDeathLine && _cpuGame != null
-            ? _cpuGame!
-            : _playerGame;
-    unawaited(_stopBattleBgm());
+    final targetGame = playerWon && opponentCrossedDeathLine && _cpuGame != null
+        ? _cpuGame!
+        : _playerGame;
+    _triggerResultAudio(playerWon: playerWon);
     await targetGame.animateDeathLineToRed();
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    if (playerWon) {
-      AppSfx.playWin();
-      await Future<void>.delayed(const Duration(milliseconds: 1400));
-    } else {
-      AppSfx.playLose();
-      await Future<void>.delayed(const Duration(milliseconds: 1800));
-    }
+    await _waitForResultAudioLead(playerWon: playerWon);
     if (!mounted) {
       return;
     }

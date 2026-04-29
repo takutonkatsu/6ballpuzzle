@@ -104,8 +104,7 @@ class _HomeScreenState extends State<HomeScreen>
     required Alignment alignment,
     required Color color,
   }) {
-    final textAlign =
-        alignment.x > 0 ? TextAlign.right : TextAlign.left;
+    final textAlign = alignment.x > 0 ? TextAlign.right : TextAlign.left;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 112),
       child: FittedBox(
@@ -1550,7 +1549,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildBottomBannerTop() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [

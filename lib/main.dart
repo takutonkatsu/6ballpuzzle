@@ -10,6 +10,8 @@ import 'app_settings.dart';
 import 'firebase_options.dart';
 import 'game/components/ball_component.dart';
 import 'game/game_models.dart';
+import 'network/multiplayer_manager.dart';
+import 'ui/game_screen.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
@@ -68,6 +70,7 @@ class StartupLoadingScreen extends StatefulWidget {
 class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _progressController;
+  final MultiplayerManager _multiplayerManager = MultiplayerManager();
 
   @override
   void initState() {
@@ -85,6 +88,24 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       Future<void>.delayed(const Duration(milliseconds: 1800)),
     ]);
     if (!mounted) {
+      return;
+    }
+    final resolution = await _multiplayerManager.inspectSavedSession();
+    if (!mounted) {
+      return;
+    }
+    if (resolution != null && !resolution.isResolved) {
+      final session = resolution.session;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => GameScreen.online(
+            roomId: session.roomId,
+            isHost: session.isHost,
+            isRankedMode: session.isRankedMode,
+            isArenaMode: session.isArenaMode,
+          ),
+        ),
+      );
       return;
     }
     Navigator.of(context).pushReplacement(

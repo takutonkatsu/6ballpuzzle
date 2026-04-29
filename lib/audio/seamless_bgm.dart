@@ -10,7 +10,6 @@ class SeamlessBgm {
   final AudioPlayer _playerA = AudioPlayer();
   final AudioPlayer _playerB = AudioPlayer();
   Timer? _loopTimer;
-  Timer? _fadeTimer;
   String? _assetPath;
   Duration? _trackDuration;
   double _baseVolume = 1;
@@ -85,9 +84,7 @@ class SeamlessBgm {
     _generation++;
     _isPlaying = false;
     _loopTimer?.cancel();
-    _fadeTimer?.cancel();
     _loopTimer = null;
-    _fadeTimer = null;
     await Future.wait([
       _playerA.stop(),
       _playerB.stop(),
@@ -122,7 +119,7 @@ class SeamlessBgm {
     final next = _usingA ? _playerB : _playerA;
     await Future.wait([
       current.setVolume(_effectiveVolume),
-      next.setVolume(0),
+      next.setVolume(_effectiveVolume),
     ]);
   }
 
@@ -133,18 +130,17 @@ class SeamlessBgm {
       return;
     }
 
-    const overlap = Duration(milliseconds: 180);
-    final wait = duration > overlap ? duration - overlap : duration;
+    final wait = duration;
     _loopTimer?.cancel();
     _loopTimer = Timer(wait, () {
       if (!_isPlaying || generation != _generation) {
         return;
       }
-      unawaited(_crossfadeToNext(generation));
+      unawaited(_switchToNext(generation));
     });
   }
 
-  Future<void> _crossfadeToNext(int generation) async {
+  Future<void> _switchToNext(int generation) async {
     final assetPath = _assetPath;
     if (!_isPlaying || assetPath == null || generation != _generation) {
       return;
@@ -154,32 +150,11 @@ class SeamlessBgm {
     final next = _usingA ? _playerB : _playerA;
     _usingA = !_usingA;
 
-    await next.setVolume(0);
+    await next.setVolume(_effectiveVolume);
     await next.seek(Duration.zero);
     await next.resume();
-
-    const steps = 9;
-    const stepDuration = Duration(milliseconds: 20);
-    var step = 0;
-    _fadeTimer?.cancel();
-    _fadeTimer = Timer.periodic(stepDuration, (timer) {
-      if (!_isPlaying || generation != _generation) {
-        timer.cancel();
-        return;
-      }
-
-      step++;
-      final t = step / steps;
-      final effectiveVolume = _effectiveVolume;
-      unawaited(current.setVolume(effectiveVolume * (1 - t)));
-      unawaited(next.setVolume(effectiveVolume * t));
-
-      if (step >= steps) {
-        timer.cancel();
-        unawaited(current.stop());
-        unawaited(_prepare(current, assetPath, 0));
-        _scheduleNext(generation);
-      }
-    });
+    await current.stop();
+    await _prepare(current, assetPath, _effectiveVolume);
+    _scheduleNext(generation);
   }
 }
