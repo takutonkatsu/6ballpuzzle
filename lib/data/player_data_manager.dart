@@ -79,8 +79,7 @@ class PlayerDataManager {
   PlayerDataManager._internal();
 
   static final PlayerDataManager instance = PlayerDataManager._internal();
-  static const bool _debugControlsEnabled =
-      bool.fromEnvironment('ENABLE_DEBUG_CONTROLS', defaultValue: true);
+  static const bool _debugControlsEnabled = true;
 
   static const int initialCoins = 10000;
   static const String _coinsKey = 'player_coins';
@@ -96,7 +95,8 @@ class PlayerDataManager {
   static const String _equippedBadgeIdsKey = 'player_equipped_badge_ids_json';
   static const String _currentRatingKey = 'player_current_rating';
   static const String _equippedBallSkinIdKey = 'player_equipped_ball_skin_id';
-  static const String _equippedPlayerIconIdKey = 'player_equipped_player_icon_id';
+  static const String _equippedPlayerIconIdKey =
+      'player_equipped_player_icon_id';
   static const String _highestRatingKey = 'player_highest_rating';
   static const String _maxArenaWinsKey = 'player_max_arena_wins';
   static const String _arenaChallengeCountKey = 'player_arena_challenge_count';
@@ -108,6 +108,8 @@ class PlayerDataManager {
   static const String _wazaCountsKey = 'player_waza_counts_json';
   static const String _matchHistoryKey = 'player_match_history_json';
   static const String _modePlayCountsKey = 'player_mode_play_counts_json';
+  static const String _inventoryRevisionKey = 'player_inventory_revision';
+  static const int _currentInventoryRevision = 1;
   static const int _debugBuildCoins = 1000000;
 
   final Random _random = Random();
@@ -215,6 +217,7 @@ class PlayerDataManager {
     }
 
     final prefs = await SharedPreferences.getInstance();
+    final inventoryRevision = prefs.getInt(_inventoryRevisionKey) ?? 0;
     _coins = prefs.getInt(_coinsKey) ?? initialCoins;
     _exp = prefs.getInt(_expKey) ?? 0;
     _gachaTickets = prefs.getInt(_gachaTicketsKey) ?? 0;
@@ -308,10 +311,27 @@ class PlayerDataManager {
         .where((id) => unlockedBadgeIds.contains(id))
         .take(2)
         .toList();
+    var shouldSaveItems = false;
+    if (inventoryRevision < _currentInventoryRevision) {
+      shouldSaveItems = _applyInventoryMigration(inventoryRevision);
+      shouldSaveProfile = true;
+    }
+    if (!_ownsEquippableItem(_equippedBallSkinId, ItemType.skin)) {
+      _equippedBallSkinId = 'default';
+      shouldSaveProfile = true;
+    }
+    if (!_ownsEquippableItem(_equippedPlayerIconId, ItemType.icon)) {
+      _equippedPlayerIconId = 'default';
+      shouldSaveProfile = true;
+    }
 
     if (_debugControlsEnabled && _coins != _debugBuildCoins) {
       _coins = _debugBuildCoins;
       await _saveEconomy();
+    }
+    if (shouldSaveItems || inventoryRevision < _currentInventoryRevision) {
+      await _saveItems();
+      await prefs.setInt(_inventoryRevisionKey, _currentInventoryRevision);
     }
     if (shouldSaveProfile) {
       await _savePublicProfile();
@@ -508,13 +528,21 @@ class PlayerDataManager {
 
   Future<void> setEquippedBallSkinId(String skinId) async {
     await load();
-    _equippedBallSkinId = skinId.trim().isEmpty ? 'default' : skinId.trim();
+    final normalized = skinId.trim().isEmpty ? 'default' : skinId.trim();
+    if (!_ownsEquippableItem(normalized, ItemType.skin)) {
+      return;
+    }
+    _equippedBallSkinId = normalized;
     await _savePublicProfile();
   }
 
   Future<void> setEquippedPlayerIconId(String iconId) async {
     await load();
-    _equippedPlayerIconId = iconId.trim().isEmpty ? 'default' : iconId.trim();
+    final normalized = iconId.trim().isEmpty ? 'default' : iconId.trim();
+    if (!_ownsEquippableItem(normalized, ItemType.icon)) {
+      return;
+    }
+    _equippedPlayerIconId = normalized;
     await _savePublicProfile();
   }
 
@@ -671,9 +699,25 @@ class PlayerDataManager {
   }
 
   List<String> _generateDailyShopItems() {
-    final pool = List<GameItem>.from(GameItemCatalog.dailyShopPool)
+    final pool = List<GameItem>.from(GameItemCatalog.shopDirectPurchasePool)
       ..shuffle(_random);
     return pool.take(3).map((item) => item.id).toList();
+  }
+
+  bool _applyInventoryMigration(int revision) {
+    var changed = false;
+    if (revision < 1) {
+      final filteredItems =
+          _ownedItems.where((item) => !item.isStamp && !item.isIcon).toList();
+      if (filteredItems.length != _ownedItems.length) {
+        _ownedItems = filteredItems;
+        changed = true;
+      }
+      if (_equippedPlayerIconId != 'default') {
+        _equippedPlayerIconId = 'default';
+      }
+    }
+    return changed;
   }
 
   bool _applyDebugBuildMissionReset() {
@@ -786,5 +830,12 @@ class PlayerDataManager {
       return value.toInt();
     }
     return int.tryParse('$value');
+  }
+
+  bool _ownsEquippableItem(String id, ItemType type) {
+    if (id == 'default') {
+      return true;
+    }
+    return _ownedItems.any((item) => item.id == id && item.type == type);
   }
 }

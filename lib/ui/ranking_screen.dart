@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../audio/sfx.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 
@@ -17,6 +20,10 @@ class _RankingScreenState extends State<RankingScreen> {
   bool _isLoading = true;
   List<RankingEntry> _entries = const [];
   String? _errorMessage;
+
+  void _playUiTap() {
+    AppSfx.playUiTap();
+  }
 
   @override
   void initState() {
@@ -134,7 +141,10 @@ class _RankingScreenState extends State<RankingScreen> {
 
   Widget _buildBackButton(BuildContext context) {
     return ElevatedButton.icon(
-      onPressed: () => Navigator.of(context).pop(),
+      onPressed: () {
+        _playUiTap();
+        Navigator.of(context).pop();
+      },
       style: ElevatedButton.styleFrom(
         backgroundColor: const Color(0xFF1B1F2E),
         foregroundColor: Colors.cyanAccent,
@@ -180,7 +190,10 @@ class _RankingScreenState extends State<RankingScreen> {
               ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: _loadRankings,
+                onPressed: () {
+                  _playUiTap();
+                  unawaited(_loadRankings());
+                },
                 child: const Text('RETRY'),
               ),
             ],

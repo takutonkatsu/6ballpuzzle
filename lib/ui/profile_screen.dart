@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
 
@@ -16,6 +18,10 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   bool _loading = true;
+
+  void _playUiTap() {
+    AppSfx.playUiTap();
+  }
 
   @override
   void initState() {
@@ -137,7 +143,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               IconButton(
                 tooltip: '名前変更',
-                onPressed: _editName,
+                onPressed: () {
+                  _playUiTap();
+                  unawaited(_editName());
+                },
                 icon: const Icon(Icons.edit, color: Colors.white70),
               ),
             ],
@@ -339,11 +348,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () {
+                _playUiTap();
+                Navigator.of(context).pop();
+              },
               child: const Text('キャンセル'),
             ),
             TextButton(
               onPressed: () async {
+                _playUiTap();
                 await _playerData.setPlayerName(controller.text);
                 if (!context.mounted) {
                   return;
@@ -370,9 +383,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   IconData _playerIconData(String iconId) {
     return switch (iconId) {
-      'bolt' => Icons.bolt,
-      'star' => Icons.star,
-      'gamepad' => Icons.sports_esports,
+      'icon_bolt' => Icons.bolt,
+      'icon_star' => Icons.star,
+      'icon_gamepad' => Icons.sports_esports,
       _ => Icons.person,
     };
   }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
@@ -18,12 +19,9 @@ class _CollectionScreenState extends State<CollectionScreen>
   final MultiplayerManager _multiplayerManager = MultiplayerManager.instance;
   bool _loading = true;
 
-  static const _playerIcons = <({String id, IconData icon, String label})>[
-    (id: 'default', icon: Icons.person, label: 'デフォルト'),
-    (id: 'bolt', icon: Icons.bolt, label: 'ボルト'),
-    (id: 'star', icon: Icons.star, label: 'スター'),
-    (id: 'gamepad', icon: Icons.sports_esports, label: 'ゲーム'),
-  ];
+  void _playUiTap() {
+    AppSfx.playUiTap();
+  }
 
   @override
   void initState() {
@@ -76,7 +74,8 @@ class _CollectionScreenState extends State<CollectionScreen>
   }
 
   Widget _buildStampsTab() {
-    final stamps = _playerData.ownedItems.where((item) => item.isStamp).toList();
+    final stamps =
+        _playerData.ownedItems.where((item) => item.isStamp).toList();
     if (stamps.isEmpty) {
       return _emptyState('まだスタンプを持っていません');
     }
@@ -107,6 +106,7 @@ class _CollectionScreenState extends State<CollectionScreen>
             selected: equipped.contains(badge.id),
             onTap: unlocked.contains(badge.id)
                 ? () async {
+                    _playUiTap();
                     final next = equipped.toSet();
                     if (next.contains(badge.id)) {
                       next.remove(badge.id);
@@ -139,15 +139,14 @@ class _CollectionScreenState extends State<CollectionScreen>
           .where((item) => item.type == ItemType.skin)
           .map((item) => item.id),
     };
-    final skins = <({String id, String label})>[
-      (id: 'default', label: 'DEFAULT'),
-      (id: 'skin_neon_chrome', label: 'NEON CHROME'),
-      (id: 'skin_black_ice', label: 'BLACK ICE'),
-    ];
 
     return _grid(
       children: [
-        for (final skin in skins)
+        for (final skin in [
+          const (id: 'default', label: 'DEFAULT'),
+          ...GameItemCatalog.epicSkins
+              .map((item) => (id: item.id, label: item.name)),
+        ])
           _simpleCard(
             title: skin.label,
             subtitle: ownedSkinIds.contains(skin.id) ? '使用可能' : '未所持',
@@ -155,6 +154,7 @@ class _CollectionScreenState extends State<CollectionScreen>
             selected: _playerData.equippedBallSkinId == skin.id,
             onTap: ownedSkinIds.contains(skin.id)
                 ? () async {
+                    _playUiTap();
                     await _playerData.setEquippedBallSkinId(skin.id);
                     if (!mounted) {
                       return;
@@ -168,24 +168,49 @@ class _CollectionScreenState extends State<CollectionScreen>
   }
 
   Widget _buildIconsTab() {
+    final ownedIconIds = {
+      ..._playerData.ownedItems
+          .where((item) => item.type == ItemType.icon)
+          .map((item) => item.id),
+    };
     return _grid(
       children: [
-        for (final icon in _playerIcons)
+        _simpleCard(
+          title: 'DEFAULT',
+          subtitle: '初期アイコン',
+          icon: Icons.person,
+          selected: _playerData.equippedPlayerIconId == 'default',
+          onTap: () async {
+            _playUiTap();
+            await _playerData.setEquippedPlayerIconId('default');
+            await _multiplayerManager.updateUserName(
+              _playerData.playerName,
+            );
+            if (!mounted) {
+              return;
+            }
+            setState(() {});
+          },
+        ),
+        for (final icon in GameItemCatalog.playerIcons)
           _simpleCard(
-            title: icon.label,
-            subtitle: 'プロフィール用',
-            icon: icon.icon,
+            title: icon.name,
+            subtitle: ownedIconIds.contains(icon.id) ? '使用可能' : '未所持',
+            icon: _iconForPlayerIcon(icon.iconName),
             selected: _playerData.equippedPlayerIconId == icon.id,
-            onTap: () async {
-              await _playerData.setEquippedPlayerIconId(icon.id);
-              await _multiplayerManager.updateUserName(
-                _playerData.playerName,
-              );
-              if (!mounted) {
-                return;
-              }
-              setState(() {});
-            },
+            onTap: ownedIconIds.contains(icon.id)
+                ? () async {
+                    _playUiTap();
+                    await _playerData.setEquippedPlayerIconId(icon.id);
+                    await _multiplayerManager.updateUserName(
+                      _playerData.playerName,
+                    );
+                    if (!mounted) {
+                      return;
+                    }
+                    setState(() {});
+                  }
+                : null,
           ),
       ],
     );
@@ -210,7 +235,11 @@ class _CollectionScreenState extends State<CollectionScreen>
     required VoidCallback? onTap,
   }) {
     return InkWell(
-      onTap: onTap,
+      onTap: onTap == null
+          ? null
+          : () {
+              onTap();
+            },
       borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -228,7 +257,9 @@ class _CollectionScreenState extends State<CollectionScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: selected ? Colors.amberAccent : Colors.white70, size: 32),
+            Icon(icon,
+                color: selected ? Colors.amberAccent : Colors.white70,
+                size: 32),
             const SizedBox(height: 12),
             Text(
               title,
@@ -276,8 +307,23 @@ class _CollectionScreenState extends State<CollectionScreen>
         return Icons.coffee;
       case 'visibility':
         return Icons.visibility;
+      case 'memory':
+        return Icons.memory;
       default:
         return Icons.chat_bubble;
+    }
+  }
+
+  IconData _iconForPlayerIcon(String? iconName) {
+    switch (iconName) {
+      case 'bolt':
+        return Icons.bolt;
+      case 'star':
+        return Icons.star;
+      case 'gamepad':
+        return Icons.sports_esports;
+      default:
+        return Icons.person;
     }
   }
 }

@@ -55,9 +55,10 @@ class MultiplayerPlayer {
       uid: data?['uid'] as String?,
       rating: _intValue(data?['rating']),
       badgeIds: _stringList(data?['badgeIds']),
-      playerIconId: ((data?['playerIconId']?.toString() ?? '').trim()).isNotEmpty
-          ? data!['playerIconId'].toString().trim()
-          : 'default',
+      playerIconId:
+          ((data?['playerIconId']?.toString() ?? '').trim()).isNotEmpty
+              ? data!['playerIconId'].toString().trim()
+              : 'default',
     );
   }
 
@@ -72,7 +73,10 @@ class MultiplayerPlayer {
 
   static List<String> _stringList(Object? value) {
     if (value is List) {
-      return value.map((item) => '$item').where((item) => item.isNotEmpty).toList();
+      return value
+          .map((item) => '$item')
+          .where((item) => item.isNotEmpty)
+          .toList();
     }
     if (value is Map) {
       final entries = value.entries.toList()
@@ -196,17 +200,21 @@ class SavedSessionResolution {
     required this.session,
     required this.isResolved,
     this.isWin,
+    this.oldRating,
     this.newRating,
     this.ratingDelta,
     this.opponentName,
+    this.wasAbandoned = false,
   });
 
   final SavedOnlineSession session;
   final bool isResolved;
   final bool? isWin;
+  final int? oldRating;
   final int? newRating;
   final int? ratingDelta;
   final String? opponentName;
+  final bool wasAbandoned;
 }
 
 class _MatchmakingCandidate {
@@ -1776,19 +1784,26 @@ class MultiplayerManager {
       final opponentResultData = resultsMap?[opponentRoleId] is Map
           ? resultsMap![opponentRoleId] as Map<dynamic, dynamic>
           : null;
-      final resumableSnapshot = await loadRoomBattleSnapshot(
-        roomId: session.roomId,
-        roleId: myRoleId,
-      );
-      final mirroredIsWin =
-          opponentResultData == null ? null : opponentResultData['isWin'] != true;
+      final mirroredIsWin = opponentResultData == null
+          ? null
+          : opponentResultData['isWin'] != true;
+      final startedMatch = room.status == 'playing' ||
+          room.status == 'game_over' ||
+          session.snapshot != null ||
+          resultData != null ||
+          opponentResultData != null;
+      final abandonedByMe = startedMatch && myStatus == 'left';
       final explicitIsWin =
           resultData == null ? mirroredIsWin : resultData['isWin'] == true;
-      final statusInferredIsWin = myStatus == 'dead'
+      final statusInferredIsWin = abandonedByMe
           ? false
-          : opponentStatus == 'dead'
-              ? true
-              : null;
+          : myStatus == 'dead'
+              ? false
+              : opponentStatus == 'left' && startedMatch
+                  ? true
+                  : opponentStatus == 'dead'
+                      ? true
+                      : null;
       final inferredIsWin = explicitIsWin ?? statusInferredIsWin;
       if (session.isRankedMode &&
           !session.isArenaMode &&
@@ -1801,31 +1816,38 @@ class MultiplayerManager {
           existingOpponentResult: opponentResultData,
         );
       }
+      final resolvedResultData = resultData;
+      final oldRating = resolvedResultData == null
+          ? null
+          : _intValue(resolvedResultData['oldRating']) ??
+              (() {
+                final newRating = _intValue(resolvedResultData['newRating']);
+                final delta = _intValue(resolvedResultData['delta']);
+                if (newRating == null || delta == null) {
+                  return null;
+                }
+                return newRating - delta;
+              })();
       final newRating = resultData == null
           ? await _loadLatestUserRating()
           : _intValue(resultData['newRating']) ?? await _loadLatestUserRating();
       final ratingDelta =
           resultData == null ? null : _intValue(resultData['delta']);
-      final hasResumeData = (resumableSnapshot != null && resumableSnapshot.isNotEmpty) ||
-          session.snapshot != null;
-      final unrecoverablePlayingRoom = room.status == 'playing' &&
-          myStatus == 'left' &&
-          opponentStatus == 'left' &&
-          !hasResumeData;
-      final isResolved = room.status == 'game_over' ||
-          inferredIsWin != null ||
-          unrecoverablePlayingRoom;
+      final isResolved =
+          !startedMatch || room.status == 'game_over' || inferredIsWin != null;
 
       return SavedSessionResolution(
         session: session,
         isResolved: isResolved,
         isWin: inferredIsWin,
+        oldRating: oldRating,
         newRating: newRating,
         ratingDelta: ratingDelta,
         opponentName: opponent?.name,
+        wasAbandoned: abandonedByMe,
       );
     } catch (_) {
-      return SavedSessionResolution(session: session, isResolved: false);
+      return SavedSessionResolution(session: session, isResolved: true);
     }
   }
 
@@ -2005,15 +2027,17 @@ class MultiplayerManager {
     required String roleId,
   }) async {
     try {
-      final playerEvent = await _db.child('rooms/$roomId/players/$roleId').get();
+      final playerEvent =
+          await _db.child('rooms/$roomId/players/$roleId').get();
       final playerData = playerEvent.value is Map
           ? playerEvent.value as Map<dynamic, dynamic>
           : null;
-      final snapshotEvent = await _db.child('rooms/$roomId/players/$roleId/snapshot').get();
+      final snapshotEvent =
+          await _db.child('rooms/$roomId/players/$roleId/snapshot').get();
       Map<String, dynamic>? resolvedSnapshot;
       if (snapshotEvent.value is Map) {
-        resolvedSnapshot =
-            Map<String, dynamic>.from(snapshotEvent.value as Map<dynamic, dynamic>);
+        resolvedSnapshot = Map<String, dynamic>.from(
+            snapshotEvent.value as Map<dynamic, dynamic>);
       } else if (playerData != null) {
         final board = playerData['board'];
         final activePiece = playerData['activePiece'];
@@ -2058,8 +2082,9 @@ class MultiplayerManager {
         resolvedSnapshot = mergedSnapshot;
       }
 
-      final proxyQueueEvent =
-          await _db.child('rooms/$roomId/players/$roleId/proxyIncomingOjama').get();
+      final proxyQueueEvent = await _db
+          .child('rooms/$roomId/players/$roleId/proxyIncomingOjama')
+          .get();
       final queuedTasks = _dynamicList(proxyQueueEvent.value)
           .map(_ojamaTaskFromMap)
           .whereType<OjamaTask>()
@@ -2072,7 +2097,8 @@ class MultiplayerManager {
         return resolvedSnapshot;
       }
 
-      final baseSnapshot = Map<String, dynamic>.from(resolvedSnapshot ?? const {});
+      final baseSnapshot =
+          Map<String, dynamic>.from(resolvedSnapshot ?? const {});
       final incoming = <Map<String, dynamic>>[];
       final existingIncoming = baseSnapshot['incomingOjama'];
       if (existingIncoming is List) {
@@ -2279,7 +2305,9 @@ class MultiplayerManager {
     }
 
     try {
-      await _db.child('rooms/$roomId/players/$roleId/proxyIncomingOjama').remove();
+      await _db
+          .child('rooms/$roomId/players/$roleId/proxyIncomingOjama')
+          .remove();
     } on FirebaseException {
       // 復帰用補助キューの削除失敗は対戦継続を優先する。
     }

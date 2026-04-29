@@ -32,15 +32,12 @@ class GachaManager {
   GameItem _drawItem() {
     final roll = _random.nextDouble();
     if (roll < 0.60) {
-      return _randomFrom(GameItemCatalog.commonStamps);
+      return _randomFrom(GameItemCatalog.gachaCommonPool);
     }
-    if (roll < 0.90) {
-      return _randomFrom(GameItemCatalog.rareData);
+    if (roll < 0.92) {
+      return _randomFrom(GameItemCatalog.gachaRarePool);
     }
-    if (roll < 0.99) {
-      return _randomFrom(GameItemCatalog.epicSkins);
-    }
-    return _randomFrom(GameItemCatalog.legendaryVfx);
+    return _randomFrom(GameItemCatalog.gachaEpicPool);
   }
 
   GameItem _randomFrom(List<GameItem> items) {

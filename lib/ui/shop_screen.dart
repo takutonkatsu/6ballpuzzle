@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../audio/sfx.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../game/gacha_manager.dart';
@@ -23,6 +26,10 @@ class _ShopScreenState extends State<ShopScreen> {
   List<GameItem> _items = const [];
   List<GameItem> _ownedItems = const [];
 
+  void _playUiTap() {
+    AppSfx.playUiTap();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -30,12 +37,19 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   Future<void> _loadShop() async {
-    await _playerData.checkDailyReset();
     final ownedItems = await _playerData.getOwnedItems();
-    final items = _playerData.dailyShopItems
-        .map(GameItemCatalog.byId)
-        .whereType<GameItem>()
-        .toList();
+    final items = List<GameItem>.from(GameItemCatalog.shopDirectPurchasePool)
+      ..sort((a, b) {
+        final rarityDiff = a.rarity.index.compareTo(b.rarity.index);
+        if (rarityDiff != 0) {
+          return rarityDiff;
+        }
+        final typeDiff = a.type.index.compareTo(b.type.index);
+        if (typeDiff != 0) {
+          return typeDiff;
+        }
+        return a.name.compareTo(b.name);
+      });
     if (!mounted) {
       return;
     }
@@ -57,7 +71,7 @@ class _ShopScreenState extends State<ShopScreen> {
     });
     try {
       await _playerData.spendCoins(_priceFor(item));
-      await _playerData.addOrUpgradeItem(item);
+      final grantResult = await _playerData.addOrUpgradeItem(item);
       await _loadShop();
       if (!mounted) {
         return;
@@ -81,12 +95,15 @@ class _ShopScreenState extends State<ShopScreen> {
               ),
             ),
             content: Text(
-              '${item.name} を購入しました。',
+              _grantResultMessage(grantResult),
               style: const TextStyle(color: Colors.white70),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed: () {
+                  _playUiTap();
+                  Navigator.of(dialogContext).pop();
+                },
                 child: const Text('OK'),
               ),
             ],
@@ -110,7 +127,10 @@ class _ShopScreenState extends State<ShopScreen> {
                 Text('$error', style: const TextStyle(color: Colors.white70)),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed: () {
+                  _playUiTap();
+                  Navigator.of(dialogContext).pop();
+                },
                 child: const Text('OK'),
               ),
             ],
@@ -151,12 +171,15 @@ class _ShopScreenState extends State<ShopScreen> {
               style: TextStyle(color: Colors.purpleAccent),
             ),
             content: Text(
-              '${result.item.name} を獲得しました。',
+              _grantResultMessage(result.grantResult),
               style: const TextStyle(color: Colors.white70),
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed: () {
+                  _playUiTap();
+                  Navigator.of(dialogContext).pop();
+                },
                 child: const Text('OK'),
               ),
             ],
@@ -180,7 +203,10 @@ class _ShopScreenState extends State<ShopScreen> {
                 Text('$error', style: const TextStyle(color: Colors.white70)),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
+                onPressed: () {
+                  _playUiTap();
+                  Navigator.of(dialogContext).pop();
+                },
                 child: const Text('OK'),
               ),
             ],
@@ -211,12 +237,13 @@ class _ShopScreenState extends State<ShopScreen> {
   int _priceFor(GameItem item) {
     switch (item.rarity) {
       case ItemRarity.common:
-        return 5000;
-      case ItemRarity.rare:
         return 9000;
+      case ItemRarity.rare:
+        return 18000;
       case ItemRarity.epic:
+        return 32000;
       case ItemRarity.legendary:
-        return 15000;
+        return 50000;
     }
   }
 
@@ -239,9 +266,25 @@ class _ShopScreenState extends State<ShopScreen> {
         return '対戦スタンプ';
       case ItemType.skin:
         return 'ボールスキン';
+      case ItemType.icon:
+        return 'プレイヤーアイコン';
       case ItemType.vfx:
         return '演出データ';
     }
+  }
+
+  String _grantResultMessage(ItemGrantResult grantResult) {
+    final item = grantResult.item;
+    if (!grantResult.isDuplicate) {
+      return '${item.name} を獲得しました。';
+    }
+    if (grantResult.leveledUp) {
+      return '${item.name} が Lv.${item.level} になりました。';
+    }
+    if (grantResult.convertedToScrap) {
+      return '${item.name} は重複したため、スクラップ +${grantResult.cyberScrapAdded} に変換されました。';
+    }
+    return '${item.name} を獲得しました。';
   }
 
   @override
@@ -251,7 +294,7 @@ class _ShopScreenState extends State<ShopScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF121520),
         title: const Text(
-          'DAILY SHOP',
+          'ITEM SHOP',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
         ),
       ),
@@ -290,17 +333,65 @@ class _ShopScreenState extends State<ShopScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: _isBuying ? null : _rollGacha,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.purpleAccent,
-                      side: BorderSide(
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF151723),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
                         color: Colors.purpleAccent.withValues(alpha: 0.6),
                       ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
-                    icon: const Icon(Icons.auto_awesome),
-                    label: const Text('DATA DECODE 1000C'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'アイテムガチャ',
+                          style: TextStyle(
+                            color: Colors.purpleAccent,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'スタンプ / ボールスキン / アイコンが排出されます',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _isBuying
+                              ? null
+                              : () {
+                                  _playUiTap();
+                                  unawaited(_rollGacha());
+                                },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.purpleAccent,
+                            side: BorderSide(
+                              color: Colors.purpleAccent.withValues(alpha: 0.6),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          icon: const Icon(Icons.auto_awesome),
+                          label: const Text('1回 1000C'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    '直買いショップ',
+                    style: TextStyle(
+                      color: Colors.amberAccent,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'ガチャよりかなり高いですが、欲しいものを直接購入できます。',
+                    style: TextStyle(color: Colors.white60),
                   ),
                   const SizedBox(height: 16),
                   for (final item in _items) ...[
@@ -339,11 +430,7 @@ class _ShopScreenState extends State<ShopScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
-              item.type == ItemType.skin
-                  ? Icons.palette
-                  : item.type == ItemType.vfx
-                      ? Icons.auto_awesome
-                      : Icons.chat_bubble,
+              _iconForItem(item),
               color: accent,
             ),
           ),
@@ -370,7 +457,12 @@ class _ShopScreenState extends State<ShopScreen> {
           ),
           const SizedBox(width: 12),
           ElevatedButton(
-            onPressed: !_isBuying && canBuy ? () => _buyItem(item) : null,
+            onPressed: !_isBuying && canBuy
+                ? () {
+                    _playUiTap();
+                    unawaited(_buyItem(item));
+                  }
+                : null,
             style: ElevatedButton.styleFrom(
               backgroundColor: accent.withValues(alpha: canBuy ? 0.22 : 0.08),
               foregroundColor: accent,
@@ -385,5 +477,32 @@ class _ShopScreenState extends State<ShopScreen> {
         ],
       ),
     );
+  }
+
+  IconData _iconForItem(GameItem item) {
+    switch (item.type) {
+      case ItemType.skin:
+        return Icons.palette;
+      case ItemType.icon:
+        return switch (item.iconName) {
+          'bolt' => Icons.bolt,
+          'star' => Icons.star,
+          'gamepad' => Icons.sports_esports,
+          _ => Icons.person,
+        };
+      case ItemType.vfx:
+        return Icons.auto_awesome;
+      case ItemType.stamp:
+        return switch (item.iconName) {
+          'handshake' => Icons.handshake,
+          'water_drop' => Icons.water_drop,
+          'local_fire_department' => Icons.local_fire_department,
+          'thumb_up' => Icons.thumb_up,
+          'coffee' => Icons.coffee,
+          'visibility' => Icons.visibility,
+          'memory' => Icons.memory,
+          _ => Icons.chat_bubble,
+        };
+    }
   }
 }

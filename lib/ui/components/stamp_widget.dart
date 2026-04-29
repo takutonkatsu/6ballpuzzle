@@ -17,7 +17,8 @@ class StampWidget extends StatefulWidget {
   State<StampWidget> createState() => _StampWidgetState();
 }
 
-class _StampWidgetState extends State<StampWidget> with SingleTickerProviderStateMixin {
+class _StampWidgetState extends State<StampWidget>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -51,25 +52,41 @@ class _StampWidgetState extends State<StampWidget> with SingleTickerProviderStat
 
   Color _getColor(String? colorName) {
     switch (colorName) {
-      case 'Cyan': return Colors.cyanAccent;
-      case 'Blue': return Colors.blueAccent;
-      case 'Red': return Colors.redAccent;
-      case 'Yellow': return Colors.amberAccent;
-      case 'Magenta': return Colors.pinkAccent;
-      case 'Purple': return Colors.deepPurpleAccent;
-      default: return Colors.white;
+      case 'Cyan':
+        return Colors.cyanAccent;
+      case 'Blue':
+        return Colors.blueAccent;
+      case 'Red':
+        return Colors.redAccent;
+      case 'Yellow':
+        return Colors.amberAccent;
+      case 'Magenta':
+        return Colors.pinkAccent;
+      case 'Purple':
+        return Colors.deepPurpleAccent;
+      default:
+        return Colors.white;
     }
   }
 
   IconData _getIcon(String? iconName) {
     switch (iconName) {
-      case 'handshake': return Icons.handshake;
-      case 'water_drop': return Icons.water_drop;
-      case 'local_fire_department': return Icons.local_fire_department;
-      case 'thumb_up': return Icons.thumb_up;
-      case 'coffee': return Icons.coffee;
-      case 'visibility': return Icons.visibility;
-      default: return Icons.message;
+      case 'handshake':
+        return Icons.handshake;
+      case 'water_drop':
+        return Icons.water_drop;
+      case 'local_fire_department':
+        return Icons.local_fire_department;
+      case 'thumb_up':
+        return Icons.thumb_up;
+      case 'coffee':
+        return Icons.coffee;
+      case 'visibility':
+        return Icons.visibility;
+      case 'memory':
+        return Icons.memory;
+      default:
+        return Icons.message;
     }
   }
 

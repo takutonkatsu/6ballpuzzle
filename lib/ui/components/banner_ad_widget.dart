@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../app_settings.dart';
+
 class BannerAdWidget extends StatefulWidget {
   const BannerAdWidget({super.key});
 
@@ -28,10 +30,28 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   @override
   void initState() {
     super.initState();
+    AppSettings.instance.adsRemoved.addListener(_handleAdsRemovedChanged);
     _loadBannerAd();
   }
 
+  void _handleAdsRemovedChanged() {
+    if (AppSettings.instance.adsRemoved.value) {
+      _bannerAd?.dispose();
+      _bannerAd = null;
+      if (mounted) {
+        setState(() {
+          _isLoaded = false;
+        });
+      }
+    } else {
+      _loadBannerAd();
+    }
+  }
+
   void _loadBannerAd() {
+    if (AppSettings.instance.adsRemoved.value || _bannerAd != null) {
+      return;
+    }
     final adUnitId = _adUnitId;
     if (adUnitId == null) {
       return;
@@ -67,12 +87,16 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   @override
   void dispose() {
+    AppSettings.instance.adsRemoved.removeListener(_handleAdsRemovedChanged);
     _bannerAd?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (AppSettings.instance.adsRemoved.value) {
+      return const SizedBox.shrink();
+    }
     final ad = _bannerAd;
     if (!_isLoaded || ad == null) {
       return const SizedBox.shrink();

@@ -1,6 +1,7 @@
 enum ItemType {
   stamp,
   skin,
+  icon,
   vfx,
 }
 
@@ -35,6 +36,7 @@ class GameItem {
   final String? text;
 
   bool get isStamp => type == ItemType.stamp;
+  bool get isIcon => type == ItemType.icon;
   bool get isMaxLevel => isStamp && level >= maxStampLevel;
 
   GameItem copyWith({
@@ -174,18 +176,39 @@ class GameItemCatalog {
     ),
   ];
 
-  static const List<GameItem> rareData = [
+  static const List<GameItem> rareStamps = [
     GameItem(
       id: 'stamp_data_burst',
       name: 'DATA BURST',
       type: ItemType.stamp,
       rarity: ItemRarity.rare,
+      iconName: 'memory',
+      colorName: 'Purple',
+      text: '解析完了！',
+    ),
+  ];
+
+  static const List<GameItem> playerIcons = [
+    GameItem(
+      id: 'icon_bolt',
+      name: 'BOLT',
+      type: ItemType.icon,
+      rarity: ItemRarity.common,
+      iconName: 'bolt',
     ),
     GameItem(
-      id: 'vfx_low_bit_glitch',
-      name: 'LOW BIT GLITCH',
-      type: ItemType.vfx,
+      id: 'icon_star',
+      name: 'STAR',
+      type: ItemType.icon,
       rarity: ItemRarity.rare,
+      iconName: 'star',
+    ),
+    GameItem(
+      id: 'icon_gamepad',
+      name: 'GAMEPAD',
+      type: ItemType.icon,
+      rarity: ItemRarity.epic,
+      iconName: 'gamepad',
     ),
   ];
 
@@ -194,7 +217,7 @@ class GameItemCatalog {
       id: 'skin_neon_chrome',
       name: 'NEON CHROME',
       type: ItemType.skin,
-      rarity: ItemRarity.epic,
+      rarity: ItemRarity.rare,
     ),
     GameItem(
       id: 'skin_black_ice',
@@ -204,7 +227,13 @@ class GameItemCatalog {
     ),
   ];
 
-  static const List<GameItem> legendaryVfx = [
+  static const List<GameItem> legacyVfxItems = [
+    GameItem(
+      id: 'vfx_low_bit_glitch',
+      name: 'LOW BIT GLITCH',
+      type: ItemType.vfx,
+      rarity: ItemRarity.rare,
+    ),
     GameItem(
       id: 'vfx_overdrive_hex',
       name: 'OVERDRIVE HEX',
@@ -213,14 +242,63 @@ class GameItemCatalog {
     ),
   ];
 
-  static const List<GameItem> allItems = [
+  static const List<GameItem> gachaCommonPool = [
     ...commonStamps,
-    ...rareData,
-    ...epicSkins,
-    ...legendaryVfx,
+    GameItem(
+      id: 'icon_bolt',
+      name: 'BOLT',
+      type: ItemType.icon,
+      rarity: ItemRarity.common,
+      iconName: 'bolt',
+    ),
   ];
 
-  static const List<GameItem> dailyShopPool = allItems;
+  static const List<GameItem> gachaRarePool = [
+    ...rareStamps,
+    GameItem(
+      id: 'icon_star',
+      name: 'STAR',
+      type: ItemType.icon,
+      rarity: ItemRarity.rare,
+      iconName: 'star',
+    ),
+    GameItem(
+      id: 'skin_neon_chrome',
+      name: 'NEON CHROME',
+      type: ItemType.skin,
+      rarity: ItemRarity.rare,
+    ),
+  ];
+
+  static const List<GameItem> gachaEpicPool = [
+    GameItem(
+      id: 'icon_gamepad',
+      name: 'GAMEPAD',
+      type: ItemType.icon,
+      rarity: ItemRarity.epic,
+      iconName: 'gamepad',
+    ),
+    GameItem(
+      id: 'skin_black_ice',
+      name: 'BLACK ICE',
+      type: ItemType.skin,
+      rarity: ItemRarity.epic,
+    ),
+  ];
+
+  static const List<GameItem> unlockableItems = [
+    ...commonStamps,
+    ...rareStamps,
+    ...playerIcons,
+    ...epicSkins,
+  ];
+
+  static const List<GameItem> allItems = [
+    ...unlockableItems,
+    ...legacyVfxItems,
+  ];
+
+  static const List<GameItem> shopDirectPurchasePool = unlockableItems;
 
   static GameItem? byId(String id) {
     for (final item in allItems) {

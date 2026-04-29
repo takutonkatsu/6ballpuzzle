@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../app_settings.dart';
+
 class InterstitialAdManager {
   InterstitialAdManager._internal();
 
@@ -21,6 +23,9 @@ class InterstitialAdManager {
   }
 
   Future<void> showIfNeeded() async {
+    if (AppSettings.instance.adsRemoved.value) {
+      return;
+    }
     final adUnitId = _adUnitId;
     if (adUnitId == null) {
       return;

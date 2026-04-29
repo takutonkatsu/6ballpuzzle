@@ -34,12 +34,26 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+class _ArenaRecordTransition {
+  const _ArenaRecordTransition({
+    required this.beforeWins,
+    required this.beforeLosses,
+    required this.afterWins,
+    required this.afterLosses,
+  });
+
+  final int beforeWins;
+  final int beforeLosses;
+  final int afterWins;
+  final int afterLosses;
+}
+
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _playerNameKey = 'player_name';
   static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
-  static const bool _debugControlsEnabled =
-      bool.fromEnvironment('ENABLE_DEBUG_CONTROLS', defaultValue: true);
+  static const bool _debugControlsEnabled = true;
+  static const bool _adGiftCodeIssuerEnabled = true;
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final RankingManager _rankingManager = RankingManager.instance;
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
@@ -65,9 +79,9 @@ class _HomeScreenState extends State<HomeScreen>
 
   IconData _playerIconData(String iconId) {
     return switch (iconId) {
-      'bolt' => Icons.bolt,
-      'star' => Icons.star,
-      'gamepad' => Icons.sports_esports,
+      'icon_bolt' => Icons.bolt,
+      'icon_star' => Icons.star,
+      'icon_gamepad' => Icons.sports_esports,
       _ => Icons.person,
     };
   }
@@ -731,6 +745,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _openRankingScreen() {
+    _playUiTap();
     Navigator.of(context).push(
       PageRouteBuilder<void>(
         transitionDuration: const Duration(milliseconds: 240),
@@ -1573,9 +1588,7 @@ class _HomeScreenState extends State<HomeScreen>
           _buildBottomTextButton(
             Icons.block,
             '広告消',
-            () => unawaited(
-              _showAlert(context, '広告消', '広告削除機能は準備中です。'),
-            ),
+            () => unawaited(_showAdRemovalDialog(context)),
           ),
         ],
       ),
@@ -1608,13 +1621,159 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildBottomBannerAdPlaceholder() {
-    return Container(
-      width: double.infinity,
-      height: 50,
-      color: Colors.black,
-      alignment: Alignment.center,
-      child: const BannerAdWidget(),
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppSettings.instance.adsRemoved,
+      builder: (context, adsRemoved, child) {
+        if (adsRemoved) {
+          return const SizedBox.shrink();
+        }
+        return Container(
+          width: double.infinity,
+          height: 50,
+          color: Colors.black,
+          alignment: Alignment.center,
+          child: const BannerAdWidget(),
+        );
+      },
     );
+  }
+
+  Future<void> _showAdRemovalDialog(BuildContext context) async {
+    await _playerDataManager.load();
+    final giftCodeController = TextEditingController();
+    if (!context.mounted) {
+      return;
+    }
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return _buildCyberDialog(
+            accentColor: Colors.amberAccent,
+            title: '広告削除',
+            child: ValueListenableBuilder<bool>(
+              valueListenable: AppSettings.instance.adsRemoved,
+              builder: (context, adsRemoved, child) {
+                if (adsRemoved) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        '広告削除は有効です。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCyberDialogButton(
+                        label: '閉じる',
+                        accentColor: Colors.white54,
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                      ),
+                    ],
+                  );
+                }
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'バナー広告と試合後広告を削除します。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildCyberDialogButton(
+                      label: '500円で広告を消す',
+                      accentColor: Colors.amberAccent,
+                      onPressed: () async {
+                        await AppSettings.instance.setAdsRemoved(true);
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
+                        }
+                        if (mounted) {
+                          await _showAlert(
+                            this.context,
+                            '広告削除',
+                            '広告削除が有効になりました。',
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 18),
+                    TextField(
+                      controller: giftCodeController,
+                      textCapitalization: TextCapitalization.characters,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'ギフトコード',
+                        labelStyle: const TextStyle(color: Colors.white70),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(
+                            color: Colors.amberAccent.withValues(alpha: 0.42),
+                          ),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderSide: BorderSide(color: Colors.amberAccent),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: 'コードを使う',
+                      accentColor: Colors.cyanAccent,
+                      onPressed: () async {
+                        final redeemed =
+                            await AppSettings.instance.redeemAdRemovalGiftCode(
+                          code: giftCodeController.text,
+                          playerId: _playerDataManager.playerId,
+                        );
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
+                        }
+                        if (!mounted) {
+                          return;
+                        }
+                        await _showAlert(
+                          this.context,
+                          redeemed ? '広告削除' : 'コードエラー',
+                          redeemed ? 'ギフトコードを適用しました。' : 'このプレイヤーIDでは使えないコードです。',
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'あなたのID：${_playerDataManager.playerId}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildCyberDialogButton(
+                      label: '閉じる',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ],
+                );
+              },
+            ),
+          );
+        },
+      );
+    } finally {
+      giftCodeController.dispose();
+    }
   }
 
   void _startGame(
@@ -1876,6 +2035,7 @@ class _HomeScreenState extends State<HomeScreen>
                     onTap: !canClaimAllClearBonus
                         ? null
                         : () async {
+                            _playUiTap();
                             try {
                               final rewarded = await RewardedAdManager.instance
                                   .showDoubleRewardAd();
@@ -2015,6 +2175,7 @@ class _HomeScreenState extends State<HomeScreen>
       onTap: !canClaim
           ? null
           : () async {
+              _playUiTap();
               final amount = await _missionManager.claimMissionReward(index);
               await onClaimed(amount);
             },
@@ -2550,22 +2711,6 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
-    final session = resolution.session;
-    if (!resolution.isResolved) {
-      unawaited(_stopHomeBgm());
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => GameScreen.online(
-            roomId: session.roomId,
-            isHost: session.isHost,
-            isRankedMode: session.isRankedMode,
-            isArenaMode: session.isArenaMode,
-          ),
-        ),
-      );
-      return;
-    }
-
     if (resolution.newRating != null) {
       _multiplayerManager.currentRating = resolution.newRating!;
       unawaited(_playerDataManager.setCurrentRating(resolution.newRating!));
@@ -2573,7 +2718,8 @@ class _HomeScreenState extends State<HomeScreen>
         _rankingManager.updateMyRating(rating: resolution.newRating!),
       );
     }
-    await _applyResolvedOnlineSessionLocally(resolution);
+    final arenaTransition =
+        await _applyResolvedOnlineSessionLocally(resolution);
     await _multiplayerManager.clearSavedSession();
     await _refreshPlayerEconomy();
     if (!mounted) {
@@ -2582,14 +2728,61 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _rating = resolution.newRating ?? _multiplayerManager.currentRating;
     });
+    if (resolution.wasAbandoned) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(
+          _showAlert(
+            context,
+            '試合放棄',
+            _abandonedMatchMessage(
+              resolution,
+              arenaTransition: arenaTransition,
+            ),
+          ),
+        );
+      });
+    }
   }
 
-  Future<void> _applyResolvedOnlineSessionLocally(
+  String _abandonedMatchMessage(
+    SavedSessionResolution resolution, {
+    _ArenaRecordTransition? arenaTransition,
+  }) {
+    final session = resolution.session;
+    final modeLabel = session.isArenaMode
+        ? 'アリーナ'
+        : session.isRankedMode
+            ? 'ランダムマッチ'
+            : 'フレンド対戦';
+    final buffer = StringBuffer(
+      '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
+    );
+    final oldRating = resolution.oldRating;
+    final newRating = resolution.newRating;
+    if (session.isRankedMode &&
+        !session.isArenaMode &&
+        oldRating != null &&
+        newRating != null) {
+      buffer.write('\nレート：$oldRating→$newRating');
+    }
+    if (session.isArenaMode && arenaTransition != null) {
+      buffer.write(
+        '\nアリーナ：${arenaTransition.beforeWins}勝${arenaTransition.beforeLosses}敗'
+        '→${arenaTransition.afterWins}勝${arenaTransition.afterLosses}敗',
+      );
+    }
+    return buffer.toString();
+  }
+
+  Future<_ArenaRecordTransition?> _applyResolvedOnlineSessionLocally(
     SavedSessionResolution resolution,
   ) async {
     final isWin = resolution.isWin;
     if (isWin == null) {
-      return;
+      return null;
     }
 
     final mode = resolution.session.isArenaMode
@@ -2610,9 +2803,19 @@ class _HomeScreenState extends State<HomeScreen>
       ratingAfter: resolution.newRating,
       ratingDelta: resolution.ratingDelta,
     );
-    if (resolution.session.isArenaMode) {
-      await _arenaManager.recordArenaMatch(isWin);
+    if (!resolution.session.isArenaMode) {
+      return null;
     }
+    await _arenaManager.load();
+    final beforeWins = _arenaManager.currentWins;
+    final beforeLosses = _arenaManager.currentLosses;
+    final result = await _arenaManager.recordArenaMatch(isWin);
+    return _ArenaRecordTransition(
+      beforeWins: beforeWins,
+      beforeLosses: beforeLosses,
+      afterWins: result.wins,
+      afterLosses: result.losses,
+    );
   }
 
   Future<String?> _showRoomIdDialog(BuildContext context) async {
@@ -2785,7 +2988,10 @@ class _HomeScreenState extends State<HomeScreen>
                     _buildControlLayoutOption(
                       preset: preset,
                       selected: preset == layout,
-                      onTap: () => unawaited(updateLayout(preset)),
+                      onTap: () {
+                        _playUiTap();
+                        unawaited(updateLayout(preset));
+                      },
                     ),
                     if (preset != ControlLayoutPreset.values.last)
                       const SizedBox(height: 10),
@@ -3037,7 +3243,9 @@ class _HomeScreenState extends State<HomeScreen>
         TextEditingController(text: '${_arenaManager.currentLosses}');
     final coinsController = TextEditingController(text: '$_coins');
     final expDeltaController = TextEditingController(text: '1000');
+    final giftPlayerIdController = TextEditingController();
     var arenaActive = _arenaManager.isArenaActive;
+    var generatedGiftCode = '';
 
     int intValue(TextEditingController controller, int fallback) {
       return int.tryParse(controller.text.trim()) ?? fallback;
@@ -3085,6 +3293,15 @@ class _HomeScreenState extends State<HomeScreen>
                 await _refreshPlayerEconomy();
               }
 
+              void generateGiftCode() {
+                final code = AppSettings.instance.generateAdRemovalGiftCode(
+                  giftPlayerIdController.text,
+                );
+                setSheetState(() {
+                  generatedGiftCode = code;
+                });
+              }
+
               return SafeArea(
                 child: Container(
                   padding: EdgeInsets.only(
@@ -3126,6 +3343,69 @@ class _HomeScreenState extends State<HomeScreen>
                         const SizedBox(height: 10),
                         _buildDebugNumberField('コイン', coinsController),
                         const SizedBox(height: 10),
+                        if (_adGiftCodeIssuerEnabled) ...[
+                          TextField(
+                            controller: giftPlayerIdController,
+                            textCapitalization: TextCapitalization.characters,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              labelText: '広告削除ギフト 対象プレイヤーID',
+                              labelStyle:
+                                  const TextStyle(color: Colors.white70),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: BorderSide(
+                                  color: Colors.purpleAccent
+                                      .withValues(alpha: 0.35),
+                                ),
+                              ),
+                              focusedBorder: const OutlineInputBorder(
+                                borderSide:
+                                    BorderSide(color: Colors.purpleAccent),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          _buildCyberDialogButton(
+                            label: '広告削除ギフトコード発行',
+                            accentColor: Colors.purpleAccent,
+                            onPressed: generateGiftCode,
+                          ),
+                          if (generatedGiftCode.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            InkWell(
+                              onTap: () {
+                                _playUiTap();
+                                unawaited(
+                                  Clipboard.setData(
+                                    ClipboardData(text: generatedGiftCode),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.black38,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.purpleAccent
+                                        .withValues(alpha: 0.45),
+                                  ),
+                                ),
+                                child: SelectableText(
+                                  generatedGiftCode,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.purpleAccent,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                        ],
                         Row(
                           children: [
                             Expanded(
@@ -3220,6 +3500,7 @@ class _HomeScreenState extends State<HomeScreen>
       arenaLossesController.dispose();
       coinsController.dispose();
       expDeltaController.dispose();
+      giftPlayerIdController.dispose();
     }
   }
 
