@@ -109,6 +109,8 @@ class PlayerDataManager {
   static const String _matchHistoryKey = 'player_match_history_json';
   static const String _modePlayCountsKey = 'player_mode_play_counts_json';
   static const String _inventoryRevisionKey = 'player_inventory_revision';
+  static const String _pendingLevelUpRewardLogKey =
+      'player_pending_level_up_reward_log';
   static const int _currentInventoryRevision = 1;
   static const int _debugBuildCoins = 1000000;
 
@@ -415,6 +417,11 @@ class PlayerDataManager {
       totalRewardCoins += reachedLevel * 500;
     }
     await addCoins(totalRewardCoins);
+    await _storePendingLevelUpRewardLog(
+      previousLevel: previousLevel,
+      currentLevel: currentLevel,
+      rewardCoins: totalRewardCoins,
+    );
   }
 
   Future<void> adjustExpForDebug(int delta) async {
@@ -692,6 +699,17 @@ class PlayerDataManager {
     );
   }
 
+  Future<String?> consumePendingLevelUpRewardLog() async {
+    await load();
+    final prefs = await SharedPreferences.getInstance();
+    final message = prefs.getString(_pendingLevelUpRewardLogKey);
+    if (message == null || message.isEmpty) {
+      return null;
+    }
+    await prefs.remove(_pendingLevelUpRewardLogKey);
+    return message;
+  }
+
   List<Map<String, dynamic>> _generateDailyMissions() {
     final pool = List<MissionDefinition>.from(MissionCatalog.dailyPool)
       ..shuffle(_random);
@@ -734,6 +752,21 @@ class PlayerDataManager {
       mission['allClearBonusClaimed'] = false;
     }
     return true;
+  }
+
+  Future<void> _storePendingLevelUpRewardLog({
+    required int previousLevel,
+    required int currentLevel,
+    required int rewardCoins,
+  }) async {
+    if (currentLevel <= previousLevel || rewardCoins <= 0) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final message = currentLevel == previousLevel + 1
+        ? 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として $rewardCoins コインを獲得しました。'
+        : 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として合計 $rewardCoins コインを獲得しました。';
+    await prefs.setString(_pendingLevelUpRewardLogKey, message);
   }
 
   int _levelFromExp(int value) {

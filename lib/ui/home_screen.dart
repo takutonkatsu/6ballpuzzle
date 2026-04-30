@@ -228,12 +228,29 @@ class _HomeScreenState extends State<HomeScreen>
       await _playerDataManager.checkDailyReset();
       await _missionManager.load();
       await _arenaManager.load();
+      final pendingLevelUpRewardLog =
+          await _playerDataManager.consumePendingLevelUpRewardLog();
       if (!mounted) {
         return;
       }
       setState(() {
         _syncPlayerEconomyState();
       });
+      if (pendingLevelUpRewardLog != null &&
+          pendingLevelUpRewardLog.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          unawaited(
+            _showAlert(
+              context,
+              'レベルアップ',
+              pendingLevelUpRewardLog,
+            ),
+          );
+        });
+      }
     } catch (_) {
       // ローカルデータ読込に失敗してもホーム表示は継続する。
     }
