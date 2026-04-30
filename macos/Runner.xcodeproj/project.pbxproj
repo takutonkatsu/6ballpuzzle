@@ -27,7 +27,6 @@
 		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
-		630CF7D6FCA1D7A00AD9772F /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3D215E58E949E03EC2B180BF /* GoogleService-Info.plist */; };
 		AC3ADF56042CF4337D31B0D9 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9E176A538AE627CACEE1967A /* Pods_Runner.framework */; };
 		D5B0B46F742B0FBE08C996DF /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EE98B1F8110F06EF8A16C497 /* Pods_RunnerTests.framework */; };
 /* End PBXBuildFile section */
@@ -320,7 +319,6 @@
 			files = (
 				33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */,
 				33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */,
-				630CF7D6FCA1D7A00AD9772F /* GoogleService-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

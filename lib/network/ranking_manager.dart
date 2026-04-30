@@ -1,8 +1,7 @@
-
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 
-import '../firebase_options.dart';
+import '../auth/auth_manager.dart';
 import 'multiplayer_manager.dart';
 
 class RankingEntry {
@@ -55,7 +54,7 @@ class RankingManager {
     final app = Firebase.app();
     final database = FirebaseDatabase.instanceFor(
       app: app,
-      databaseURL: DefaultFirebaseOptions.currentPlatform.databaseURL,
+      databaseURL: app.options.databaseURL,
     );
     return database.ref();
   }
@@ -66,8 +65,10 @@ class RankingManager {
     required int rating,
   }) async {
     final multiplayerManager = MultiplayerManager.instance;
-    final resolvedUid = uid ?? multiplayerManager.myUid;
-    if (resolvedUid == null || resolvedUid.isEmpty) {
+    final resolvedUid = uid ??
+        multiplayerManager.myUid ??
+        await AuthManager.instance.ensureSignedIn();
+    if (resolvedUid.isEmpty) {
       return;
     }
 

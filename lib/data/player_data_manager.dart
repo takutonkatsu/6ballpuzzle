@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../auth/auth_manager.dart';
 import '../game/mission_catalog.dart';
 import 'models/badge_item.dart';
 import 'models/game_item.dart';
@@ -218,6 +219,7 @@ class PlayerDataManager {
       return;
     }
 
+    final uid = await AuthManager.instance.ensureSignedIn();
     final prefs = await SharedPreferences.getInstance();
     final inventoryRevision = prefs.getInt(_inventoryRevisionKey) ?? 0;
     _coins = prefs.getInt(_coinsKey) ?? initialCoins;
@@ -260,9 +262,9 @@ class PlayerDataManager {
     var shouldSaveProfile = false;
     var shouldSaveStats = false;
     _playerName = prefs.getString(_playerNameKey) ?? '';
-    _playerId = prefs.getString(_playerIdKey) ?? '';
-    if (_playerId.isEmpty) {
-      _playerId = _generatePlayerId();
+    _playerId = uid;
+    final savedPlayerId = prefs.getString(_playerIdKey) ?? '';
+    if (savedPlayerId != uid) {
       shouldSaveProfile = true;
     }
     _equippedBadgeIds = _stringListFromJson(
@@ -795,11 +797,6 @@ class PlayerDataManager {
 
   String _todayKey() {
     return DateTime.now().toLocal().toIso8601String().split('T').first;
-  }
-
-  String _generatePlayerId() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    return List.generate(8, (_) => chars[_random.nextInt(chars.length)]).join();
   }
 
   List<String> _stringListFromJson(String? raw) {

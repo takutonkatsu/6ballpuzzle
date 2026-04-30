@@ -4,11 +4,10 @@ import 'dart:math';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../auth/auth_manager.dart';
 import '../data/player_data_manager.dart';
-import '../firebase_options.dart';
 import '../game/game_models.dart';
 
 typedef RoomUpdateCallback = void Function(MultiplayerRoom room);
@@ -239,7 +238,6 @@ class MultiplayerManager {
   static MultiplayerManager get instance => _instance;
 
   static const int initialRating = 1000;
-  static const String _userIdPrefsKey = 'multiplayer_user_id';
   static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v2';
   static const List<String> _legacySavedSessionPrefsKeys = [
     'multiplayer_saved_session_v1',
@@ -300,7 +298,7 @@ class MultiplayerManager {
     final app = Firebase.app();
     final database = FirebaseDatabase.instanceFor(
       app: app,
-      databaseURL: DefaultFirebaseOptions.currentPlatform.databaseURL,
+      databaseURL: app.options.databaseURL,
     );
     return database.ref();
   }
@@ -337,7 +335,7 @@ class MultiplayerManager {
       setPlayerName(name);
     }
 
-    final uid = await _loadOrCreateUid();
+    final uid = await _loadAuthenticatedUid();
     myUid = uid;
 
     try {
@@ -409,7 +407,7 @@ class MultiplayerManager {
       return null;
     }
 
-    final uid = myUid ?? await _loadOrCreateUid();
+    final uid = myUid ?? await _loadAuthenticatedUid();
     myUid = uid;
 
     final oldRating = currentRating;
@@ -486,10 +484,6 @@ class MultiplayerManager {
       opponentWon,
     );
     final opponentDelta = opponentNewRating - opponentOldRating;
-    await _db.child('users/$opponentUid').update({
-      'rating': opponentNewRating,
-      'updatedAt': ServerValue.timestamp,
-    });
     await resultRef.set({
       'uid': opponentUid,
       'isWin': opponentWon,
@@ -1865,7 +1859,7 @@ class MultiplayerManager {
       return null;
     }
 
-    final myUidValue = myPlayer.uid ?? myUid ?? await _loadOrCreateUid();
+    final myUidValue = myPlayer.uid ?? myUid ?? await _loadAuthenticatedUid();
     myUid = myUidValue;
     final myOldRating = myPlayer.rating ?? await _loadLatestUserRating();
     final opponentOldRating = opponentPlayer?.rating ?? myOldRating;
@@ -1902,10 +1896,6 @@ class MultiplayerManager {
         !isWin,
       );
       final opponentDelta = opponentNewRating - opponentPlayer.rating!;
-      await _db.child('users/$opponentUidValue').update({
-        'rating': opponentNewRating,
-        'updatedAt': ServerValue.timestamp,
-      });
       await _db.child('rooms/$roomId/results/$opponentRoleId').set({
         'uid': opponentUidValue,
         'isWin': !isWin,
@@ -2606,7 +2596,7 @@ class MultiplayerManager {
   }
 
   Future<int> _loadLatestUserRating() async {
-    final uid = myUid ?? await _loadOrCreateUid();
+    final uid = myUid ?? await _loadAuthenticatedUid();
     myUid = uid;
     try {
       final snapshot = await _db.child('users/$uid/rating').get();
@@ -2629,6 +2619,14 @@ class MultiplayerManager {
     if (error.message != null && error.message!.isNotEmpty) {
       parts.add(error.message!);
     }
+    if (error.code == 'permission-denied') {
+      final projectId = Firebase.app().options.projectId;
+      parts.add(
+        '接続先Firebaseプロジェクト: $projectId\n'
+        'Realtime Database Rules が対象プロジェクトへデプロイ済みか、'
+        'App Check を有効にしている場合は現在のビルドを許可しているか確認してください。',
+      );
+    }
     return parts.join('\n');
   }
 
@@ -2638,55 +2636,13 @@ class MultiplayerManager {
     };
   }
 
-  Future<String> _loadOrCreateUid() async {
+  Future<String> _loadAuthenticatedUid() async {
     if (myUid != null) {
       return myUid!;
     }
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedUid = prefs.getString(_userIdPrefsKey);
-      if (savedUid != null && savedUid.isNotEmpty) {
-        return savedUid;
-      }
-
-      final newUid = _generateUuidV4();
-      final saved = await prefs.setString(_userIdPrefsKey, newUid);
-      if (!saved) {
-        return newUid;
-      }
-      final verifiedUid = prefs.getString(_userIdPrefsKey);
-      if (verifiedUid == null || verifiedUid.isEmpty) {
-        await prefs.reload();
-        return prefs.getString(_userIdPrefsKey) ?? newUid;
-      }
-      return newUid;
-    } on MissingPluginException {
-      return _generateUuidV4();
-    } catch (_) {
-      final fallbackUid = _generateUuidV4();
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_userIdPrefsKey, fallbackUid);
-      } catch (_) {
-        // 開発中のmacOSビルドなどで永続化できない場合も、現在セッションは継続する。
-      }
-      return fallbackUid;
-    }
-  }
-
-  String _generateUuidV4() {
-    final bytes = List<int>.generate(16, (_) => _random.nextInt(256));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-    String byteHex(int index) => bytes[index].toRadixString(16).padLeft(2, '0');
-    return '${byteHex(0)}${byteHex(1)}${byteHex(2)}${byteHex(3)}-'
-        '${byteHex(4)}${byteHex(5)}-'
-        '${byteHex(6)}${byteHex(7)}-'
-        '${byteHex(8)}${byteHex(9)}-'
-        '${byteHex(10)}${byteHex(11)}${byteHex(12)}${byteHex(13)}'
-        '${byteHex(14)}${byteHex(15)}';
+    final uid = await AuthManager.instance.ensureSignedIn();
+    myUid = uid;
+    return uid;
   }
 
   int? _intValue(Object? value) {

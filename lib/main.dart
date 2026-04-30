@@ -2,30 +2,64 @@ import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flame_audio/flame_audio.dart';
+import 'package:firebase_app_check/firebase_app_check.dart'; // 追加
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'app_settings.dart';
-import 'firebase_options.dart';
+import 'auth/auth_manager.dart';
+import 'firebase_options_dev.dart' as firebase_dev;
+import 'firebase_options_prod.dart' as firebase_prod;
 import 'game/components/ball_component.dart';
 import 'game/game_models.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
+  const flavor = String.fromEnvironment('FLAVOR', defaultValue: 'dev');
+  const isProd = flavor == 'prod';
+  const enableAppCheck =
+      bool.fromEnvironment('ENABLE_APP_CHECK', defaultValue: isProd);
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
   await _initializeMobileAds();
-  final firebaseOptions = DefaultFirebaseOptions.currentPlatform;
+  final firebaseOptions = isProd
+      ? firebase_prod.DefaultFirebaseOptions.currentPlatform
+      : firebase_dev.DefaultFirebaseOptions.currentPlatform;
   if (firebaseOptions.databaseURL == null ||
       firebaseOptions.databaseURL!.isEmpty) {
     throw StateError('Firebase Realtime Database URL is not configured.');
   }
-  await Firebase.initializeApp(
-    options: firebaseOptions,
-  );
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(
+      options: firebaseOptions,
+    );
+  } else {
+    final existingApp = Firebase.app();
+    if (existingApp.options.projectId != firebaseOptions.projectId) {
+      throw StateError(
+        'A different Firebase app is already configured for '
+        '${existingApp.options.projectId}. Remove bundled '
+        'GoogleService-Info.plist files so FLAVOR can select '
+        '${firebaseOptions.projectId}.',
+      );
+    }
+  }
+
+  if (enableAppCheck) {
+    // App Checkは環境ごとにプロバイダを切り替える。
+    await FirebaseAppCheck.instance.activate(
+      providerAndroid: isProd
+          ? const AndroidPlayIntegrityProvider()
+          : const AndroidDebugProvider(),
+      providerApple:
+          isProd ? const AppleAppAttestProvider() : const AppleDebugProvider(),
+    );
+  }
+
+  await AuthManager.instance.ensureSignedIn();
   await AppSettings.instance.load();
   await FlameAudio.bgm.initialize();
   runApp(const MyApp());
