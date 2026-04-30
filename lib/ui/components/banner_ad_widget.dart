@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../app_review_config.dart';
 import '../../app_settings.dart';
 
 class BannerAdWidget extends StatefulWidget {
@@ -19,10 +20,14 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   static String? get _adUnitId {
     if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/6300978111';
+      return AppReviewConfig.androidBannerAdUnitId.isEmpty
+          ? null
+          : AppReviewConfig.androidBannerAdUnitId;
     }
     if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/2934735716';
+      return AppReviewConfig.iosBannerAdUnitId.isEmpty
+          ? null
+          : AppReviewConfig.iosBannerAdUnitId;
     }
     return null;
   }

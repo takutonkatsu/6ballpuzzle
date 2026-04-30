@@ -19,6 +19,7 @@ import '../game/components/effect_components.dart';
 import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
+import '../moderation/moderation_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/banner_ad_widget.dart';
@@ -1065,6 +1066,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       roleLabel: '相手',
                       badgeIds:
                           _badgeIdsForRole(_multiplayerManager.opponentRoleId),
+                      onModerationPressed:
+                          _isOnlineMode ? _showOpponentModerationDialog : null,
                     ),
                     const SizedBox(height: 16),
                     _buildNextBadge(
@@ -1204,6 +1207,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required bool isCpu,
     required String roleLabel,
     List<String> badgeIds = const [],
+    VoidCallback? onModerationPressed,
   }) {
     final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
     return Column(
@@ -1273,7 +1277,74 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           const SizedBox(height: 6),
           _buildBadgeIconRow(badgeIds),
         ],
+        if (onModerationPressed != null) ...[
+          const SizedBox(height: 6),
+          IconButton(
+            tooltip: '通報・ブロック',
+            icon: const Icon(Icons.shield_outlined),
+            color: Colors.white70,
+            iconSize: 18,
+            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+            padding: EdgeInsets.zero,
+            onPressed: () {
+              _playUiTap();
+              onModerationPressed();
+            },
+          ),
+        ],
       ],
+    );
+  }
+
+  Future<void> _showOpponentModerationDialog() async {
+    final opponentRoleId = _multiplayerManager.opponentRoleId;
+    final opponent = _room?.players[opponentRoleId];
+    final opponentUid = opponent?.uid;
+    if (opponentUid == null || opponentUid.isEmpty) {
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF151827),
+          title: const Text('通報・ブロック'),
+          content: Text(
+            '${opponent?.name ?? 'Opponent'} を通報またはブロックできます。',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await ModerationManager.instance.blockUser(opponentUid);
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+              },
+              child: const Text('ブロック'),
+            ),
+            TextButton(
+              onPressed: () async {
+                await ModerationManager.instance.reportUser(
+                  reportedUid: opponentUid,
+                  reportedName: opponent?.name ?? 'Opponent',
+                  reason: 'inappropriate_name_or_behavior',
+                  roomId: widget.roomId,
+                );
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+              },
+              child: const Text('通報'),
+            ),
+          ],
+        );
+      },
     );
   }
 

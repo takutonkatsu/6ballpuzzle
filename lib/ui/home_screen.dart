@@ -4,8 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_settings.dart';
+import '../app_review_config.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
@@ -15,6 +17,7 @@ import '../game/mission_manager.dart';
 import '../data/models/game_item.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
+import '../purchases/ad_removal_purchase_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
@@ -52,8 +55,8 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const _playerNameKey = 'player_name';
   static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
-  static const bool _debugControlsEnabled = true;
-  static const bool _adGiftCodeIssuerEnabled = true;
+  static const bool _debugControlsEnabled = AppReviewConfig.debugMenuEnabled;
+  static const bool _adGiftCodeIssuerEnabled = AppReviewConfig.debugMenuEnabled;
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final RankingManager _rankingManager = RankingManager.instance;
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
@@ -1607,8 +1610,77 @@ class _HomeScreenState extends State<HomeScreen>
             '広告消',
             () => unawaited(_showAdRemovalDialog(context)),
           ),
+          _buildBottomTextButton(
+            Icons.info_outline,
+            '情報',
+            () => unawaited(_showAppInfoDialog(context)),
+          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _openExternalUri(String value) async {
+    final uri = Uri.tryParse(value);
+    if (uri == null) {
+      return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _showAppInfoDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.cyanAccent,
+          title: '情報',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (AppReviewConfig.hasPrivacyPolicy) ...[
+                _buildCyberDialogButton(
+                  label: 'プライバシーポリシー',
+                  accentColor: Colors.cyanAccent,
+                  onPressed: () => unawaited(
+                    _openExternalUri(AppReviewConfig.privacyPolicyUrl),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              if (AppReviewConfig.hasSupportEmail) ...[
+                _buildCyberDialogButton(
+                  label: '問い合わせ',
+                  accentColor: Colors.amberAccent,
+                  onPressed: () => unawaited(
+                    _openExternalUri(
+                      'mailto:${AppReviewConfig.supportEmail}'
+                      '?subject=Hexagon%20Puzzle%20Support',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              const Text(
+                'オンライン対戦中に不適切な名前を見つけた場合は、対戦画面から通報できます。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildCyberDialogButton(
+                label: '閉じる',
+                accentColor: Colors.white54,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1685,6 +1757,26 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
                       const SizedBox(height: 16),
+                      if (_debugControlsEnabled) ...[
+                        _buildCyberDialogButton(
+                          label: '広告を再度つける',
+                          accentColor: Colors.orangeAccent,
+                          onPressed: () async {
+                            await AppSettings.instance.setAdsRemoved(false);
+                            if (dialogContext.mounted) {
+                              Navigator.of(dialogContext).pop();
+                            }
+                            if (mounted) {
+                              await _showAlert(
+                                this.context,
+                                '広告設定',
+                                '広告表示を再度有効にしました。',
+                              );
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       _buildCyberDialogButton(
                         label: '閉じる',
                         accentColor: Colors.white54,
@@ -1707,74 +1799,94 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _buildCyberDialogButton(
-                      label: '500円で広告を消す',
-                      accentColor: Colors.amberAccent,
-                      onPressed: () async {
-                        await AppSettings.instance.setAdsRemoved(true);
-                        if (dialogContext.mounted) {
-                          Navigator.of(dialogContext).pop();
-                        }
-                        if (mounted) {
-                          await _showAlert(
-                            this.context,
-                            '広告削除',
-                            '広告削除が有効になりました。',
-                          );
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 18),
-                    TextField(
-                      controller: giftCodeController,
-                      textCapitalization: TextCapitalization.characters,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'ギフトコード',
-                        labelStyle: const TextStyle(color: Colors.white70),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Colors.amberAccent.withValues(alpha: 0.42),
+                    if (AppReviewConfig.hasAdRemovalProduct) ...[
+                      _buildCyberDialogButton(
+                        label: '広告を削除する',
+                        accentColor: Colors.amberAccent,
+                        onPressed: () async {
+                          final started =
+                              await AdRemovalPurchaseManager.instance.buy();
+                          if (!started && mounted) {
+                            await _showAlert(
+                              this.context,
+                              '購入エラー',
+                              '購入を開始できませんでした。しばらくしてからお試しください。',
+                            );
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      _buildCyberDialogButton(
+                        label: '購入を復元',
+                        accentColor: Colors.white54,
+                        onPressed: () => unawaited(
+                          AdRemovalPurchaseManager.instance.restore(),
+                        ),
+                      ),
+                    ] else
+                      const Text(
+                        '広告削除の購入は現在準備中です。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    if (_debugControlsEnabled) ...[
+                      const SizedBox(height: 18),
+                      TextField(
+                        controller: giftCodeController,
+                        textCapitalization: TextCapitalization.characters,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'ギフトコード',
+                          labelStyle: const TextStyle(color: Colors.white70),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(
+                              color: Colors.amberAccent.withValues(alpha: 0.42),
+                            ),
+                          ),
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Colors.amberAccent),
                           ),
                         ),
-                        focusedBorder: const OutlineInputBorder(
-                          borderSide: BorderSide(color: Colors.amberAccent),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildCyberDialogButton(
+                        label: 'コードを使う',
+                        accentColor: Colors.cyanAccent,
+                        onPressed: () async {
+                          final redeemed = await AppSettings.instance
+                              .redeemAdRemovalGiftCode(
+                            code: giftCodeController.text,
+                            playerId: _playerDataManager.playerId,
+                          );
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          }
+                          if (!mounted) {
+                            return;
+                          }
+                          await _showAlert(
+                            this.context,
+                            redeemed ? '広告削除' : 'コードエラー',
+                            redeemed
+                                ? 'ギフトコードを適用しました。'
+                                : 'このプレイヤーIDでは使えないコードです。',
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'あなたのID：${_playerDataManager.playerId}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    _buildCyberDialogButton(
-                      label: 'コードを使う',
-                      accentColor: Colors.cyanAccent,
-                      onPressed: () async {
-                        final redeemed =
-                            await AppSettings.instance.redeemAdRemovalGiftCode(
-                          code: giftCodeController.text,
-                          playerId: _playerDataManager.playerId,
-                        );
-                        if (dialogContext.mounted) {
-                          Navigator.of(dialogContext).pop();
-                        }
-                        if (!mounted) {
-                          return;
-                        }
-                        await _showAlert(
-                          this.context,
-                          redeemed ? '広告削除' : 'コードエラー',
-                          redeemed ? 'ギフトコードを適用しました。' : 'このプレイヤーIDでは使えないコードです。',
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'あなたのID：${_playerDataManager.playerId}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    ],
                     const SizedBox(height: 14),
                     _buildCyberDialogButton(
                       label: '閉じる',
@@ -3310,6 +3422,22 @@ class _HomeScreenState extends State<HomeScreen>
                 await _refreshPlayerEconomy();
               }
 
+              Future<void> toggleAdsRemoved() async {
+                final nextValue = !AppSettings.instance.adsRemoved.value;
+                await AppSettings.instance.setAdsRemoved(nextValue);
+                if (!mounted) {
+                  return;
+                }
+                await _showAlert(
+                  this.context,
+                  '広告設定',
+                  nextValue ? '広告削除を有効にしました。' : '広告表示を再度有効にしました。',
+                );
+                if (mounted) {
+                  setSheetState(() {});
+                }
+              }
+
               void generateGiftCode() {
                 final code = AppSettings.instance.generateAdRemovalGiftCode(
                   giftPlayerIdController.text,
@@ -3483,6 +3611,14 @@ class _HomeScreenState extends State<HomeScreen>
                               ),
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCyberDialogButton(
+                          label: AppSettings.instance.adsRemoved.value
+                              ? '広告を再度つける'
+                              : '広告を消す',
+                          accentColor: Colors.orangeAccent,
+                          onPressed: () => unawaited(toggleAdsRemoved()),
                         ),
                         const SizedBox(height: 12),
                         _buildCyberDialogButton(

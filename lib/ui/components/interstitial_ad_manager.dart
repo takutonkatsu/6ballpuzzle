@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../app_review_config.dart';
 import '../../app_settings.dart';
 
 class InterstitialAdManager {
@@ -14,10 +15,14 @@ class InterstitialAdManager {
 
   String? get _adUnitId {
     if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/4411468910';
+      return AppReviewConfig.iosInterstitialAdUnitId.isEmpty
+          ? null
+          : AppReviewConfig.iosInterstitialAdUnitId;
     }
     if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/1033173712';
+      return AppReviewConfig.androidInterstitialAdUnitId.isEmpty
+          ? null
+          : AppReviewConfig.androidInterstitialAdUnitId;
     }
     return null;
   }

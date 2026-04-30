@@ -5,8 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
 import '../game/mission_catalog.dart';
+import '../moderation/moderation_manager.dart';
 import 'models/badge_item.dart';
 import 'models/game_item.dart';
+import '../app_review_config.dart';
 
 class ItemGrantResult {
   const ItemGrantResult({
@@ -80,7 +82,7 @@ class PlayerDataManager {
   PlayerDataManager._internal();
 
   static final PlayerDataManager instance = PlayerDataManager._internal();
-  static const bool _debugControlsEnabled = true;
+  static const bool _debugControlsEnabled = AppReviewConfig.debugMenuEnabled;
 
   static const int initialCoins = 10000;
   static const String _coinsKey = 'player_coins';
@@ -515,7 +517,7 @@ class PlayerDataManager {
 
   Future<void> setPlayerName(String name) async {
     await load();
-    _playerName = name.trim();
+    _playerName = ModerationManager.instance.sanitizePlayerName(name);
     await _savePublicProfile();
   }
 

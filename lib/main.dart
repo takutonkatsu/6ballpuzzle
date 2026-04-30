@@ -11,8 +11,6 @@ import 'app_settings.dart';
 import 'auth/auth_manager.dart';
 import 'firebase_options_dev.dart' as firebase_dev;
 import 'firebase_options_prod.dart' as firebase_prod;
-import 'game/components/ball_component.dart';
-import 'game/game_models.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
@@ -141,121 +139,138 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF090B12),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-          child: Column(
-            children: [
-              const Spacer(),
-              Container(
-                width: 138,
-                height: 138,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.04),
-                  border: Border.all(
-                    color: Colors.cyanAccent.withValues(alpha: 0.4),
-                    width: 1.8,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.cyanAccent.withValues(alpha: 0.18),
-                      blurRadius: 24,
-                    ),
-                  ],
-                ),
-                child: const Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned(
-                      top: 20,
-                      child: MiniBallWidget(
-                        ballColor: BallColor.red,
-                        size: 52,
-                      ),
-                    ),
-                    Positioned(
-                      left: 15,
-                      bottom: 18,
-                      child: MiniBallWidget(
-                        ballColor: BallColor.blue,
-                        size: 52,
-                      ),
-                    ),
-                    Positioned(
-                      right: 15,
-                      bottom: 18,
-                      child: MiniBallWidget(
-                        ballColor: BallColor.green,
-                        size: 52,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 28),
-              const Text(
-                'ヘキサゴン',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 30,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                '6ボール対戦パズル',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.0,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '2026©Takutonkatsu',
-                style: TextStyle(
-                  color: Colors.white54,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const Spacer(),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'LOADING',
-                  style: TextStyle(
-                    color: Colors.cyanAccent,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.8,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: AnimatedBuilder(
-                  animation: _progressController,
-                  builder: (context, child) {
-                    return LinearProgressIndicator(
-                      value: _progressController.value,
-                      minHeight: 12,
-                      backgroundColor: Colors.white12,
-                      valueColor: const AlwaysStoppedAnimation(
-                        Colors.cyanAccent,
-                      ),
-                    );
-                  },
-                ),
-              ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFF09111C),
+              Color(0xFF060A12),
             ],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+            child: Column(
+              children: [
+                const Spacer(flex: 8),
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(34),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.cyanAccent.withValues(alpha: 0.16),
+                              blurRadius: 32,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(34),
+                          child: Image.asset(
+                            'assets/images/loading_icon_neon_hex.png',
+                            width: 184,
+                            height: 184,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'ヘキサゴン',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Spacer(flex: 7),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(22),
+                    color: const Color(0xFF0D1826),
+                    border: Border.all(
+                      color: Colors.cyanAccent.withValues(alpha: 0.32),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.cyanAccent.withValues(alpha: 0.12),
+                        blurRadius: 18,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.cyanAccent,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'ロード中',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: AnimatedBuilder(
+                          animation: _progressController,
+                          builder: (context, child) {
+                            return LinearProgressIndicator(
+                              value: _progressController.value,
+                              minHeight: 10,
+                              backgroundColor: Colors.white10,
+                              valueColor: const AlwaysStoppedAnimation(
+                                Colors.cyanAccent,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  '2026 Takutonkatsu',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

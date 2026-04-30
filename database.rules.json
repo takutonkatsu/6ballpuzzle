@@ -26,6 +26,11 @@
         ".write": true,
         ".indexOn": ["rating", "updatedAt"]
       }
+    },
+    "reports": {
+      ".read": false,
+      ".write": true,
+      ".indexOn": ["reportedUid", "createdAt"]
     }
   }
 }

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../auth/auth_manager.dart';
 import '../data/player_data_manager.dart';
 import '../game/game_models.dart';
+import '../moderation/moderation_manager.dart';
 
 typedef RoomUpdateCallback = void Function(MultiplayerRoom room);
 typedef OpponentBoardUpdateCallback = void Function(Map<String, dynamic> board);
@@ -290,7 +291,7 @@ class MultiplayerManager {
       playerName.trim().isEmpty ? 'Player' : playerName.trim();
 
   void setPlayerName(String name) {
-    final nextName = name.trim();
+    final nextName = ModerationManager.instance.sanitizePlayerName(name);
     playerName = nextName.isEmpty ? 'Player' : nextName;
   }
 
@@ -782,6 +783,9 @@ class MultiplayerManager {
         if (opponentUid == uid) {
           continue;
         }
+        if (await ModerationManager.instance.isBlocked(opponentUid)) {
+          continue;
+        }
 
         final data = entry.value;
         if (data is! Map) {
@@ -957,6 +961,9 @@ class MultiplayerManager {
       for (final entry in rawPlayers.entries) {
         final opponentUid = entry.key.toString();
         if (opponentUid == uid) {
+          continue;
+        }
+        if (await ModerationManager.instance.isBlocked(opponentUid)) {
           continue;
         }
 

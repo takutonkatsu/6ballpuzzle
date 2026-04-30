@@ -96,6 +96,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
+  int _pendingOjamaBatchLandings = 0;
+  int _ojamaSpawnBatchVersion = 0;
   int _pendingPreviewOjamaSpawns = 0;
   final Queue<_QueuedPreviewOjamaTask> _previewOjamaQueue = Queue();
   bool _isProcessingPreviewOjamaQueue = false;
@@ -198,6 +200,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     activeOjamaBlocks.clear();
     pendingOjamaSpawns = 0;
+    _pendingOjamaBatchLandings = 0;
+    _ojamaSpawnBatchVersion++;
     _pendingPreviewOjamaSpawns = 0;
     _previewOjamaQueue.clear();
     _isProcessingPreviewOjamaQueue = false;
@@ -209,6 +213,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _deferredRemoteBoardTimer?.cancel();
     _deferredRemoteBoardTimer = null;
     _deferredRemoteBoardState = null;
+    _needsMatchResolutionRetry = false;
     _deathLineTransitionTimer?.cancel();
     _deathLineTransitionTimer = null;
     _deathLineDangerProgress = _defaultDeathLineProgress;
@@ -755,6 +760,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   bool _isProcessingGravity = false;
   bool _needsGravityRetry = false;
+  bool _needsMatchResolutionRetry = false;
 
   double _lockedBallFallDurationFor(int fallStreak) {
     final acceleration =
@@ -765,77 +771,95 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     );
   }
 
-  Future<void> _processGravityAndMatches() async {
+  Future<bool> _settleBoardGravity() async {
+    var hadGravitySequence = false;
+    bool changed = true;
+    final fallStreaks = <BallComponent, int>{};
+    while (changed) {
+      if (gameStateWrapper.value != GameState.playing) {
+        return hadGravitySequence;
+      }
+      changed = false;
+      var longestFallDuration = 0.0;
+
+      List<HexCoordinate> allHexes = grid.lockedBalls.keys.toList();
+      allHexes.sort((a, b) {
+        int rowDiff = b.row.compareTo(a.row);
+        if (rowDiff != 0) return rowDiff;
+        return a.col.compareTo(b.col);
+      });
+
+      for (var curr in allHexes) {
+        if (!grid.lockedBalls.containsKey(curr)) continue;
+        BallComponent comp = grid.lockedBalls.remove(curr)!;
+
+        HexCoordinate next = _calcNextStep(curr, comp);
+
+        if (next != curr) {
+          changed = true;
+          hadGravitySequence = true;
+          grid.lockedBalls[next] = comp;
+          Vector2 targetPx = grid.hexToPixel(next);
+          final fallStreak = (fallStreaks[comp] ?? 0) + 1;
+          fallStreaks[comp] = fallStreak;
+          final fallDuration = _lockedBallFallDurationFor(fallStreak);
+          longestFallDuration = max(longestFallDuration, fallDuration);
+
+          comp.add(MoveEffect.to(
+            targetPx,
+            EffectController(
+              duration: fallDuration,
+              curve: _lockedBallFallCurve,
+            ),
+          ));
+        } else {
+          fallStreaks.remove(comp);
+          grid.lockedBalls[curr] = comp;
+          comp.snapTo(grid.hexToPixel(curr));
+        }
+      }
+
+      if (changed) {
+        final delayMs = (longestFallDuration * 1000).round() + 4;
+        await Future.delayed(Duration(milliseconds: delayMs));
+      }
+    }
+
+    if (_playsBoardSfx &&
+        gameStateWrapper.value == GameState.playing &&
+        hadGravitySequence) {
+      _playSfx(_landingSfx, volume: 0.33);
+    }
+    return hadGravitySequence;
+  }
+
+  Future<void> _processGravityAndMatches({bool allowMatches = true}) async {
     if (_isProcessingGravity) {
       _needsGravityRetry = true;
+      if (allowMatches) {
+        _needsMatchResolutionRetry = true;
+      }
       return;
     }
     _isProcessingGravity = true;
 
     try {
       do {
+        final shouldResolveMatches = allowMatches || _needsMatchResolutionRetry;
         _needsGravityRetry = false;
+        _needsMatchResolutionRetry = false;
+        await _settleBoardGravity();
+        if (!shouldResolveMatches ||
+            gameStateWrapper.value != GameState.playing) {
+          if (_needsGravityRetry &&
+              gameStateWrapper.value == GameState.playing) {
+            continue;
+          }
+          return;
+        }
+
         bool hasMatches = true;
         while (hasMatches && gameStateWrapper.value == GameState.playing) {
-          var hadGravitySequence = false;
-          bool changed = true;
-          final fallStreaks = <BallComponent, int>{};
-          while (changed) {
-            if (gameStateWrapper.value != GameState.playing) return;
-            changed = false;
-            var longestFallDuration = 0.0;
-
-            List<HexCoordinate> allHexes = grid.lockedBalls.keys.toList();
-            allHexes.sort((a, b) {
-              int rowDiff = b.row.compareTo(a.row);
-              if (rowDiff != 0) return rowDiff;
-              return a.col.compareTo(b.col);
-            });
-
-            for (var curr in allHexes) {
-              if (!grid.lockedBalls.containsKey(curr)) continue;
-              BallComponent comp = grid.lockedBalls.remove(curr)!;
-
-              HexCoordinate next = _calcNextStep(curr, comp);
-
-              if (next != curr) {
-                changed = true;
-                hadGravitySequence = true;
-                grid.lockedBalls[next] = comp;
-                Vector2 targetPx = grid.hexToPixel(next);
-                final fallStreak = (fallStreaks[comp] ?? 0) + 1;
-                fallStreaks[comp] = fallStreak;
-                final fallDuration = _lockedBallFallDurationFor(fallStreak);
-                longestFallDuration = max(longestFallDuration, fallDuration);
-
-                comp.add(MoveEffect.to(
-                  targetPx,
-                  EffectController(
-                    duration: fallDuration,
-                    curve: _lockedBallFallCurve,
-                  ),
-                ));
-              } else {
-                fallStreaks.remove(comp);
-                grid.lockedBalls[curr] = comp;
-                comp.snapTo(grid.hexToPixel(curr));
-              }
-            }
-
-            if (changed) {
-              final delayMs = (longestFallDuration * 1000).round() + 4;
-              await Future.delayed(Duration(milliseconds: delayMs));
-            }
-          }
-
-          if (_playsBoardSfx &&
-              gameStateWrapper.value == GameState.playing &&
-              hadGravitySequence) {
-            _playSfx(_landingSfx, volume: 0.33);
-          }
-
-          if (gameStateWrapper.value != GameState.playing) return;
-
           var matchResults = grid.findMatchesAndWazas();
           if (matchResults.isEmpty) {
             hasMatches = false;
@@ -881,6 +905,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
               await Future.delayed(const Duration(milliseconds: 350));
               wazaNameNotifier.value = null;
             }
+          }
+
+          if (hasMatches && gameStateWrapper.value == GameState.playing) {
+            await _settleBoardGravity();
           }
         }
 
@@ -1049,8 +1077,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _deferredRemoteBoardTimer = null;
     _deferredRemoteBoardState = null;
     pendingOjamaSpawns = 0;
+    _pendingOjamaBatchLandings = 0;
+    _ojamaSpawnBatchVersion++;
     _pendingPreviewOjamaSpawns = 0;
     _isProcessingPreviewOjamaQueue = false;
+    _needsMatchResolutionRetry = false;
     _autonomousRemotePreviewEnabled = snapshot['proxyControlledBy'] != null;
     _remotePreviewRespawnVersion++;
     gameStateWrapper.value = GameState.playing;
@@ -1171,6 +1202,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     activeOjamaBlocks.clear();
     pendingOjamaSpawns = 0;
+    _pendingOjamaBatchLandings = 0;
+    _ojamaSpawnBatchVersion++;
+    _needsMatchResolutionRetry = false;
     syncDropRng = null;
     _hasRemoteOjamaInFlight = false;
     _remoteOjamaSpawnedAt = null;
@@ -1263,60 +1297,84 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
     prepareSyncedOjamaDrop(dropSeed);
     clearRemoteActivePiece();
-    var spawnedAny = false;
     var playedInitialOjamaSfx = false;
+    final spawnBatch = <Map<dynamic, dynamic>>[];
+    final batchVersion = ++_ojamaSpawnBatchVersion;
 
     for (final item in ojamaData) {
       if (item is! Map) {
         continue;
       }
-
-      final typeName = item['type'] as String?;
-      OjamaType? type;
-      for (final candidate in OjamaType.values) {
-        if (candidate.name == typeName) {
-          type = candidate;
-          break;
-        }
-      }
-      final x = _asDouble(item['x']);
-      final y = _asDouble(item['y']);
-      final colors = _parseBallColors(item['colors']);
-      final startColorIndex = _asInt(item['startColor']);
-      final itemDropSeed = _asInt(item['dropSeed']);
-      if (itemDropSeed != null) {
-        syncDropRng = Random(itemDropSeed);
-      }
-
-      if (type == null || x == null || y == null || colors.isEmpty) {
-        continue;
-      }
-
-      final block = OjamaBlockComponent(
-        ojamaType: type,
-        position: Vector2(x, y),
-        startColor: startColorIndex != null &&
-                startColorIndex >= 0 &&
-                startColorIndex < BallColor.values.length
-            ? BallColor.values[startColorIndex]
-            : null,
-        presetColors: colors,
-      );
-      activeOjamaBlocks.add(block);
-      add(block);
-      if (!playedInitialOjamaSfx && _playsBoardSfx) {
-        _playSfx(_ojamaSpawnSfx, volume: 0.9);
-        playedInitialOjamaSfx = true;
-      }
-      if (_playsBoardSfx) {
-        _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
-      }
-      spawnedAny = true;
+      spawnBatch.add(Map<dynamic, dynamic>.from(item));
     }
 
-    if (spawnedAny) {
-      _hasRemoteOjamaInFlight = true;
-      _remoteOjamaSpawnedAt = DateTime.now();
+    if (spawnBatch.isEmpty) {
+      return;
+    }
+
+    _pendingOjamaBatchLandings = spawnBatch.length;
+    _hasRemoteOjamaInFlight = true;
+    _remoteOjamaSpawnedAt = DateTime.now();
+
+    for (int index = 0; index < spawnBatch.length; index++) {
+      Future.delayed(
+        Duration(milliseconds: index == 0 ? 0 : 500 * index),
+        () {
+          if (batchVersion != _ojamaSpawnBatchVersion ||
+              gameStateWrapper.value != GameState.playing) {
+            return;
+          }
+          final item = spawnBatch[index];
+
+          final typeName = item['type'] as String?;
+          OjamaType? type;
+          for (final candidate in OjamaType.values) {
+            if (candidate.name == typeName) {
+              type = candidate;
+              break;
+            }
+          }
+          final x = _asDouble(item['x']);
+          final y = _asDouble(item['y']);
+          final colors = _parseBallColors(item['colors']);
+          final startColorIndex = _asInt(item['startColor']);
+          final itemDropSeed = _asInt(item['dropSeed']);
+          if (itemDropSeed != null) {
+            syncDropRng = Random(itemDropSeed);
+          }
+
+          if (type == null || x == null || y == null || colors.isEmpty) {
+            if (_pendingOjamaBatchLandings > 0) {
+              _pendingOjamaBatchLandings--;
+            }
+            if (_pendingOjamaBatchLandings == 0 && activeOjamaBlocks.isEmpty) {
+              _hasRemoteOjamaInFlight = false;
+              _remoteOjamaSpawnedAt = null;
+            }
+            return;
+          }
+
+          final block = OjamaBlockComponent(
+            ojamaType: type,
+            position: Vector2(x, y),
+            startColor: startColorIndex != null &&
+                    startColorIndex >= 0 &&
+                    startColorIndex < BallColor.values.length
+                ? BallColor.values[startColorIndex]
+                : null,
+            presetColors: colors,
+          );
+          activeOjamaBlocks.add(block);
+          add(block);
+          if (!playedInitialOjamaSfx && _playsBoardSfx) {
+            _playSfx(_ojamaSpawnSfx, volume: 0.9);
+            playedInitialOjamaSfx = true;
+          }
+          if (_playsBoardSfx) {
+            _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+          }
+        },
+      );
     }
   }
 
@@ -1378,11 +1436,17 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   void onOjamaBlockLanded(OjamaBlockComponent block) {
     activeOjamaBlocks.remove(block);
+    if (_pendingOjamaBatchLandings > 0) {
+      _pendingOjamaBatchLandings--;
+    }
     if (isRemotePlayerMode && activeOjamaBlocks.isEmpty) {
       _hasRemoteOjamaInFlight = false;
       _remoteOjamaSpawnedAt = null;
     }
-    _processGravityAndMatches();
+    final shouldResolveBoard = _pendingOjamaBatchLandings == 0 &&
+        pendingOjamaSpawns == 0 &&
+        activeOjamaBlocks.isEmpty;
+    _processGravityAndMatches(allowMatches: shouldResolveBoard);
     if (isRemotePlayerMode) {
       _scheduleRemotePreviewRespawn();
     }
@@ -1450,25 +1514,54 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (task.type == OjamaType.hexagonSet) numSets = 6;
 
     pendingOjamaSpawns += numSets;
+    _pendingOjamaBatchLandings = numSets;
+    final batchVersion = ++_ojamaSpawnBatchVersion;
+    final spawnBatch = <Map<String, dynamic>>[];
+    final colorsPerSet = List<List<BallColor>>.generate(
+      numSets,
+      (_) => _colorsForOjamaSet(task),
+    );
+    final dropSeeds = List<int>.generate(numSets, (_) => _rng.nextInt(999999));
+    for (int i = 0; i < numSets; i++) {
+      double spawnX;
+      if (task.type == OjamaType.pyramidSet) {
+        const cols = [0, 2, 4, 6];
+        spawnX = grid.offset.x + cols[i % 4] * 30.0;
+      } else if (task.type == OjamaType.hexagonSet) {
+        const cols = [0, 3, 6, 1, 4, 7];
+        spawnX = grid.offset.x + cols[i % 6] * 30.0;
+      } else {
+        spawnX = grid.offset.x;
+      }
+
+      final spawnData = <String, dynamic>{
+        'type': task.type.name,
+        'x': spawnX,
+        'y': grid.offset.y - _ojamaSpawnYOffset,
+        'colors': colorsPerSet[i].map((color) => color.index).toList(),
+        'dropSeed': dropSeeds[i],
+      };
+      if (task.type == OjamaType.straightSet && task.startColor != null) {
+        spawnData['startColor'] = task.startColor!.index;
+      }
+      spawnBatch.add(spawnData);
+    }
+    if (spawnBatch.isNotEmpty) {
+      onOjamaSpawned?.call(spawnBatch, dropSeeds.first);
+    }
+
     for (int i = 0; i < numSets; i++) {
       Future.delayed(Duration(milliseconds: i == 0 ? 0 : 500 * i), () {
-        if (gameStateWrapper.value != GameState.playing) {
+        if (batchVersion != _ojamaSpawnBatchVersion ||
+            gameStateWrapper.value != GameState.playing) {
           pendingOjamaSpawns--;
           return;
         }
-        double spawnX;
-        if (task.type == OjamaType.pyramidSet) {
-          const cols = [0, 2, 4, 6];
-          spawnX = grid.offset.x + cols[i % 4] * 30.0;
-        } else if (task.type == OjamaType.hexagonSet) {
-          const cols = [0, 3, 6, 1, 4, 7];
-          spawnX = grid.offset.x + cols[i % 6] * 30.0;
-        } else {
-          spawnX = grid.offset.x;
-        }
-
-        final colors = _colorsForOjamaSet(task);
-        final spawnY = grid.offset.y - _ojamaSpawnYOffset;
+        final spawnData = spawnBatch[i];
+        final colors = _parseBallColors(spawnData['colors']);
+        final spawnX = _asDouble(spawnData['x']) ?? grid.offset.x;
+        final spawnY =
+            _asDouble(spawnData['y']) ?? (grid.offset.y - _ojamaSpawnYOffset);
         var block = OjamaBlockComponent(
           ojamaType: task.type,
           position: Vector2(spawnX, spawnY),
@@ -1484,20 +1577,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         if (_playsBoardSfx) {
           _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
         }
-        final dropSeed = _rng.nextInt(999999);
+        final dropSeed = _asInt(spawnData['dropSeed']) ?? _rng.nextInt(999999);
         syncDropRng = Random(dropSeed);
-
-        final spawnData = <String, dynamic>{
-          'type': task.type.name,
-          'x': spawnX,
-          'y': spawnY,
-          'colors': colors.map((color) => color.index).toList(),
-          'dropSeed': dropSeed,
-        };
-        if (task.type == OjamaType.straightSet && task.startColor != null) {
-          spawnData['startColor'] = task.startColor!.index;
-        }
-        onOjamaSpawned?.call([spawnData], dropSeed);
         pendingOjamaSpawns--;
       });
     }

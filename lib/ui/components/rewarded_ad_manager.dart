@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../app_review_config.dart';
+
 class RewardedAdManager {
   RewardedAdManager._internal();
 
@@ -11,10 +13,14 @@ class RewardedAdManager {
 
   String? get _adUnitId {
     if (Platform.isAndroid) {
-      return 'ca-app-pub-3940256099942544/5224354917';
+      return AppReviewConfig.androidRewardedAdUnitId.isEmpty
+          ? null
+          : AppReviewConfig.androidRewardedAdUnitId;
     }
     if (Platform.isIOS) {
-      return 'ca-app-pub-3940256099942544/1712485313';
+      return AppReviewConfig.iosRewardedAdUnitId.isEmpty
+          ? null
+          : AppReviewConfig.iosRewardedAdUnitId;
     }
     return null;
   }
