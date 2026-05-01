@@ -9,7 +9,8 @@ Firebaseの接続先は `--dart-define=FLAVOR=...` で切り替わります。
 
 - 開発時: `flutter run` または `flutter run --dart-define=FLAVOR=dev`
 - 本番APKビルド時: `flutter build apk --release --dart-define=FLAVOR=prod`
-- デバッグメニュー有効化: `--dart-define=ENABLE_DEBUG_MENU=true`
+- `prod` 以外のビルドではデバッグメニューは自動で有効
+- 本番ビルドでも一時的に有効化したい場合: `--dart-define=ENABLE_DEBUG_MENU=true`
 
 ## App Store release defines
 

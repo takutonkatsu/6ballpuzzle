@@ -112,10 +112,16 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   }
 
   Future<void> _boot() async {
-    await Future.wait([
+    final bootstrapFuture = prepareHomeBootstrapData();
+    final minimumDisplayFuture = Future.wait<void>([
       _progressController.forward(from: 0),
       Future<void>.delayed(const Duration(milliseconds: 1800)),
     ]);
+    final results = await Future.wait<Object?>([
+      minimumDisplayFuture,
+      bootstrapFuture,
+    ]);
+    final bootstrapData = results[1] as HomeBootstrapData;
     if (!mounted) {
       return;
     }
@@ -123,7 +129,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       PageRouteBuilder<void>(
         pageBuilder: (_, animation, __) => FadeTransition(
           opacity: animation,
-          child: const HomeScreen(),
+          child: HomeScreen(bootstrapData: bootstrapData),
         ),
       ),
     );

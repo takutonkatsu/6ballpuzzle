@@ -30,8 +30,193 @@ import 'ranking_screen.dart';
 import 'record_screen.dart';
 import 'shop_screen.dart';
 
+class HomeBootstrapData {
+  const HomeBootstrapData({
+    required this.playerName,
+    required this.rating,
+    this.pendingLevelUpRewardLog,
+    this.abandonedMatchMessage,
+  });
+
+  final String playerName;
+  final int rating;
+  final String? pendingLevelUpRewardLog;
+  final String? abandonedMatchMessage;
+}
+
+Future<HomeBootstrapData> prepareHomeBootstrapData() async {
+  final multiplayerManager = MultiplayerManager();
+  final rankingManager = RankingManager.instance;
+  final playerDataManager = PlayerDataManager.instance;
+  final arenaManager = ArenaManager.instance;
+  final missionManager = MissionManager.instance;
+
+  try {
+    final savedName = await _readSavedPlayerNameForBootstrap();
+    multiplayerManager.setPlayerName(savedName);
+    await playerDataManager.setPlayerName(savedName);
+
+    var rating = multiplayerManager.currentRating;
+    try {
+      rating = await multiplayerManager.initializeUser(name: savedName);
+      unawaited(rankingManager.updateMyRating(rating: rating));
+    } catch (_) {
+      rating = multiplayerManager.currentRating;
+    }
+    await playerDataManager.setCurrentRating(rating);
+
+    await _loadHomeEconomyForBootstrap(
+      playerDataManager: playerDataManager,
+      missionManager: missionManager,
+      arenaManager: arenaManager,
+    );
+
+    String? abandonedMatchMessage;
+    final resolution = await multiplayerManager.inspectSavedSession();
+    if (resolution != null) {
+      if (resolution.newRating != null) {
+        rating = resolution.newRating!;
+        multiplayerManager.currentRating = rating;
+        await playerDataManager.setCurrentRating(rating);
+        unawaited(rankingManager.updateMyRating(rating: rating));
+      }
+
+      final arenaTransition = await _applyResolvedOnlineSessionForBootstrap(
+        resolution,
+        playerDataManager: playerDataManager,
+        arenaManager: arenaManager,
+      );
+      await multiplayerManager.clearSavedSession();
+      await _loadHomeEconomyForBootstrap(
+        playerDataManager: playerDataManager,
+        missionManager: missionManager,
+        arenaManager: arenaManager,
+      );
+      if (resolution.wasAbandoned) {
+        abandonedMatchMessage = _buildAbandonedMatchMessageForBootstrap(
+          resolution,
+          arenaTransition: arenaTransition,
+        );
+      }
+    }
+
+    final pendingLevelUpRewardLog =
+        await playerDataManager.consumePendingLevelUpRewardLog();
+
+    return HomeBootstrapData(
+      playerName: savedName,
+      rating: rating,
+      pendingLevelUpRewardLog: pendingLevelUpRewardLog,
+      abandonedMatchMessage: abandonedMatchMessage,
+    );
+  } catch (_) {
+    return HomeBootstrapData(
+      playerName: '',
+      rating: multiplayerManager.currentRating,
+    );
+  }
+}
+
+Future<void> _loadHomeEconomyForBootstrap({
+  required PlayerDataManager playerDataManager,
+  required MissionManager missionManager,
+  required ArenaManager arenaManager,
+}) async {
+  await playerDataManager.load();
+  await playerDataManager.checkDailyReset();
+  await missionManager.load();
+  await arenaManager.load();
+}
+
+Future<String> _readSavedPlayerNameForBootstrap() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_HomeScreenState._playerNameKey) ?? '';
+  } on MissingPluginException {
+    return '';
+  }
+}
+
+Future<_ArenaRecordTransition?> _applyResolvedOnlineSessionForBootstrap(
+  SavedSessionResolution resolution, {
+  required PlayerDataManager playerDataManager,
+  required ArenaManager arenaManager,
+}) async {
+  final isWin = resolution.isWin;
+  if (isWin == null) {
+    return null;
+  }
+
+  final mode = resolution.session.isArenaMode
+      ? 'ARENA'
+      : resolution.session.isRankedMode
+          ? 'RANKED'
+          : 'FRIEND';
+  await playerDataManager.recordMatchResult(
+    isWin: isWin,
+    mode: mode,
+    opponentName: resolution.opponentName ?? 'UNKNOWN',
+    maxCombo: 0,
+    wazaCounts: const {
+      'straight': 0,
+      'pyramid': 0,
+      'hexagon': 0,
+    },
+    ratingAfter: resolution.newRating,
+    ratingDelta: resolution.ratingDelta,
+  );
+  if (!resolution.session.isArenaMode) {
+    return null;
+  }
+  await arenaManager.load();
+  final beforeWins = arenaManager.currentWins;
+  final beforeLosses = arenaManager.currentLosses;
+  final result = await arenaManager.recordArenaMatch(isWin);
+  return _ArenaRecordTransition(
+    beforeWins: beforeWins,
+    beforeLosses: beforeLosses,
+    afterWins: result.wins,
+    afterLosses: result.losses,
+  );
+}
+
+String _buildAbandonedMatchMessageForBootstrap(
+  SavedSessionResolution resolution, {
+  _ArenaRecordTransition? arenaTransition,
+}) {
+  final session = resolution.session;
+  final modeLabel = session.isArenaMode
+      ? 'アリーナ'
+      : session.isRankedMode
+          ? 'ランダムマッチ'
+          : 'フレンド対戦';
+  final buffer = StringBuffer(
+    '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
+  );
+  final oldRating = resolution.oldRating;
+  final newRating = resolution.newRating;
+  if (session.isRankedMode &&
+      !session.isArenaMode &&
+      oldRating != null &&
+      newRating != null) {
+    buffer.write('\nレート：$oldRating→$newRating');
+  }
+  if (session.isArenaMode && arenaTransition != null) {
+    buffer.write(
+      '\nアリーナ：${arenaTransition.beforeWins}勝${arenaTransition.beforeLosses}敗'
+      '→${arenaTransition.afterWins}勝${arenaTransition.afterLosses}敗',
+    );
+  }
+  return buffer.toString();
+}
+
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({
+    super.key,
+    this.bootstrapData,
+  });
+
+  final HomeBootstrapData? bootstrapData;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -167,9 +352,13 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadPlayerName();
-    unawaited(_loadPlayerEconomy());
-    unawaited(_maybeResumeSavedOnlineSession());
+    if (widget.bootstrapData case final bootstrapData?) {
+      _applyBootstrapData(bootstrapData);
+    } else {
+      _loadPlayerName();
+      unawaited(_loadPlayerEconomy());
+      unawaited(_maybeResumeSavedOnlineSession());
+    }
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
@@ -222,6 +411,46 @@ class _HomeScreenState extends State<HomeScreen>
       await SeamlessBgm.instance.stop();
     } catch (_) {
       // BGM停止失敗で画面遷移や破棄を止めない。
+    }
+  }
+
+  void _applyBootstrapData(HomeBootstrapData bootstrapData) {
+    _playerNameController.text = bootstrapData.playerName;
+    _multiplayerManager.setPlayerName(bootstrapData.playerName);
+    _rating = bootstrapData.rating;
+    _isLoadingProfile = false;
+    _syncPlayerEconomyState();
+
+    final pendingLevelUpRewardLog = bootstrapData.pendingLevelUpRewardLog;
+    if (pendingLevelUpRewardLog != null && pendingLevelUpRewardLog.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(
+          _showAlert(
+            context,
+            'レベルアップ',
+            pendingLevelUpRewardLog,
+          ),
+        );
+      });
+    }
+
+    final abandonedMatchMessage = bootstrapData.abandonedMatchMessage;
+    if (abandonedMatchMessage != null && abandonedMatchMessage.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(
+          _showAlert(
+            context,
+            '試合放棄',
+            abandonedMatchMessage,
+          ),
+        );
+      });
     }
   }
 
@@ -1601,9 +1830,7 @@ class _HomeScreenState extends State<HomeScreen>
           _buildBottomTextButton(
             Icons.help_outline,
             '遊び方',
-            () => unawaited(
-              _showAlert(context, '遊び方', '遊び方は準備中です。'),
-            ),
+            () => unawaited(_showHowToPlayDialog()),
           ),
           _buildBottomTextButton(
             Icons.block,
@@ -3098,29 +3325,155 @@ class _HomeScreenState extends State<HomeScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _buildSettingsSectionTitle('オーディオ'),
+                  _buildCyberDialogButton(
+                    label: '音量設定',
+                    accentColor: Colors.cyanAccent,
+                    onPressed: () => unawaited(
+                      _showAudioSettingsDialog(
+                        dialogContext,
+                        initialMusicVolume: musicVolume,
+                        initialSfxVolume: sfxVolume,
+                        onMusicChanged: (value) async {
+                          await updateMusic(value);
+                        },
+                        onSfxChanged: (value) async {
+                          await updateSfx(value);
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildCyberDialogButton(
+                    label: '操作設定',
+                    accentColor: Colors.amberAccent,
+                    onPressed: () => unawaited(
+                      _showControlSettingsDialog(
+                        dialogContext,
+                        initialLayout: layout,
+                        onLayoutChanged: (preset) async {
+                          await updateLayout(preset);
+                        },
+                      ),
+                    ),
+                  ),
+                  if (AppReviewConfig.hasPrivacyPolicy) ...[
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: 'プライバシーポリシー',
+                      accentColor: Colors.greenAccent,
+                      onPressed: () => unawaited(
+                        _openExternalUri(AppReviewConfig.privacyPolicyUrl),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildCyberDialogButton(
+                    label: '閉じる',
+                    accentColor: Colors.white54,
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showAudioSettingsDialog(
+    BuildContext parentContext, {
+    required double initialMusicVolume,
+    required double initialSfxVolume,
+    required Future<void> Function(double value) onMusicChanged,
+    required Future<void> Function(double value) onSfxChanged,
+  }) async {
+    double musicVolume = initialMusicVolume;
+    double sfxVolume = initialSfxVolume;
+
+    await showDialog<void>(
+      context: parentContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> updateLocalMusic(double value) async {
+              setDialogState(() {
+                musicVolume = value;
+              });
+              await onMusicChanged(value);
+            }
+
+            Future<void> updateLocalSfx(double value) async {
+              setDialogState(() {
+                sfxVolume = value;
+              });
+              await onSfxChanged(value);
+            }
+
+            return _buildCyberDialog(
+              accentColor: Colors.cyanAccent,
+              title: '音量設定',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   _buildSettingsSlider(
                     label: '音楽',
                     value: musicVolume,
-                    onChanged: updateMusic,
+                    onChanged: (value) => unawaited(updateLocalMusic(value)),
                   ),
                   const SizedBox(height: 10),
                   _buildSettingsSlider(
                     label: '効果音',
                     value: sfxVolume,
-                    onChanged: updateSfx,
+                    onChanged: (value) => unawaited(updateLocalSfx(value)),
                   ),
-                  const SizedBox(height: 18),
-                  _buildSettingsSectionTitle('操作パネル'),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 16),
+                  _buildCyberDialogButton(
+                    label: '閉じる',
+                    accentColor: Colors.white54,
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showControlSettingsDialog(
+    BuildContext parentContext, {
+    required ControlLayoutPreset initialLayout,
+    required Future<void> Function(ControlLayoutPreset preset) onLayoutChanged,
+  }) async {
+    var layout = initialLayout;
+
+    await showDialog<void>(
+      context: parentContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> updateLocalLayout(ControlLayoutPreset preset) async {
+              setDialogState(() {
+                layout = preset;
+              });
+              await onLayoutChanged(preset);
+            }
+
+            return _buildCyberDialog(
+              accentColor: Colors.amberAccent,
+              title: '操作設定',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   for (final preset in ControlLayoutPreset.values) ...[
                     _buildControlLayoutOption(
                       preset: preset,
                       selected: preset == layout,
-                      onTap: () {
-                        _playUiTap();
-                        unawaited(updateLayout(preset));
-                      },
+                      onTap: () => unawaited(updateLocalLayout(preset)),
                     ),
                     if (preset != ControlLayoutPreset.values.last)
                       const SizedBox(height: 10),
@@ -3140,13 +3493,105 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildSettingsSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        color: Colors.cyanAccent,
-        fontWeight: FontWeight.w900,
-        letterSpacing: 1.2,
+  Future<void> _showHowToPlayDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.cyanAccent,
+          title: '遊び方',
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 460),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildHowToSection(
+                    title: '基本ルール',
+                    lines: const [
+                      '落ちてくる2個1組のボールを六角形ボードに積みます。',
+                      '同じ色をつないで消し、相手より先に生き残れば勝利です。',
+                      '自分の盤面が上まで埋まると敗北になります。',
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildHowToSection(
+                    title: '操作方法',
+                    lines: const [
+                      '左右ボタンで移動、回転ボタンで向きを変更します。',
+                      '盤面をタップすると一気に落とせます。',
+                      '設定の「操作設定」からボタン配置を変更できます。',
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildHowToSection(
+                    title: '勝つコツ',
+                    lines: const [
+                      '小さく消して盤面を整え、連鎖の形を作るのが大切です。',
+                      '技が決まると強いおじゃま攻撃につながります。',
+                      '無理に高く積まず、中央に余裕を残すと立て直しやすいです。',
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildHowToSection(
+                    title: 'モード',
+                    lines: const [
+                      'エンドレスはスコア更新を目指す1人用モードです。',
+                      'CPU対戦は難易度ごとに思考速度と強さが変わります。',
+                      'オンライン対戦ではレート戦やフレンド戦を楽しめます。',
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _buildCyberDialogButton(
+                    label: '閉じる',
+                    accentColor: Colors.white54,
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHowToSection({
+    required String title,
+    required List<String> lines,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.cyanAccent,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.0,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final line in lines) ...[
+            Text(
+              '・$line',
+              style: const TextStyle(
+                color: Colors.white70,
+                height: 1.5,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (line != lines.last) const SizedBox(height: 4),
+          ],
+        ],
       ),
     );
   }

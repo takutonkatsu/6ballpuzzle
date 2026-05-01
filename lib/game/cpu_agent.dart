@@ -100,24 +100,28 @@ class CPUAgent {
       case CPUDifficulty.easy:
         _thinkDelay = 2.0;
         _moveDelay = 0.24;
+        _rotationDelay = 0.24;
         _mistakeRate = 0.30;
         _lookaheadCount = 0;
         break;
       case CPUDifficulty.normal:
         _thinkDelay = 1.0;
         _moveDelay = 0.16;
+        _rotationDelay = 0.16;
         _mistakeRate = 0.0;
         _lookaheadCount = 0;
         break;
       case CPUDifficulty.hard:
         _thinkDelay = 0.5;
         _moveDelay = 0.09;
+        _rotationDelay = 0.09;
         _mistakeRate = 0.0;
         _lookaheadCount = 12;
         break;
       case CPUDifficulty.oni:
         _thinkDelay = 0.3;
         _moveDelay = 0.04;
+        _rotationDelay = 0.075;
         _mistakeRate = 0.0;
         _lookaheadCount = 18;
         break;
@@ -126,6 +130,7 @@ class CPUAgent {
 
   double _thinkDelay = 0;
   double _moveDelay = 0;
+  double _rotationDelay = 0;
   double _mistakeRate = 0;
   int _lookaheadCount = 4;
   double _lastCpuX = -9999.0;
@@ -157,7 +162,7 @@ class CPUAgent {
             game.rotateLeft();
             _targetRotationCount++;
           }
-          _rotationTimer = _moveDelay;
+          _rotationTimer = _rotationDelay;
         }
       }
 

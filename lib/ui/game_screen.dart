@@ -140,7 +140,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   String get _opponentDisplayName {
     if (widget.isCpuMode) {
-      return 'CPU';
+      return 'CPU${_cpuDifficultyLabel(widget.cpuDifficulty)}';
     }
     if (_isOnlineMode) {
       return _displayNameForRole(_multiplayerManager.opponentRoleId) ??
@@ -150,6 +150,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   int get _arenaRewardExp => _arenaMatchResult?.reward.exp ?? 0;
+
+  String _cpuDifficultyLabel(CPUDifficulty difficulty) {
+    return switch (difficulty) {
+      CPUDifficulty.easy => '弱い',
+      CPUDifficulty.normal => '普通',
+      CPUDifficulty.hard => '強い',
+      CPUDifficulty.oni => '鬼',
+    };
+  }
 
   int? get _totalResultExpEarned {
     final baseExp = _matchExpEarned ?? _soloExpEarned;
@@ -776,6 +785,283 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildBattleResultProfiles() {
+    if (!widget.isCpuMode && !_isOnlineMode) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildResultProfileCard(
+          label: 'YOU',
+          accentColor: Colors.cyanAccent,
+          name: _myDisplayName,
+          iconId: _playerDataManager.equippedPlayerIconId,
+          badgeIds: _playerDataManager.equippedBadgeIds,
+          ratingValue: _myResultRatingValue(),
+          ratingDelta: _myResultRatingDeltaText(),
+          expText: _myResultExpText(),
+          isOpponent: false,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Text(
+            'VS',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.88),
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 3,
+            ),
+          ),
+        ),
+        _buildResultProfileCard(
+          label: 'OPPONENT',
+          accentColor: Colors.pinkAccent,
+          name: _opponentResultName(),
+          iconId: _opponentResultIconId(),
+          badgeIds: _opponentResultBadgeIds(),
+          ratingValue: _opponentResultRatingValue(),
+          ratingDelta: _opponentResultRatingDeltaText(),
+          expText: _opponentResultExpText(),
+          isOpponent: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultProfileCard({
+    required String label,
+    required Color accentColor,
+    required String name,
+    required String iconId,
+    required List<String> badgeIds,
+    required String ratingValue,
+    required String ratingDelta,
+    required String expText,
+    required bool isOpponent,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accentColor.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: accentColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.6,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: accentColor.withValues(alpha: 0.55),
+                  ),
+                ),
+                child: Icon(
+                  _playerIconData(iconId),
+                  color: accentColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _buildBadgeIconRow(badgeIds),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildResultProfileStat(
+                  label: 'レート増減',
+                  value: ratingDelta,
+                  subValue: ratingValue,
+                  color: accentColor,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildResultProfileStat(
+                  label: '獲得EXP',
+                  value: expText,
+                  color: isOpponent ? Colors.white70 : Colors.greenAccent,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultProfileStat({
+    required String label,
+    required String value,
+    required Color color,
+    String? subValue,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white60,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          if (subValue != null && subValue.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              subValue,
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _myResultRatingValue() {
+    if (widget.isRankedMode && _rankedRatingChange != null) {
+      return '現在 ${_rankedRatingChange!.newRating}';
+    }
+    if (widget.isArenaMode) {
+      final wins = _arenaMatchResult?.wins ?? _arenaManager.currentWins;
+      final losses = _arenaMatchResult?.losses ?? _arenaManager.currentLosses;
+      return '$wins勝 $losses敗';
+    }
+    return 'Lv.${_playerDataManager.level}';
+  }
+
+  String _myResultRatingDeltaText() {
+    if (widget.isRankedMode && _rankedRatingChange != null) {
+      final delta = _rankedRatingChange!.delta;
+      return delta >= 0 ? '+$delta' : '$delta';
+    }
+    if (widget.isArenaMode) {
+      return '変動なし';
+    }
+    return 'なし';
+  }
+
+  String _myResultExpText() {
+    final totalExp = _totalResultExpEarned;
+    if (totalExp == null) {
+      return '集計中';
+    }
+    return '+$totalExp';
+  }
+
+  String _opponentResultName() {
+    if (widget.isCpuMode) {
+      return _opponentDisplayName;
+    }
+    return _displayNameForRole(_multiplayerManager.opponentRoleId) ??
+        'Opponent';
+  }
+
+  String _opponentResultIconId() {
+    if (widget.isCpuMode) {
+      return 'icon_bolt';
+    }
+    return _room?.players[_multiplayerManager.opponentRoleId]?.playerIconId ??
+        'default';
+  }
+
+  List<String> _opponentResultBadgeIds() {
+    if (widget.isCpuMode) {
+      return const [];
+    }
+    return _room?.players[_multiplayerManager.opponentRoleId]?.badgeIds ??
+        const [];
+  }
+
+  String _opponentResultRatingValue() {
+    if (widget.isRankedMode) {
+      final opponent = _room?.players[_multiplayerManager.opponentRoleId];
+      final delta = _rankedRatingChange?.delta;
+      if (opponent?.rating != null && delta != null) {
+        return '現在 ${opponent!.rating! - delta}';
+      }
+    }
+    if (widget.isArenaMode) {
+      return 'アリーナ';
+    }
+    if (widget.isCpuMode) {
+      return _cpuDifficultyLabel(widget.cpuDifficulty);
+    }
+    return '対戦相手';
+  }
+
+  String _opponentResultRatingDeltaText() {
+    if (widget.isRankedMode && _rankedRatingChange != null) {
+      final delta = -_rankedRatingChange!.delta;
+      return delta >= 0 ? '+$delta' : '$delta';
+    }
+    return 'なし';
+  }
+
+  String _opponentResultExpText() {
+    return widget.isCpuMode ? 'なし' : '表示なし';
+  }
+
   Widget _buildResultInfoRow({
     required String label,
     required String value,
@@ -973,8 +1259,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           _myDisplayName,
                           isCpu: false,
                           roleLabel: 'あなた',
-                          badgeIds:
-                              _badgeIdsForRole(_multiplayerManager.myRoleId),
                         ),
                         const SizedBox(height: 16),
                         _buildNextBadge(
@@ -1064,8 +1348,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       _opponentDisplayName,
                       isCpu: true,
                       roleLabel: '相手',
-                      badgeIds:
-                          _badgeIdsForRole(_multiplayerManager.opponentRoleId),
                       onModerationPressed:
                           _isOnlineMode ? _showOpponentModerationDialog : null,
                     ),
@@ -1206,7 +1488,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     String name, {
     required bool isCpu,
     required String roleLabel,
-    List<String> badgeIds = const [],
     VoidCallback? onModerationPressed,
   }) {
     final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
@@ -1273,10 +1554,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
           ],
         ),
-        if (badgeIds.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          _buildBadgeIconRow(badgeIds),
-        ],
         if (onModerationPressed != null) ...[
           const SizedBox(height: 6),
           IconButton(
@@ -1346,13 +1623,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         );
       },
     );
-  }
-
-  List<String> _badgeIdsForRole(String? roleId) {
-    if (roleId == null) {
-      return const [];
-    }
-    return _room?.players[roleId]?.badgeIds ?? const [];
   }
 
   Widget _buildBadgeIconRow(List<String> badgeIds) {
@@ -1495,6 +1765,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             title: title,
             titleColor: titleColor,
             children: [
+              _buildBattleResultProfiles(),
+              const SizedBox(height: 12),
               _buildResultExpSummary(),
               if (!widget.isCpuMode) ...[
                 const SizedBox(height: 12),
@@ -1550,6 +1822,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         title: win ? '勝利' : '敗北',
         titleColor: textColor,
         children: [
+          _buildBattleResultProfiles(),
+          const SizedBox(height: 12),
           if (_onlineResultWasForfeit) ...[
             _buildResultInfoRow(
               label: '決着',
@@ -3469,6 +3743,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           color: Color(0x1100FFFF), // faint cyan highlight
           border: Border(
             top: BorderSide(color: Colors.cyanAccent, width: 2),
+            bottom: BorderSide(color: Colors.cyanAccent, width: 2),
             right: BorderSide(color: Color(0x3300FFFF), width: 1),
           ),
         ),

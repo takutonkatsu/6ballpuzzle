@@ -1,8 +1,14 @@
 class AppReviewConfig {
   AppReviewConfig._();
 
+  static const bool _isNonProdFlavor =
+      String.fromEnvironment('FLAVOR', defaultValue: 'dev') != 'prod';
+
   static const bool debugMenuEnabled =
-      bool.fromEnvironment('ENABLE_DEBUG_MENU', defaultValue: false);
+      bool.fromEnvironment(
+        'ENABLE_DEBUG_MENU',
+        defaultValue: _isNonProdFlavor,
+      );
 
   static const String privacyPolicyUrl =
       String.fromEnvironment('PRIVACY_POLICY_URL');
