@@ -1,14 +1,14 @@
 {
   "project_info": {
-    "project_number": "599331155949",
-    "firebase_url": "https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app",
-    "project_id": "hexagon-puzzle-prod",
-    "storage_bucket": "hexagon-puzzle-prod.firebasestorage.app"
+    "project_number": "418193050055",
+    "firebase_url": "https://ballpuzzle-81978-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "ballpuzzle-81978",
+    "storage_bucket": "ballpuzzle-81978.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:599331155949:android:321bcf7d017f2a7cee81e4",
+        "mobilesdk_app_id": "1:418193050055:android:fb82940b1fe21454bbb1e2",
         "android_client_info": {
           "package_name": "com.example.six_ball_puzzle"
         }
@@ -16,7 +16,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAau_Kg-abGomqyT3EAujl8VmQPgUhmI3U"
+          "current_key": "AIzaSyCPrH7Yd3Dwr3N0d_sqy1XSstAEOkoMLWg"
         }
       ],
       "services": {

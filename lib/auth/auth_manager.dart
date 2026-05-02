@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthManager {
@@ -27,13 +28,29 @@ class AuthManager {
       }
       return user.uid;
     } on FirebaseAuthException catch (error) {
-      // macOS debug builds can lack Keychain Sharing signing. Keep local
-      // development usable by falling back to a stable local-only identifier.
-      if (Platform.isMacOS && error.code == 'keychain-error') {
+      // Keep the app bootable even when platform auth configuration is
+      // unavailable on a specific device/build. Online features may still
+      // fail later, but the home screen should not black-screen on launch.
+      if (_shouldUseFallbackUid(error)) {
+        debugPrint(
+          'Falling back to local auth uid because FirebaseAuth '
+          'signInAnonymously failed: code=${error.code} message=${error.message}',
+        );
         return _loadOrCreateFallbackUid();
       }
       rethrow;
     }
+  }
+
+  bool _shouldUseFallbackUid(FirebaseAuthException error) {
+    if (Platform.isMacOS && error.code == 'keychain-error') {
+      return true;
+    }
+
+    final message = (error.message ?? '').toUpperCase();
+    return error.code == 'unknown' &&
+        (message.contains('CONFIGURATION_NOT_FOUND') ||
+            message.contains('INTERNAL ERROR HAS OCCURRED'));
   }
 
   Future<String> _loadOrCreateFallbackUid() async {
