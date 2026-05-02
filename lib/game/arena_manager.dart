@@ -132,18 +132,18 @@ class ArenaManager {
   ArenaReward _calculateReward(int wins) {
     const rewardTable = [
       500,
+      1000,
       1500,
-      2600,
-      3800,
-      5000,
-      6900,
-      9000,
-      11300,
-      13800,
-      16500,
-      19400,
-      22500,
-      30000,
+      2500,
+      4000,
+      5500,
+      7000,
+      8500,
+      10000,
+      12000,
+      14000,
+      16000,
+      20000,
     ];
     final coins = rewardTable[wins.clamp(0, maxWins)];
 

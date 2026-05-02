@@ -35,12 +35,14 @@ class HomeBootstrapData {
     required this.playerName,
     required this.rating,
     this.pendingLevelUpRewardLog,
+    this.pendingLoginBonusLog,
     this.abandonedMatchMessage,
   });
 
   final String playerName;
   final int rating;
   final String? pendingLevelUpRewardLog;
+  final String? pendingLoginBonusLog;
   final String? abandonedMatchMessage;
 }
 
@@ -102,11 +104,14 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
 
     final pendingLevelUpRewardLog =
         await playerDataManager.consumePendingLevelUpRewardLog();
+    final pendingLoginBonusLog =
+        await playerDataManager.consumePendingLoginBonusLog();
 
     return HomeBootstrapData(
       playerName: savedName,
       rating: rating,
       pendingLevelUpRewardLog: pendingLevelUpRewardLog,
+      pendingLoginBonusLog: pendingLoginBonusLog,
       abandonedMatchMessage: abandonedMatchMessage,
     );
   } catch (_) {
@@ -397,7 +402,7 @@ class _HomeScreenState extends State<HomeScreen>
       await SeamlessBgm.instance.play(
         assetPath: 'audio/home_screen_bgm01.wav',
         duration: _homeBgmDuration,
-        volume: 0.18,
+        volume: 0.576,
         forceRestart: forceRestart,
       );
     } catch (_) {
@@ -423,7 +428,7 @@ class _HomeScreenState extends State<HomeScreen>
     _rating = bootstrapData.rating;
     _isLoadingProfile = false;
     _syncPlayerEconomyState();
-    unawaited(_refreshRankingSummary());
+    unawaited(_refreshRankingSummary(forceRefresh: true));
 
     final pendingLevelUpRewardLog = bootstrapData.pendingLevelUpRewardLog;
     if (pendingLevelUpRewardLog != null && pendingLevelUpRewardLog.isNotEmpty) {
@@ -436,6 +441,22 @@ class _HomeScreenState extends State<HomeScreen>
             context,
             'レベルアップ',
             pendingLevelUpRewardLog,
+          ),
+        );
+      });
+    }
+
+    final pendingLoginBonusLog = bootstrapData.pendingLoginBonusLog;
+    if (pendingLoginBonusLog != null && pendingLoginBonusLog.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(
+          _showAlert(
+            context,
+            '連続ログインボーナス',
+            pendingLoginBonusLog,
           ),
         );
       });
@@ -466,6 +487,8 @@ class _HomeScreenState extends State<HomeScreen>
       await _arenaManager.load();
       final pendingLevelUpRewardLog =
           await _playerDataManager.consumePendingLevelUpRewardLog();
+      final pendingLoginBonusLog =
+          await _playerDataManager.consumePendingLoginBonusLog();
       if (!mounted) {
         return;
       }
@@ -483,6 +506,20 @@ class _HomeScreenState extends State<HomeScreen>
               context,
               'レベルアップ',
               pendingLevelUpRewardLog,
+            ),
+          );
+        });
+      }
+      if (pendingLoginBonusLog != null && pendingLoginBonusLog.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          unawaited(
+            _showAlert(
+              context,
+              '連続ログインボーナス',
+              pendingLoginBonusLog,
             ),
           );
         });
@@ -519,9 +556,11 @@ class _HomeScreenState extends State<HomeScreen>
     }).length;
   }
 
-  Future<void> _refreshRankingSummary() async {
+  Future<void> _refreshRankingSummary({bool forceRefresh = false}) async {
     try {
-      final summary = await _rankingManager.fetchMySummary();
+      final summary = await _rankingManager.fetchMySummary(
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) {
         return;
       }
@@ -822,13 +861,14 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _multiplayerManager.setPlayerName(savedName);
     unawaited(_multiplayerManager.updateUserName(savedName));
+    await _refreshPlayerEconomy();
     unawaited(
       _rankingManager.updateMyRating(
         rating: _rating,
         displayName: savedName,
       ),
     );
-    unawaited(_refreshRankingSummary());
+    unawaited(_refreshRankingSummary(forceRefresh: true));
   }
 
   void _openRecordScreen() {
@@ -1210,7 +1250,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
-                            'フレンド\n対戦',
+                            'フレンド',
                             Colors.redAccent,
                             _isBusy
                                 ? null
@@ -1225,7 +1265,7 @@ class _HomeScreenState extends State<HomeScreen>
                   children: [
                     Expanded(
                         child: _buildGridButton(
-                            'CPU\n対戦',
+                            'コンピュータ',
                             Colors.yellowAccent,
                             _isBusy
                                 ? null
@@ -1326,14 +1366,13 @@ class _HomeScreenState extends State<HomeScreen>
                                 color: Colors.black.withValues(alpha: 0.62),
                                 borderRadius: BorderRadius.circular(999),
                                 border: Border.all(
-                                  color: Colors.amberAccent
-                                      .withValues(alpha: 0.66),
+                                  color: Colors.white.withValues(alpha: 0.66),
                                 ),
                               ),
                               child: Text(
                                 _isLoadingProfile ? '🏆 ...' : '現在🏆$_rating',
                                 style: const TextStyle(
-                                  color: Colors.amberAccent,
+                                  color: Colors.white,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: 0.8,
@@ -2133,9 +2172,7 @@ class _HomeScreenState extends State<HomeScreen>
     bool isCpuMode, {
     CPUDifficulty cpuDifficulty = CPUDifficulty.hard,
   }) {
-    if (isCpuMode) {
-      unawaited(_missionManager.recordEvent('play_match'));
-    } else {
+    if (!isCpuMode) {
       unawaited(_missionManager.recordEvent('play_endless'));
     }
     unawaited(_stopHomeBgm());
@@ -2182,7 +2219,7 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.yellowAccent,
-          title: 'CPU対戦',
+          title: 'コンピュータ対戦',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2389,19 +2426,6 @@ class _HomeScreenState extends State<HomeScreen>
                         : () async {
                             _playUiTap();
                             try {
-                              final rewarded = await RewardedAdManager.instance
-                                  .showDoubleRewardAd();
-                              if (!rewarded) {
-                                if (context.mounted) {
-                                  await _showAlert(
-                                    context,
-                                    '広告エラー',
-                                    '動画の視聴が完了しませんでした。',
-                                  );
-                                }
-                                return;
-                              }
-
                               final amount =
                                   await _missionManager.claimAllClearBonus();
                               await refreshDialogState();
@@ -2409,8 +2433,8 @@ class _HomeScreenState extends State<HomeScreen>
                               if (context.mounted) {
                                 await _showAlert(
                                   context,
-                                  'リワード報酬',
-                                  '動画リワードで +$amount コインを受け取りました。',
+                                  '全達成ボーナス',
+                                  '+$amount コインを受け取りました。',
                                 );
                               }
                             } catch (error) {
@@ -2462,8 +2486,8 @@ class _HomeScreenState extends State<HomeScreen>
                               children: [
                                 Text(
                                   isAllClearBonusClaimed
-                                      ? 'リワード受取済み'
-                                      : 'リワード x2 ボーナス',
+                                      ? '全達成受取済み'
+                                      : '全達成ボーナス',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     color: canClaimAllClearBonus
@@ -2477,7 +2501,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 const SizedBox(height: 3),
                                 Text(
                                   canClaimAllClearBonus
-                                      ? '動画広告で +$rewardAdClaimAmount'
+                                      ? '+$rewardAdClaimAmount'
                                       : isAllComplete
                                           ? '受取済み'
                                           : 'すべて達成で解放',
@@ -2494,6 +2518,60 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ],
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    height: 1,
+                    color: Colors.white.withValues(alpha: 0.14),
+                  ),
+                  const SizedBox(height: 20),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '連続ログイン',
+                      style: TextStyle(
+                        color: Colors.amberAccent,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(color: Colors.amberAccent, blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.cyanAccent.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.cyanAccent.withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '現在${_playerDataManager.loginStreak}日連続ログイン中！',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          '7日ごとに5000コイン',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -2522,7 +2600,8 @@ class _HomeScreenState extends State<HomeScreen>
     final claimed = mission['claimed'] as bool? ?? false;
     final isDone = progress >= target;
     final canClaim = isDone && !claimed;
-    final isRewardedAdMission = mission['id'] == 'watch_rewarded_ad_1';
+    final missionId = mission['id']?.toString() ?? '';
+    final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
 
     return InkWell(
       onTap: claimed
@@ -2880,7 +2959,7 @@ class _HomeScreenState extends State<HomeScreen>
         _rating = rating;
         _isLoadingProfile = false;
       });
-      unawaited(_refreshRankingSummary());
+      unawaited(_refreshRankingSummary(forceRefresh: true));
     } catch (_) {
       if (!mounted) {
         return;
@@ -2890,7 +2969,7 @@ class _HomeScreenState extends State<HomeScreen>
         _isLoadingProfile = false;
       });
       unawaited(_playerDataManager.setCurrentRating(_rating));
-      unawaited(_refreshRankingSummary());
+      unawaited(_refreshRankingSummary(forceRefresh: true));
     }
   }
 
@@ -3116,7 +3195,7 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _rating = resolution.newRating ?? _multiplayerManager.currentRating;
     });
-    unawaited(_refreshRankingSummary());
+    unawaited(_refreshRankingSummary(forceRefresh: true));
     if (resolution.wasAbandoned) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) {
@@ -3577,8 +3656,8 @@ class _HomeScreenState extends State<HomeScreen>
                     title: 'モード',
                     lines: const [
                       'エンドレスはスコア更新を目指す1人用モードです。',
-                      'CPU対戦は難易度ごとに思考速度と強さが変わります。',
-                      'オンライン対戦ではレート戦やフレンド戦を楽しめます。',
+                      'コンピュータ対戦は難易度ごとに思考速度と強さが変わります。',
+                      'オンライン対戦ではレート戦やフレンド対戦を楽しめます。',
                     ],
                   ),
                   const SizedBox(height: 16),

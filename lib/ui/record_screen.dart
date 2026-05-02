@@ -74,7 +74,7 @@ class _RecordScreenState extends State<RecordScreen> {
           _StatItem('総プレイ回数', '${_playerData.totalMatches}'),
           _StatItem('ランク戦', '${counts['RANKED'] ?? 0}'),
           _StatItem('アリーナ', '${counts['ARENA'] ?? 0}'),
-          _StatItem('CPU戦', '${counts['CPU'] ?? 0}'),
+          _StatItem('コンピュータ対戦', '${counts['CPU'] ?? 0}'),
           _StatItem('エンドレス', '${counts['SOLO'] ?? 0}'),
           _StatItem('フレンド対戦', '${counts['FRIEND'] ?? 0}'),
         ]),
@@ -379,7 +379,7 @@ class _RecordScreenState extends State<RecordScreen> {
     return switch (mode) {
       'RANKED' => 'ランク戦',
       'ARENA' => 'アリーナ',
-      'CPU' => 'CPU戦',
+      'CPU' => 'コンピュータ対戦',
       'SOLO' => 'エンドレス',
       'FRIEND' => 'フレンド対戦',
       _ => mode,

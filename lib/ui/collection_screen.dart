@@ -86,9 +86,7 @@ class _CollectionScreenState extends State<CollectionScreen>
             title: stamp.name,
             subtitle: '所持中  Lv.${stamp.level}',
             icon: _iconForStamp(stamp.iconName),
-            selected: GameItemCatalog.defaultStamps.any(
-              (item) => item.id == stamp.id,
-            ),
+            selected: false,
             available: true,
             onTap: null,
           ),

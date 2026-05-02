@@ -6,7 +6,6 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../app_review_config.dart';
 import '../../app_settings.dart';
-import 'interstitial_ad_manager.dart';
 
 class BannerAdWidget extends StatefulWidget {
   const BannerAdWidget({super.key});
@@ -37,9 +36,6 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   void initState() {
     super.initState();
     AppSettings.instance.adsRemoved.addListener(_handleAdsRemovedChanged);
-    InterstitialAdManager.instance.isCoolingDown.addListener(
-      _handleInterstitialCooldownChanged,
-    );
     _loadBannerAd();
   }
 
@@ -57,24 +53,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     }
   }
 
-  void _handleInterstitialCooldownChanged() {
-    if (InterstitialAdManager.instance.isCoolingDown.value) {
-      _bannerAd?.dispose();
-      _bannerAd = null;
-      if (mounted) {
-        setState(() {
-          _isLoaded = false;
-        });
-      }
-      return;
-    }
-    _loadBannerAd();
-  }
-
   void _loadBannerAd() {
-    if (AppSettings.instance.adsRemoved.value ||
-        InterstitialAdManager.instance.isCoolingDown.value ||
-        _bannerAd != null) {
+    if (AppSettings.instance.adsRemoved.value || _bannerAd != null) {
       return;
     }
     final adUnitId = _adUnitId;
@@ -113,9 +93,6 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   @override
   void dispose() {
     AppSettings.instance.adsRemoved.removeListener(_handleAdsRemovedChanged);
-    InterstitialAdManager.instance.isCoolingDown.removeListener(
-      _handleInterstitialCooldownChanged,
-    );
     _bannerAd?.dispose();
     super.dispose();
   }
@@ -123,9 +100,6 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   @override
   Widget build(BuildContext context) {
     if (AppSettings.instance.adsRemoved.value) {
-      return const SizedBox.shrink();
-    }
-    if (InterstitialAdManager.instance.isCoolingDown.value) {
       return const SizedBox.shrink();
     }
     final ad = _bannerAd;

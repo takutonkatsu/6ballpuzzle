@@ -41,7 +41,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const String _ojamaBlockSpawnSfx = '決定、ボタン押下34_おじゃまスポーン01.mp3';
   static const String _wazaChargeSfx = 'メニューを開く4_ワザ.mp3';
   static const String _clearSfx = '決定ボタンを押す42_消去03.mp3';
-  static const double _sfxVolumeMultiplier = 2.0;
+  static const double _sfxVolumeMultiplier = 2.6;
 
   final bool isCpuMode;
   final int? seed;
@@ -72,6 +72,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final Queue<OjamaTask> incomingOjama = Queue();
 
   Function(WazaType, BallColor?)? onWazaFired;
+  Function(int ballsDestroyed)? onBallsCleared;
   Function(Map<String, dynamic>)? onBoardUpdated;
   Function()? onGameOverTriggered;
   Function()? onDeathLineCrossed;
@@ -443,6 +444,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     freezeToBoardOnly();
     _clearAllBoardComponents();
     onWazaFired = null;
+    onBallsCleared = null;
     onBoardUpdated = null;
     onGameOverTriggered = null;
     onDeathLineCrossed = null;
@@ -952,6 +954,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
               scoreManager.addMatch(
                   validTargets.length, matchResult.highestWaza);
+              if (onBallsCleared != null) {
+                onBallsCleared!(validTargets.length);
+              }
 
               if (matchResult.highestWaza != WazaType.none &&
                   matchResult.wazaPattern.isNotEmpty) {

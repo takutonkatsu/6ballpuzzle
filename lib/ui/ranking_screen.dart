@@ -41,8 +41,8 @@ class _RankingScreenState extends State<RankingScreen> {
 
     try {
       final entries = _showDailyWins
-          ? await _rankingManager.fetchTopDailyWinRankings()
-          : await _rankingManager.fetchTopRankings();
+          ? await _rankingManager.fetchTopDailyWinRankings(forceRefresh: true)
+          : await _rankingManager.fetchTopRankings(forceRefresh: true);
       if (!mounted) {
         return;
       }
@@ -160,7 +160,7 @@ class _RankingScreenState extends State<RankingScreen> {
       ),
       icon: const Icon(Icons.arrow_back_ios_new, size: 16),
       label: const Text(
-        'BACK',
+        '戻る',
         style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
       ),
     );
@@ -200,7 +200,7 @@ class _RankingScreenState extends State<RankingScreen> {
                   _playUiTap();
                   unawaited(_loadRankings());
                 },
-                child: const Text('RETRY'),
+                child: const Text('再読み込み'),
               ),
             ],
           ),

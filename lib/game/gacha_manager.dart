@@ -19,7 +19,7 @@ class GachaManager {
   GachaManager._internal();
 
   static final GachaManager instance = GachaManager._internal();
-  static const int rollCost = 1000;
+  static const int rollCost = 5000;
   static const int dailyAdRollLimit = 3;
   static const String _adRollDateKey = 'gacha_ad_roll_date';
   static const String _adRollCountKey = 'gacha_ad_roll_count';

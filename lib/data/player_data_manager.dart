@@ -93,6 +93,8 @@ class PlayerDataManager {
   static const String _lastDailyResetKey = 'player_last_daily_reset';
   static const String _currentMissionsKey = 'player_current_missions_json';
   static const String _dailyShopItemsKey = 'player_daily_shop_items_json';
+  static const String _loginStreakKey = 'player_login_streak';
+  static const String _lastLoginDateKey = 'player_last_login_date';
   static const String _playerNameKey = 'player_name';
   static const String _playerIdKey = 'player_public_id';
   static const String _equippedBadgeIdsKey = 'player_equipped_badge_ids_json';
@@ -114,6 +116,8 @@ class PlayerDataManager {
   static const String _inventoryRevisionKey = 'player_inventory_revision';
   static const String _pendingLevelUpRewardLogKey =
       'player_pending_level_up_reward_log';
+  static const String _pendingLoginBonusLogKey =
+      'player_pending_login_bonus_log';
   static const int _currentInventoryRevision = 2;
   static const int _debugBuildCoins = 1000000;
 
@@ -128,6 +132,8 @@ class PlayerDataManager {
   String _lastDailyReset = '';
   List<Map<String, dynamic>> _currentMissions = [];
   List<String> _dailyShopItems = [];
+  int _loginStreak = 0;
+  String _lastLoginDate = '';
   String _playerName = '';
   String _playerId = '';
   List<String> _equippedBadgeIds = [];
@@ -171,6 +177,7 @@ class PlayerDataManager {
       .map((mission) => Map<String, dynamic>.from(mission))
       .toList();
   List<String> get dailyShopItems => List.unmodifiable(_dailyShopItems);
+  int get loginStreak => _loginStreak;
   String get playerName => _playerName;
   String get displayPlayerName =>
       _playerName.trim().isEmpty ? 'プレイヤー' : _playerName.trim();
@@ -261,6 +268,8 @@ class PlayerDataManager {
         _dailyShopItems = decoded.map((item) => '$item').toList();
       }
     }
+    _loginStreak = max(0, prefs.getInt(_loginStreakKey) ?? 0);
+    _lastLoginDate = prefs.getString(_lastLoginDateKey) ?? '';
 
     var shouldSaveProfile = false;
     var shouldSaveStats = false;
@@ -358,11 +367,19 @@ class PlayerDataManager {
     final today = _todayKey();
     var changed = false;
 
+    if (await _updateLoginStreak(today)) {
+      changed = true;
+    }
+
+    final missionIds = _currentMissions
+        .map((mission) => mission['id']?.toString() ?? '')
+        .toSet();
+    final hasRequiredRewardedMissions =
+        MissionCatalog.rewardedAdMissionIds.every(missionIds.contains);
+
     if (_lastDailyReset != today ||
         _currentMissions.length != 4 ||
-        !_currentMissions.any(
-          (mission) => mission['id'] == 'watch_rewarded_ad_1',
-        ) ||
+        !hasRequiredRewardedMissions ||
         _dailyShopItems.length != 3) {
       _lastDailyReset = today;
       _currentMissions = _generateDailyMissions();
@@ -702,6 +719,8 @@ class PlayerDataManager {
       _dailyShopItemsKey,
       jsonEncode(_dailyShopItems),
     );
+    await prefs.setInt(_loginStreakKey, _loginStreak);
+    await prefs.setString(_lastLoginDateKey, _lastLoginDate);
   }
 
   Future<String?> consumePendingLevelUpRewardLog() async {
@@ -715,17 +734,27 @@ class PlayerDataManager {
     return message;
   }
 
+  Future<String?> consumePendingLoginBonusLog() async {
+    await load();
+    final prefs = await SharedPreferences.getInstance();
+    final message = prefs.getString(_pendingLoginBonusLogKey);
+    if (message == null || message.isEmpty) {
+      return null;
+    }
+    await prefs.remove(_pendingLoginBonusLogKey);
+    return message;
+  }
+
   List<Map<String, dynamic>> _generateDailyMissions() {
-    const requiredAdMissionId = 'watch_rewarded_ad_1';
-    final adMission = MissionCatalog.dailyPool.firstWhere(
-      (mission) => mission.id == requiredAdMissionId,
+    final rewardedMission = MissionCatalog.dailyPool.firstWhere(
+      (mission) => mission.id == MissionCatalog.rewardedAdMissionIds.first,
     );
     final pool = MissionCatalog.dailyPool
-        .where((mission) => mission.id != requiredAdMissionId)
+        .where((mission) => !MissionCatalog.isRewardedAdMissionId(mission.id))
         .toList()
       ..shuffle(_random);
     return [
-      adMission.toMissionMap(),
+      rewardedMission.toMissionMap(),
       ...pool.take(3).map((mission) => mission.toMissionMap()),
     ];
   }
@@ -804,6 +833,40 @@ class PlayerDataManager {
     await prefs.setString(_pendingLevelUpRewardLogKey, message);
   }
 
+  Future<bool> _updateLoginStreak(String today) async {
+    if (_lastLoginDate == today) {
+      return false;
+    }
+
+    final previousDate = _parseDateKey(_lastLoginDate);
+    final currentDate = _parseDateKey(today);
+    if (currentDate == null) {
+      return false;
+    }
+
+    if (previousDate == null) {
+      _loginStreak = 1;
+    } else {
+      final difference = currentDate.difference(previousDate).inDays;
+      if (difference == 1) {
+        _loginStreak += 1;
+      } else {
+        _loginStreak = 1;
+      }
+    }
+    _lastLoginDate = today;
+
+    if (_loginStreak > 0 && _loginStreak % 7 == 0) {
+      await addCoins(5000);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _pendingLoginBonusLogKey,
+        '連続ログイン$_loginStreak日達成！\n5000コインを獲得しました。',
+      );
+    }
+    return true;
+  }
+
   int _levelFromExp(int value) {
     var currentLevel = 1;
     var remainingExp = max(0, value);
@@ -830,6 +893,13 @@ class PlayerDataManager {
 
   String _todayKey() {
     return DateTime.now().toLocal().toIso8601String().split('T').first;
+  }
+
+  DateTime? _parseDateKey(String raw) {
+    if (raw.trim().isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(raw);
   }
 
   List<String> _stringListFromJson(String? raw) {

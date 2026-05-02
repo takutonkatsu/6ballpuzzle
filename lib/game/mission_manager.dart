@@ -8,6 +8,7 @@ class MissionManager {
 
   static final MissionManager instance = MissionManager._internal();
   static const int rerollCost = 500;
+  static const int allClearBonusCoins = 2000;
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final Random _random = Random();
@@ -39,7 +40,7 @@ class MissionManager {
         return 0;
       }
     }
-    return totalMissionRewardCoins;
+    return allClearBonusCoins;
   }
 
   Future<void> load() async {
@@ -77,7 +78,8 @@ class MissionManager {
     if (index < 0 || index >= missions.length) {
       throw RangeError.index(index, missions, 'index');
     }
-    if (missions[index]['id'] == 'watch_rewarded_ad_1') {
+    final missionId = missions[index]['id']?.toString() ?? '';
+    if (MissionCatalog.isRewardedAdMissionId(missionId)) {
       throw StateError('動画広告ミッションは固定です。');
     }
 
@@ -89,7 +91,7 @@ class MissionManager {
     final candidates = MissionCatalog.dailyPool
         .where(
           (mission) =>
-              mission.id != 'watch_rewarded_ad_1' &&
+              !MissionCatalog.isRewardedAdMissionId(mission.id) &&
               !currentIds.contains(mission.id),
         )
         .toList();
@@ -143,18 +145,14 @@ class MissionManager {
     }
 
     final missions = currentMissions;
-    int totalReward = 0;
-
     for (final mission in missions) {
-      final reward = _intValue(mission['rewardCoins']) ?? 0;
-      totalReward += reward;
       if (!(mission['claimed'] as bool? ?? false)) {
         mission['claimed'] = true;
       }
       mission['allClearBonusClaimed'] = true;
     }
 
-    final claimAmount = totalReward;
+    final claimAmount = allClearBonusCoins;
     if (claimAmount == 0) return 0;
 
     await _playerData.addCoins(claimAmount);
@@ -170,7 +168,8 @@ class MissionManager {
     }
 
     final mission = missions[index];
-    if (mission['id']?.toString() != 'watch_rewarded_ad_1') {
+    final missionId = mission['id']?.toString() ?? '';
+    if (!MissionCatalog.isRewardedAdMissionId(missionId)) {
       throw StateError('動画広告ミッションではありません。');
     }
     if (mission['claimed'] as bool? ?? false) {

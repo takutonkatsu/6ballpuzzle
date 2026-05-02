@@ -5,6 +5,7 @@ import 'sfx_player.dart';
 
 class AppSfx {
   AppSfx._();
+  static const double _boostMultiplier = 1.3;
 
   static const String win = 'jingle_22_勝利時01.mp3';
   static const String lose = 'jingle_24_敗北時.mp3';
@@ -19,7 +20,7 @@ class AppSfx {
       final master = AppSettings.instance.sfxVolume.value;
       await SfxPlayer.play(
         fileName,
-        volume: (volume * master).clamp(0.0, 1.0),
+        volume: (volume * _boostMultiplier * master).clamp(0.0, 1.0),
       );
     } catch (_) {
       // SE再生失敗で画面遷移や進行を止めない。

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
+import '../network/multiplayer_manager.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -16,7 +17,10 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  static const int _nameChangeCost = 10000;
+
   final PlayerDataManager _playerData = PlayerDataManager.instance;
+  final MultiplayerManager _multiplayerManager = MultiplayerManager.instance;
   bool _loading = true;
 
   void _playUiTap() {
@@ -319,9 +323,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _editName() async {
     final controller = TextEditingController(text: _playerData.playerName);
-    await showDialog<void>(
+    final nextName = await showDialog<String>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF151827),
           title: const Text('名前変更'),
@@ -330,7 +334,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '・10文字以内\n・不適切な名前の使用はアカウント停止に繋がる恐れがあります',
+                '・10文字以内\n・変更には10000コインが必要です\n・不適切な名前の使用はアカウント停止に繋がる恐れがあります',
                 style: TextStyle(
                   color: Colors.white70,
                   fontSize: 12,
@@ -350,19 +354,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             TextButton(
               onPressed: () {
                 _playUiTap();
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
               },
               child: const Text('キャンセル'),
             ),
             TextButton(
-              onPressed: () async {
+              onPressed: () {
                 _playUiTap();
-                await _playerData.setPlayerName(controller.text);
-                if (!context.mounted) {
-                  return;
-                }
-                Navigator.of(context).pop();
-                setState(() {});
+                Navigator.of(dialogContext).pop(controller.text.trim());
               },
               child: const Text('保存'),
             ),
@@ -371,6 +370,71 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
     );
     controller.dispose();
+
+    if (!mounted || nextName == null) {
+      return;
+    }
+
+    final previousName = _playerData.playerName;
+    if (nextName == previousName) {
+      return;
+    }
+
+    final shouldProceed = await showDialog<bool>(
+      context: context,
+      builder: (confirmContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF151827),
+          title: const Text('コインを消費します'),
+          content: Text(
+            '名前の変更には $_nameChangeCost コインを消費します。変更しますか？',
+            style: const TextStyle(
+              color: Colors.white70,
+              height: 1.5,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _playUiTap();
+                Navigator.of(confirmContext).pop(false);
+              },
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () {
+                _playUiTap();
+                Navigator.of(confirmContext).pop(true);
+              },
+              child: const Text('変更する'),
+            ),
+          ],
+        );
+      },
+    );
+    if (shouldProceed != true || !mounted) {
+      return;
+    }
+
+    try {
+      await _playerData.spendCoins(_nameChangeCost);
+      await _playerData.setPlayerName(nextName);
+      _multiplayerManager.setPlayerName(_playerData.playerName);
+      await _multiplayerManager.updateUserName(_playerData.playerName);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   String _skinLabel(String skinId) {

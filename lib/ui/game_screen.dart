@@ -23,6 +23,7 @@ import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/interstitial_ad_manager.dart';
+import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
 import 'home_screen.dart';
 
@@ -69,8 +70,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   static const Duration _preReadyDelay = Duration(milliseconds: 500);
   static const Duration _resultFreezeDelay = Duration(milliseconds: 380);
   static const Duration _resultBoardSettleDelay = Duration(milliseconds: 320);
-  static const Duration _localSessionSnapshotInterval = Duration(seconds: 2);
-  static const Duration _remoteSessionSnapshotInterval = Duration(seconds: 10);
   static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
@@ -107,6 +106,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   int? _matchExpEarned;
   bool _soloExpApplied = false;
   int? _soloExpEarned;
+  bool _resultCoinApplied = false;
+  int? _resultCoinBaseEarned;
+  bool _resultCoinTripleClaimed = false;
+  bool _resultCoinTripleInProgress = false;
   bool _didLevelUpFromResultExp = false;
   int? _resultLevelAfterExp;
   final Map<WazaType, int> _playerWazaCounts = {
@@ -125,10 +128,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   DateTime? _ignoreEmptyOpponentBoardUntil;
   bool _resultAudioStarted = false;
   DateTime? _resultAudioStartedAt;
-  DateTime? _lastLocalSessionSnapshotAt;
-  DateTime? _lastRemoteSessionSnapshotAt;
-  bool _isPersistingOnlineSessionSnapshot = false;
-
   final List<Timer> _pendingAttackTimers = [];
 
   bool get _isOnlineMode => widget.isOnlineMultiplayer;
@@ -174,6 +173,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     return baseExp + _arenaRewardExp;
   }
+
+  int get _straightCount => _playerWazaCounts[WazaType.straight] ?? 0;
+  int get _pyramidCount => _playerWazaCounts[WazaType.pyramid] ?? 0;
+  int get _hexagonCount => _playerWazaCounts[WazaType.hexagon] ?? 0;
+
+  int? get _totalResultCoinsEarned {
+    final baseCoins = _resultCoinBaseEarned;
+    if (baseCoins == null) {
+      return null;
+    }
+    return _resultCoinTripleClaimed ? baseCoins * 3 : baseCoins;
+  }
+
+  int get _resultCoinAdBonusAmount => (_resultCoinBaseEarned ?? 0) * 2;
 
   bool get _isFriendMode =>
       _isOnlineMode && !widget.isRankedMode && !widget.isArenaMode;
@@ -282,7 +295,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _playerGame.onBoardUpdated = (boardData) {
       if (_isOnlineMode && _onlineGameStarted) {
         unawaited(_multiplayerManager.sendBoardState(boardData));
-        unawaited(_persistOnlineSessionSnapshot());
       }
     };
     _playerGame.onActivePieceChanged =
@@ -301,13 +313,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 .toList(),
           ),
         );
-        unawaited(_persistOnlineSessionSnapshot());
       }
     };
     _playerGame.onOjamaSpawned = (ojamaData, dropSeed) {
       if (_isOnlineMode && _onlineGameStarted) {
         unawaited(_multiplayerManager.sendOjamaSpawn(ojamaData, dropSeed));
-        unawaited(_persistOnlineSessionSnapshot());
       }
     };
     _playerGame.onGameOverTriggered = () {
@@ -330,6 +340,22 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     };
     _playerGame.onWazaFired = (waza, color) {
       _recordPlayerWaza(waza);
+      if (widget.isCpuMode || _isOnlineMode) {
+        unawaited(_missionManager.recordEvent('use_waza'));
+        switch (waza) {
+          case WazaType.straight:
+            unawaited(_missionManager.recordEvent('use_straight'));
+            break;
+          case WazaType.pyramid:
+            unawaited(_missionManager.recordEvent('use_pyramid'));
+            break;
+          case WazaType.hexagon:
+            unawaited(_missionManager.recordEvent('use_hexagon'));
+            break;
+          case WazaType.none:
+            break;
+        }
+      }
       if (_isOnlineMode) {
         final task = _createOjamaTaskForAttack(waza, color);
         if (task != null) {
@@ -337,6 +363,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         }
       } else if (_cpuGame != null) {
         _sendOjamaWithDelay(_cpuGame!, waza, color);
+      }
+    };
+    _playerGame.onBallsCleared = (ballsDestroyed) {
+      if (widget.isCpuMode || _isOnlineMode) {
+        unawaited(
+          _missionManager.recordEvent('clear_balls', amount: ballsDestroyed),
+        );
       }
     };
 
@@ -391,7 +424,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      unawaited(_persistOnlineSessionSnapshot(forceRemote: true));
+      return;
     }
   }
 
@@ -741,6 +774,61 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildResultCoinSummary({required bool isWin}) {
+    final totalCoins = _totalResultCoinsEarned;
+    if (totalCoins == null) {
+      return const Text(
+        'コインを集計中...',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+
+    final baseLabel = isWin ? '勝利ボーナス' : '敗北ボーナス';
+    final baseAmount = isWin ? 50 : 10;
+    final breakdowns = <String>[
+      '$baseLabel (+$baseAmount)',
+      if (_straightCount > 0)
+        'ストレート x $_straightCount (+${_straightCount * 10})',
+      if (_pyramidCount > 0) 'ピラミッド x $_pyramidCount (+${_pyramidCount * 15})',
+      if (_hexagonCount > 0) 'ヘキサゴン x $_hexagonCount (+${_hexagonCount * 20})',
+      if (_resultCoinTripleClaimed) '動画ボーナス (+$_resultCoinAdBonusAmount)',
+    ];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildResultInfoRow(
+          label: 'コイン',
+          value: '+$totalCoins',
+          color: Colors.amberAccent,
+        ),
+        const SizedBox(height: 6),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final breakdown in breakdowns)
+                Text(
+                  breakdown,
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildResultExpSummary() {
     final totalExp = _totalResultExpEarned;
     if (totalExp == null) {
@@ -793,7 +881,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildResultProfileCard(
-          label: 'YOU',
+          label: 'あなた',
           accentColor: Colors.cyanAccent,
           name: _myDisplayName,
           iconId: _playerDataManager.equippedPlayerIconId,
@@ -815,7 +903,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ),
         ),
         _buildResultProfileCard(
-          label: 'OPPONENT',
+          label: '相手',
           accentColor: Colors.pinkAccent,
           name: _opponentResultName(),
           iconId: _opponentResultIconId(),
@@ -1577,8 +1665,32 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 _buildResultScoreSummary(),
               ],
               const SizedBox(height: 18),
+              _buildResultCoinSummary(
+                isWin: widget.isCpuMode ? cpuPlayerWon : false,
+              ),
+              const SizedBox(height: 12),
               _buildResultExpSummary(),
               const SizedBox(height: 12),
+              if (_resultCoinTripleInProgress) ...[
+                _buildCyberResultButton(
+                  label: '動画を再生中...',
+                  baseColor: Colors.amberAccent,
+                  isWaiting: true,
+                  onPressed: null,
+                ),
+                const SizedBox(height: 12),
+              ] else if (!_resultCoinTripleClaimed &&
+                  _resultCoinBaseEarned != null) ...[
+                _buildCyberResultButton(
+                  label: '動画で3倍',
+                  baseColor: Colors.amberAccent,
+                  isWaiting: false,
+                  onPressed: () {
+                    unawaited(_claimResultTripleCoinBonus());
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
               if (!widget.isCpuMode) ...[
                 _buildCyberResultButton(
                   label: 'RESTART',
@@ -1643,8 +1755,30 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             _buildArenaResultSummary(),
           ],
           const SizedBox(height: 18),
+          _buildResultCoinSummary(isWin: win),
+          const SizedBox(height: 12),
           _buildResultExpSummary(),
           const SizedBox(height: 12),
+          if (_resultCoinTripleInProgress) ...[
+            _buildCyberResultButton(
+              label: '動画を再生中...',
+              baseColor: Colors.amberAccent,
+              isWaiting: true,
+              onPressed: null,
+            ),
+            const SizedBox(height: 12),
+          ] else if (!_resultCoinTripleClaimed &&
+              _resultCoinBaseEarned != null) ...[
+            _buildCyberResultButton(
+              label: '動画で3倍',
+              baseColor: Colors.amberAccent,
+              isWaiting: false,
+              onPressed: () {
+                unawaited(_claimResultTripleCoinBonus());
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
           if (!widget.isRankedMode && !_onlineResultWasForfeit) ...[
             _buildCyberResultButton(
               label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH',
@@ -2400,7 +2534,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _cpuGame?.resumeEngine();
     _cpuGame?.startGame(newSeed: seed);
     _playerGame.startGame(newSeed: seed);
-    unawaited(_persistOnlineSessionSnapshot());
     if (_pendingPreBattleForfeitWin) {
       _pendingPreBattleForfeitWin = false;
       unawaited(
@@ -2564,9 +2697,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   void _handleAttackReceived(OjamaTask task) {
     _queueOjamaTask(_playerGame, task);
-    if (_isOnlineMode) {
-      unawaited(_persistOnlineSessionSnapshot());
-    }
   }
 
   void _handleOpponentOjamaSpawned(List<dynamic> ojamaData, int dropSeed) {
@@ -2635,6 +2765,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _matchExpEarned = null;
     _soloExpApplied = false;
     _soloExpEarned = null;
+    _resultCoinApplied = false;
+    _resultCoinBaseEarned = null;
+    _resultCoinTripleClaimed = false;
+    _resultCoinTripleInProgress = false;
     _didLevelUpFromResultExp = false;
     _resultLevelAfterExp = null;
     _arenaResultApplied = false;
@@ -2662,6 +2796,68 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final pyramidBonus = (_playerWazaCounts[WazaType.pyramid] ?? 0) * 50;
     final hexagonBonus = (_playerWazaCounts[WazaType.hexagon] ?? 0) * 80;
     return baseExp + straightBonus + pyramidBonus + hexagonBonus;
+  }
+
+  int _calculateBattleCoinReward({required bool isWin}) {
+    final baseCoins = isWin ? 50 : 10;
+    final straightBonus = _straightCount * 10;
+    final pyramidBonus = _pyramidCount * 15;
+    final hexagonBonus = _hexagonCount * 20;
+    return baseCoins + straightBonus + pyramidBonus + hexagonBonus;
+  }
+
+  Future<void> _applyBattleCoinReward({required bool isWin}) async {
+    if (_resultCoinApplied) {
+      return;
+    }
+
+    _resultCoinApplied = true;
+    final earnedCoins = _calculateBattleCoinReward(isWin: isWin);
+    await _playerDataManager.addCoins(earnedCoins);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _resultCoinBaseEarned = earnedCoins;
+    });
+  }
+
+  Future<void> _claimResultTripleCoinBonus() async {
+    final baseCoins = _resultCoinBaseEarned;
+    if (_resultCoinTripleInProgress ||
+        _resultCoinTripleClaimed ||
+        baseCoins == null ||
+        baseCoins <= 0) {
+      return;
+    }
+
+    setState(() {
+      _resultCoinTripleInProgress = true;
+    });
+
+    try {
+      final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+      if (!rewarded) {
+        if (mounted) {
+          await _showErrorDialog('広告エラー', '動画の視聴が完了しませんでした。');
+        }
+        return;
+      }
+
+      await _playerDataManager.addCoins(baseCoins * 2);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _resultCoinTripleClaimed = true;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _resultCoinTripleInProgress = false;
+        });
+      }
+    }
   }
 
   Future<void> _applyMatchExpReward({required bool isWin}) async {
@@ -2791,6 +2987,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final previousLevel = _playerDataManager.level;
     final result = await _arenaManager.recordArenaMatch(isWin);
     if (isWin) {
+      unawaited(_missionManager.recordEvent('win_arena_match'));
       unawaited(
         _rankingManager.updateMyRating(
           rating: _playerDataManager.currentRating,
@@ -2824,8 +3021,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     await SfxPlayer.resetTransientAudio();
     final bootstrapFuture = prepareHomeBootstrapData();
-    await InterstitialAdManager.instance.showIfNeeded();
-    await InterstitialAdManager.instance.settleAfterGame();
+    if (!_resultCoinTripleClaimed) {
+      await InterstitialAdManager.instance.showIfNeeded();
+      await InterstitialAdManager.instance.settleAfterGame();
+    }
     await SfxPlayer.resetTransientAudio();
     final bootstrapData = await bootstrapFuture;
     if (!mounted) {
@@ -2888,7 +3087,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (_isOnlineMode) {
       unawaited(_multiplayerManager.saveActiveSession(
         isArenaMode: widget.isArenaMode,
-        snapshot: _playerGame.exportRestorableSnapshot(),
       ));
     }
     unawaited(_startBattleBgm());
@@ -2914,7 +3112,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       await SeamlessBgm.instance.play(
         assetPath: 'audio/battle_bgm01.wav',
         duration: _battleBgmDuration,
-        volume: 0.102,
+        volume: 0.2448,
       );
     } catch (_) {
       _isBattleBgmPlaying = false;
@@ -3300,49 +3498,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               : List<BallColor>.from(task.presetColors!),
         ),
       );
-      if (_isOnlineMode && identical(targetGame, _playerGame)) {
-        unawaited(_persistOnlineSessionSnapshot());
-      }
     });
     _pendingAttackTimers.add(timer);
-  }
-
-  Future<void> _persistOnlineSessionSnapshot({bool forceRemote = false}) async {
-    if (!_isOnlineMode || !_onlineGameStarted || _onlineResultMessage != null) {
-      return;
-    }
-    if (_isPersistingOnlineSessionSnapshot) {
-      return;
-    }
-    final now = DateTime.now();
-    final shouldSaveLocal = forceRemote ||
-        _lastLocalSessionSnapshotAt == null ||
-        now.difference(_lastLocalSessionSnapshotAt!) >=
-            _localSessionSnapshotInterval;
-    final shouldSaveRemote = forceRemote ||
-        _lastRemoteSessionSnapshotAt == null ||
-        now.difference(_lastRemoteSessionSnapshotAt!) >=
-            _remoteSessionSnapshotInterval;
-    if (!shouldSaveLocal && !shouldSaveRemote) {
-      return;
-    }
-    _isPersistingOnlineSessionSnapshot = true;
-    final snapshot = _playerGame.exportRestorableSnapshot();
-    try {
-      if (shouldSaveLocal) {
-        await _multiplayerManager.saveActiveSession(
-          isArenaMode: widget.isArenaMode,
-          snapshot: snapshot,
-        );
-        _lastLocalSessionSnapshotAt = now;
-      }
-      if (shouldSaveRemote) {
-        await _multiplayerManager.sendBattleSnapshot(snapshot);
-        _lastRemoteSessionSnapshotAt = now;
-      }
-    } finally {
-      _isPersistingOnlineSessionSnapshot = false;
-    }
   }
 
   Future<void> _applyAttackToOpponent(OjamaTask task) async {
@@ -3381,6 +3538,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     if (widget.isCpuMode) {
       _cpuBattlePlayerWon = playerWon;
+      unawaited(_missionManager.recordEvent('play_match'));
+      unawaited(_missionManager.recordEvent('play_cpu'));
+      if (playerWon) {
+        unawaited(_missionManager.recordEvent('win_match'));
+      }
+      unawaited(_applyBattleCoinReward(isWin: playerWon));
       unawaited(_applyMatchExpReward(isWin: playerWon));
       setState(() {
         _resultRevealPending = false;
@@ -3392,7 +3555,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       unawaited(_missionManager.recordEvent('play_match'));
       if (playerWon) {
         unawaited(_missionManager.recordEvent('win_match'));
+        if (widget.isRankedMode && !widget.isArenaMode) {
+          unawaited(_missionManager.recordEvent('win_ranked_match'));
+        }
       }
+      unawaited(_applyBattleCoinReward(isWin: playerWon));
       unawaited(_applyMatchExpReward(isWin: playerWon));
       unawaited(
         _applyRankedRatingResult(
@@ -3411,6 +3578,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
 
+    unawaited(_applyBattleCoinReward(isWin: false));
+    if (_currentPlayerScore >= 10000) {
+      unawaited(_missionManager.recordEvent('score_endless_10000'));
+    }
     unawaited(_applySoloExpReward());
     unawaited(_recordSoloStats());
     setState(() {

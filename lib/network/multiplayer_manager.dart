@@ -1700,23 +1700,6 @@ class MultiplayerManager {
     await prefs.setString(_savedSessionPrefsKey, jsonEncode(session.toJson()));
   }
 
-  Future<void> saveBattleSnapshot(Map<String, dynamic> snapshot) async {
-    final existing = await loadSavedSession();
-    if (existing == null) {
-      return;
-    }
-    final prefs = await SharedPreferences.getInstance();
-    final updated = SavedOnlineSession(
-      roomId: existing.roomId,
-      roleId: existing.roleId,
-      isRankedMode: existing.isRankedMode,
-      isArenaMode: existing.isArenaMode,
-      savedAt: DateTime.now().millisecondsSinceEpoch,
-      snapshot: snapshot,
-    );
-    await prefs.setString(_savedSessionPrefsKey, jsonEncode(updated.toJson()));
-  }
-
   Future<SavedOnlineSession?> loadSavedSession() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2000,23 +1983,6 @@ class MultiplayerManager {
       await _db.child('rooms/$roomId/players/$roleId/board').set(boardData);
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('盤面送信', error));
-    }
-  }
-
-  Future<void> sendBattleSnapshot(Map<String, dynamic> snapshot) async {
-    final roomId = currentRoomId;
-    final roleId = myRoleId;
-    if (roomId == null || roleId == null) {
-      throw StateError('参加中のルームがありません。');
-    }
-
-    final payload = Map<String, dynamic>.from(snapshot)
-      ..['savedAt'] = ServerValue.timestamp;
-
-    try {
-      await _db.child('rooms/$roomId/players/$roleId/snapshot').set(payload);
-    } on FirebaseException catch (error) {
-      throw StateError(_firebaseErrorMessage('対戦状態の保存', error));
     }
   }
 

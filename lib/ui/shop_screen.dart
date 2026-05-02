@@ -7,6 +7,7 @@ import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../game/gacha_manager.dart';
 import '../game/mission_manager.dart';
+import 'components/gacha_animation_screen.dart';
 import 'components/rewarded_ad_manager.dart';
 
 class ShopScreen extends StatefulWidget {
@@ -86,7 +87,7 @@ class _ShopScreenState extends State<ShopScreen> {
               ),
             ),
             title: Text(
-              'PURCHASE COMPLETE',
+              '購入完了',
               style: TextStyle(
                 color: _colorFor(item),
                 fontWeight: FontWeight.bold,
@@ -102,7 +103,7 @@ class _ShopScreenState extends State<ShopScreen> {
                   _playUiTap();
                   Navigator.of(dialogContext).pop();
                 },
-                child: const Text('OK'),
+                child: const Text('閉じる'),
               ),
             ],
           );
@@ -118,7 +119,7 @@ class _ShopScreenState extends State<ShopScreen> {
           return AlertDialog(
             backgroundColor: const Color(0xFF151723),
             title: const Text(
-              'PURCHASE FAILED',
+              '購入失敗',
               style: TextStyle(color: Colors.redAccent),
             ),
             content:
@@ -129,7 +130,7 @@ class _ShopScreenState extends State<ShopScreen> {
                   _playUiTap();
                   Navigator.of(dialogContext).pop();
                 },
-                child: const Text('OK'),
+                child: const Text('閉じる'),
               ),
             ],
           );
@@ -185,7 +186,7 @@ class _ShopScreenState extends State<ShopScreen> {
                   _playUiTap();
                   Navigator.of(dialogContext).pop();
                 },
-                child: const Text('OK'),
+                child: const Text('閉じる'),
               ),
             ],
           );
@@ -226,7 +227,7 @@ class _ShopScreenState extends State<ShopScreen> {
           return AlertDialog(
             backgroundColor: const Color(0xFF151723),
             title: const Text(
-              'DATA DECODE FAILED',
+              'ガチャ失敗',
               style: TextStyle(color: Colors.redAccent),
             ),
             content:
@@ -237,7 +238,7 @@ class _ShopScreenState extends State<ShopScreen> {
                   _playUiTap();
                   Navigator.of(dialogContext).pop();
                 },
-                child: const Text('OK'),
+                child: const Text('閉じる'),
               ),
             ],
           );
@@ -253,103 +254,17 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   Future<void> _showGachaResultDialog(GachaRollResult result) {
-    final item = result.grantResult.item;
-    final accent = _colorFor(item);
-    return showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF11131F),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: BorderSide(color: accent.withValues(alpha: 0.85), width: 2),
-          ),
-          title: TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0, end: 1),
-            duration: const Duration(milliseconds: 700),
-            builder: (context, value, child) {
-              return Transform.scale(
-                scale: 0.92 + value * 0.08,
-                child: Text(
-                  'アイテム解放！',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: accent,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.4,
-                    shadows: [
-                      Shadow(color: accent, blurRadius: 8 + value * 16),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-          content: Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  accent.withValues(alpha: 0.18),
-                  Colors.purpleAccent.withValues(alpha: 0.12),
-                  Colors.black.withValues(alpha: 0.2),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: accent.withValues(alpha: 0.36)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: const Duration(milliseconds: 900),
-                  builder: (context, value, child) {
-                    return Transform.rotate(
-                      angle: (1 - value) * 0.35,
-                      child: Transform.scale(
-                        scale: 0.72 + value * 0.28,
-                        child: Icon(
-                          _iconForItem(item),
-                          color: accent,
-                          size: 62,
-                          shadows: [Shadow(color: accent, blurRadius: 20)],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  item.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _grantResultMessage(result.grantResult),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, height: 1.4),
-                ),
-              ],
-            ),
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            TextButton(
-              onPressed: () {
-                _playUiTap();
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
+    return Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        transitionDuration: const Duration(milliseconds: 500),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return FadeTransition(
+            opacity: animation,
+            child: GachaAnimationScreen(result: result),
+          );
+        },
+      ),
     );
   }
 
@@ -368,13 +283,13 @@ class _ShopScreenState extends State<ShopScreen> {
   int _priceFor(GameItem item) {
     switch (item.rarity) {
       case ItemRarity.common:
-        return 9000;
+        return 8000;
       case ItemRarity.rare:
-        return 18000;
+        return 15000;
       case ItemRarity.epic:
-        return 32000;
+        return 40000;
       case ItemRarity.legendary:
-        return 50000;
+        return 100000;
     }
   }
 
@@ -418,135 +333,261 @@ class _ShopScreenState extends State<ShopScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F13),
+      backgroundColor: const Color(0xFF0A0A0F),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF121520),
-        title: const Text(
-          'ITEM SHOP',
-          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.purpleAccent.withValues(alpha: 0.2),
+                Colors.transparent,
+              ],
+            ),
+          ),
         ),
+        title: const Text(
+          'ショップ',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.0,
+            shadows: [
+              Shadow(color: Colors.purpleAccent, blurRadius: 10),
+            ],
+          ),
+        ),
+        centerTitle: true,
       ),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: Colors.cyanAccent),
             )
           : SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.all(16),
+              child: Stack(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: Colors.amberAccent.withValues(alpha: 0.55),
+                  // Cyberpunk Grid Background
+                  Positioned.fill(
+                    child: Opacity(
+                      opacity: 0.05,
+                      child: CustomPaint(
+                        painter: _StaticGridPainter(color: Colors.cyanAccent),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.monetization_on,
-                            color: Colors.amberAccent),
-                        const SizedBox(width: 8),
-                        Text(
-                          '$_coins COIN',
-                          style: const TextStyle(
-                            color: Colors.amberAccent,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF151723),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: Colors.purpleAccent.withValues(alpha: 0.6),
+                  ListView(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
+                    children: [
+                      // Coins Header
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A1C29),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.amberAccent.withValues(alpha: 0.6),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.amberAccent.withValues(alpha: 0.15),
+                              blurRadius: 12,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.monetization_on,
+                                color: Colors.amberAccent, size: 28),
+                            const SizedBox(width: 12),
+                            Text(
+                              '$_coins コイン',
+                              style: const TextStyle(
+                                color: Colors.amberAccent,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 22,
+                                letterSpacing: 0.5,
+                                shadows: [
+                                  Shadow(
+                                      color: Colors.amberAccent, blurRadius: 8)
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const Text(
-                          'アイテムガチャ',
+                      const SizedBox(height: 32),
+
+                      // Gacha Section
+                      const Padding(
+                        padding: EdgeInsets.only(left: 8, bottom: 12),
+                        child: Text(
+                          'ガチャ',
                           style: TextStyle(
                             color: Colors.purpleAccent,
                             fontWeight: FontWeight.w900,
-                            fontSize: 18,
+                            fontSize: 16,
+                            letterSpacing: 1,
+                            shadows: [
+                              Shadow(color: Colors.purpleAccent, blurRadius: 8)
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'スタンプ / ボールスキン / アイコンが排出されます',
-                          style: TextStyle(color: Colors.white70),
-                        ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: _isBuying
-                              ? null
-                              : () {
-                                  _playUiTap();
-                                  unawaited(_rollGacha());
-                                },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.purpleAccent,
-                            side: BorderSide(
-                              color: Colors.purpleAccent.withValues(alpha: 0.6),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF151723),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: Colors.purpleAccent.withValues(alpha: 0.5),
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.purpleAccent.withValues(alpha: 0.1),
+                              blurRadius: 20,
+                              spreadRadius: -5,
                             ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          icon: const Icon(Icons.auto_awesome),
-                          label: const Text('1回 1000C'),
+                          ],
                         ),
-                        const SizedBox(height: 10),
-                        OutlinedButton.icon(
-                          onPressed: _isBuying ||
-                                  _adRollsUsed >= GachaManager.dailyAdRollLimit
-                              ? null
-                              : () {
-                                  _playUiTap();
-                                  unawaited(_rollFreeAdGacha());
-                                },
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.amberAccent,
-                            side: BorderSide(
-                              color: Colors.amberAccent.withValues(alpha: 0.7),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.hub, color: Colors.purpleAccent),
+                                SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'スタンプ / スキン / アイコンを抽出します',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                          icon: const Icon(Icons.ondemand_video),
-                          label: Text(
-                            '動画で無料 $_adRollsUsed/${GachaManager.dailyAdRollLimit}',
+                            const SizedBox(height: 20),
+                            ElevatedButton.icon(
+                              onPressed: _isBuying
+                                  ? null
+                                  : () {
+                                      _playUiTap();
+                                      unawaited(_rollGacha());
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor:
+                                    Colors.purpleAccent.withValues(alpha: 0.2),
+                                foregroundColor: Colors.white,
+                                shadowColor:
+                                    Colors.purpleAccent.withValues(alpha: 0.5),
+                                elevation: 8,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: const BorderSide(
+                                      color: Colors.purpleAccent, width: 1.5),
+                                ),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              icon: const Icon(Icons.auto_awesome,
+                                  color: Colors.white),
+                              label: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    'ガチャを引く（',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.5,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.monetization_on,
+                                    color: Colors.amberAccent,
+                                    size: 18,
+                                  ),
+                                  Text(
+                                    '${GachaManager.rollCost}）',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.5,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _isBuying ||
+                                      _adRollsUsed >=
+                                          GachaManager.dailyAdRollLimit
+                                  ? null
+                                  : () {
+                                      _playUiTap();
+                                      unawaited(_rollFreeAdGacha());
+                                    },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.amberAccent,
+                                side: BorderSide(
+                                  color:
+                                      Colors.amberAccent.withValues(alpha: 0.5),
+                                  width: 1.5,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
+                              ),
+                              icon: const Icon(Icons.ondemand_video),
+                              label: Text(
+                                '動画で無料 $_adRollsUsed/${GachaManager.dailyAdRollLimit}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+
+                      // Direct Buy Shop
+                      const Padding(
+                        padding: EdgeInsets.only(left: 8, bottom: 12),
+                        child: Text(
+                          '本日のショップ',
+                          style: TextStyle(
+                            color: Colors.cyanAccent,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                            letterSpacing: 1,
+                            shadows: [
+                              Shadow(color: Colors.cyanAccent, blurRadius: 8)
+                            ],
                           ),
                         ),
+                      ),
+                      for (final item in _items) ...[
+                        _buildItemCard(item),
+                        const SizedBox(height: 16),
                       ],
-                    ),
+                      const SizedBox(height: 40),
+                    ],
                   ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    '直買いショップ',
-                    style: TextStyle(
-                      color: Colors.amberAccent,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    '本日の品揃えはランダムで3点です。',
-                    style: TextStyle(color: Colors.white60),
-                  ),
-                  const SizedBox(height: 16),
-                  for (final item in _items) ...[
-                    _buildItemCard(item),
-                    const SizedBox(height: 14),
-                  ],
                 ],
               ),
             ),
@@ -559,31 +600,47 @@ class _ShopScreenState extends State<ShopScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF151723),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accent.withValues(alpha: 0.6)),
+        color: const Color(0xFF11131F),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: accent.withValues(alpha: 0.4),
+          width: 1.5,
+        ),
         boxShadow: [
           BoxShadow(
-            color: accent.withValues(alpha: 0.16),
-            blurRadius: 16,
+            color: accent.withValues(alpha: 0.08),
+            blurRadius: 12,
+            spreadRadius: 1,
           ),
         ],
       ),
       child: Row(
         children: [
           Container(
-            width: 54,
-            height: 54,
+            width: 60,
+            height: 60,
             decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  accent.withValues(alpha: 0.3),
+                  accent.withValues(alpha: 0.05),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: accent.withValues(alpha: 0.5)),
             ),
-            child: Icon(
-              _iconForItem(item),
-              color: accent,
+            child: Center(
+              child: Icon(
+                _iconForItem(item),
+                color: accent,
+                size: 32,
+                shadows: [Shadow(color: accent, blurRadius: 10)],
+              ),
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -591,36 +648,67 @@ class _ShopScreenState extends State<ShopScreen> {
                 Text(
                   item.name,
                   style: TextStyle(
-                    color: accent,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 17,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                    letterSpacing: 1.2,
+                    shadows: [Shadow(color: accent, blurRadius: 4)],
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   _subtitleFor(item),
-                  style: const TextStyle(color: Colors.white70),
+                  style: TextStyle(
+                    color: accent.withValues(alpha: 0.8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _rarityLabel(item.rarity),
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 10,
+                    letterSpacing: 1,
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 12),
-          ElevatedButton(
-            onPressed: !_isBuying && canBuy
-                ? () {
-                    _playUiTap();
-                    unawaited(_buyItem(item));
-                  }
-                : null,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: accent.withValues(alpha: canBuy ? 0.22 : 0.08),
-              foregroundColor: accent,
-              side: BorderSide(color: accent.withValues(alpha: 0.7)),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
-            child: Text(
-              canBuy ? '${_priceFor(item)}C' : 'OWNED',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+          SizedBox(
+            width: 100,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: !_isBuying && canBuy
+                  ? () {
+                      _playUiTap();
+                      unawaited(_buyItem(item));
+                    }
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    canBuy ? accent.withValues(alpha: 0.15) : Colors.white10,
+                foregroundColor: canBuy ? accent : Colors.white30,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  side: BorderSide(
+                    color:
+                        canBuy ? accent.withValues(alpha: 0.8) : Colors.white24,
+                  ),
+                ),
+                padding: EdgeInsets.zero,
+              ),
+              child: Text(
+                canBuy ? '${_priceFor(item)}コイン' : '購入済み',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                  fontSize: 14,
+                ),
+              ),
             ),
           ),
         ],
@@ -653,5 +741,46 @@ class _ShopScreenState extends State<ShopScreen> {
           _ => Icons.chat_bubble,
         };
     }
+  }
+
+  String _rarityLabel(ItemRarity rarity) {
+    switch (rarity) {
+      case ItemRarity.common:
+        return 'ノーマル';
+      case ItemRarity.rare:
+        return 'レア';
+      case ItemRarity.epic:
+        return 'エピック';
+      case ItemRarity.legendary:
+        return 'レジェンド';
+    }
+  }
+}
+
+class _StaticGridPainter extends CustomPainter {
+  final Color color;
+
+  _StaticGridPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    const double spacing = 40.0;
+
+    for (double x = 0; x < size.width; x += spacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += spacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _StaticGridPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }

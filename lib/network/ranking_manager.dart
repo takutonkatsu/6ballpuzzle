@@ -74,7 +74,6 @@ class RankingManager {
   static RankingManager get instance => _instance;
 
   static const int _rankingLimit = 100;
-  static const int _dailyQueryLimit = 160;
   static const Duration _rankingCacheTtl = Duration(seconds: 45);
   static const Duration _summaryCacheTtl = Duration(seconds: 30);
   static const Duration _sameRatingPushInterval = Duration(minutes: 10);
@@ -169,11 +168,13 @@ class RankingManager {
     );
   }
 
-  Future<List<RankingEntry>> fetchTopRankings() async {
-    if (_isCacheFresh(_topRatingCacheAt)) {
+  Future<List<RankingEntry>> fetchTopRankings({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _isCacheFresh(_topRatingCacheAt)) {
       return List<RankingEntry>.from(_topRatingCache!);
     }
-    final entries = await _fetchTopRatingEntries()
+    final entries = await _fetchAllEntries()
       ..sort((a, b) {
         final ratingDiff = b.rating.compareTo(a.rating);
         if (ratingDiff != 0) {
@@ -186,8 +187,11 @@ class RankingManager {
     return List<RankingEntry>.from(_topRatingCache!);
   }
 
-  Future<RankingSummary> fetchMySummary() async {
-    if (_summaryCache != null &&
+  Future<RankingSummary> fetchMySummary({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh &&
+        _summaryCache != null &&
         _isCacheFresh(_summaryCacheAt, _summaryCacheTtl)) {
       return _summaryCache!;
     }
@@ -196,8 +200,6 @@ class RankingManager {
     await PlayerDataManager.instance.load();
     final publicId = PlayerDataManager.instance.playerId;
     final today = _todayKey();
-    final ratingEntries = await fetchTopRankings();
-    final dailyEntries = await fetchTopDailyWinRankings();
     final mySnapshot = await _db.child('rankings/global/$uid').get();
     final myEntry = mySnapshot.value is Map
         ? RankingEntry.fromMap(
@@ -205,6 +207,25 @@ class RankingManager {
             mySnapshot.value as Map<dynamic, dynamic>,
           )
         : null;
+    final allEntries = await _fetchAllEntries();
+    final ratingEntries = List<RankingEntry>.from(allEntries)
+      ..sort((a, b) {
+        final ratingDiff = b.rating.compareTo(a.rating);
+        if (ratingDiff != 0) {
+          return ratingDiff;
+        }
+        return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
+      });
+    final dailyEntries = allEntries
+        .where((entry) => entry.dailyWinDate == today && entry.dailyWins > 0)
+        .toList()
+      ..sort((a, b) {
+        final winDiff = b.dailyWins.compareTo(a.dailyWins);
+        if (winDiff != 0) {
+          return winDiff;
+        }
+        return b.rating.compareTo(a.rating);
+      });
     final myIndex = ratingEntries.indexWhere(
       (entry) => _matchesCurrentPlayer(
         entry: entry,
@@ -219,19 +240,65 @@ class RankingManager {
         publicId: publicId,
       ),
     );
-    final ratingRank =
+    int? ratingRank =
         myIndex == -1 ? null : _displayRankAt(ratingEntries, myIndex);
-    final dailyRank =
+    int? dailyRank =
         dailyIndex == -1 ? null : _displayDailyRankAt(dailyEntries, dailyIndex);
+    int resolvedDailyWins = dailyIndex == -1
+        ? (myEntry?.dailyWinDate == today ? myEntry!.dailyWins : 0)
+        : dailyEntries[dailyIndex].dailyWins;
+
+    if (myEntry != null &&
+        (ratingRank == null || (resolvedDailyWins > 0 && dailyRank == null))) {
+      final allEntries = await _fetchAllEntries();
+      final sortedRatings = List<RankingEntry>.from(allEntries)
+        ..sort((a, b) {
+          final ratingDiff = b.rating.compareTo(a.rating);
+          if (ratingDiff != 0) {
+            return ratingDiff;
+          }
+          return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
+        });
+      final fullRatingIndex = sortedRatings.indexWhere(
+        (entry) => _matchesCurrentPlayer(
+          entry: entry,
+          uid: uid,
+          publicId: publicId,
+        ),
+      );
+      if (fullRatingIndex != -1) {
+        ratingRank = _displayRankAt(sortedRatings, fullRatingIndex);
+      }
+
+      final sortedDaily = allEntries
+          .where((entry) => entry.dailyWinDate == today && entry.dailyWins > 0)
+          .toList()
+        ..sort((a, b) {
+          final winDiff = b.dailyWins.compareTo(a.dailyWins);
+          if (winDiff != 0) {
+            return winDiff;
+          }
+          return b.rating.compareTo(a.rating);
+        });
+      final fullDailyIndex = sortedDaily.indexWhere(
+        (entry) => _matchesCurrentPlayer(
+          entry: entry,
+          uid: uid,
+          publicId: publicId,
+        ),
+      );
+      if (fullDailyIndex != -1) {
+        dailyRank = _displayDailyRankAt(sortedDaily, fullDailyIndex);
+        resolvedDailyWins = sortedDaily[fullDailyIndex].dailyWins;
+      }
+    }
     final summary = RankingSummary(
       ratingRankLabel: ratingRank == null || ratingRank > _rankingLimit
           ? '圏外'
           : '$ratingRank位',
       dailyWinRankLabel:
           dailyRank == null || dailyRank > _rankingLimit ? '圏外' : '$dailyRank位',
-      dailyWins: dailyIndex == -1
-          ? (myEntry?.dailyWinDate == today ? myEntry!.dailyWins : 0)
-          : dailyEntries[dailyIndex].dailyWins,
+      dailyWins: resolvedDailyWins,
     );
     _summaryCache = summary;
     _summaryCacheAt = DateTime.now();
@@ -242,11 +309,13 @@ class RankingManager {
     await _db.child('rankings').remove();
   }
 
-  Future<List<RankingEntry>> fetchTopDailyWinRankings() async {
-    if (_isCacheFresh(_topDailyCacheAt)) {
+  Future<List<RankingEntry>> fetchTopDailyWinRankings({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _isCacheFresh(_topDailyCacheAt)) {
       return List<RankingEntry>.from(_topDailyCache!);
     }
-    final rawEntries = await _fetchTopDailyWinEntries();
+    final rawEntries = await _fetchAllEntries();
     final today = _todayKey();
     final entries = rawEntries
         .where((entry) => entry.dailyWinDate == today && entry.dailyWins > 0)
@@ -263,21 +332,8 @@ class RankingManager {
     return List<RankingEntry>.from(_topDailyCache!);
   }
 
-  Future<List<RankingEntry>> _fetchTopRatingEntries() async {
-    final snapshot = await _db
-        .child('rankings/global')
-        .orderByChild('rating')
-        .limitToLast(_rankingLimit)
-        .get();
-    return _entriesFromSnapshot(snapshot);
-  }
-
-  Future<List<RankingEntry>> _fetchTopDailyWinEntries() async {
-    final snapshot = await _db
-        .child('rankings/global')
-        .orderByChild('dailyWins')
-        .limitToLast(_dailyQueryLimit)
-        .get();
+  Future<List<RankingEntry>> _fetchAllEntries() async {
+    final snapshot = await _db.child('rankings/global').get();
     return _entriesFromSnapshot(snapshot);
   }
 
