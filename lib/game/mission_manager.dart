@@ -34,17 +34,12 @@ class MissionManager {
 
   int get allClearClaimAmount {
     if (isAllClearBonusClaimed) return 0;
-
-    var total = 0;
-    var unclaimed = 0;
     for (final mission in currentMissions) {
-      final reward = _intValue(mission['rewardCoins']) ?? 0;
-      total += reward;
-      if (!(mission['claimed'] as bool? ?? false)) {
-        unclaimed += reward;
+      if (!_isComplete(mission)) {
+        return 0;
       }
     }
-    return total + unclaimed;
+    return totalMissionRewardCoins;
   }
 
   Future<void> load() async {
@@ -149,24 +144,43 @@ class MissionManager {
 
     final missions = currentMissions;
     int totalReward = 0;
-    int unclaimedReward = 0;
 
     for (final mission in missions) {
       final reward = _intValue(mission['rewardCoins']) ?? 0;
       totalReward += reward;
       if (!(mission['claimed'] as bool? ?? false)) {
-        unclaimedReward += reward;
         mission['claimed'] = true;
       }
       mission['allClearBonusClaimed'] = true;
     }
 
-    final claimAmount = totalReward + unclaimedReward;
+    final claimAmount = totalReward;
     if (claimAmount == 0) return 0;
 
     await _playerData.addCoins(claimAmount);
     await _playerData.saveCurrentMissions(missions);
     return claimAmount;
+  }
+
+  Future<int> completeRewardedAdMission(int index) async {
+    await load();
+    final missions = currentMissions;
+    if (index < 0 || index >= missions.length) {
+      throw RangeError.index(index, missions, 'index');
+    }
+
+    final mission = missions[index];
+    if (mission['id']?.toString() != 'watch_rewarded_ad_1') {
+      throw StateError('動画広告ミッションではありません。');
+    }
+    if (mission['claimed'] as bool? ?? false) {
+      return 0;
+    }
+
+    final target = _intValue(mission['target']) ?? 1;
+    mission['progress'] = target;
+    await _playerData.saveCurrentMissions(missions);
+    return claimMissionReward(index);
   }
 
   bool _isComplete(Map<String, dynamic> mission) {

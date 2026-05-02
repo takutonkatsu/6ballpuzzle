@@ -6,10 +6,10 @@ import 'package:flame/game.dart';
 import 'package:flame/events.dart';
 import 'package:flame/effects.dart';
 import 'package:flame/components.dart';
-import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_settings.dart';
+import '../audio/sfx_player.dart';
 import 'components/active_piece_component.dart';
 import 'components/ball_component.dart';
 import 'components/effect_components.dart';
@@ -57,6 +57,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   ActivePieceComponent? ghostPiece;
 
   bool _isSpawning = false;
+  bool _isRemoved = false;
   final ValueNotifier<GameState> gameStateWrapper =
       ValueNotifier(GameState.title);
 
@@ -138,7 +139,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   Future<void> _playSfxSafely(String fileName, {double volume = 1.0}) async {
     try {
-      await FlameAudio.play(fileName, volume: volume);
+      await SfxPlayer.play(fileName, volume: volume);
     } catch (_) {
       // SE再生失敗でゲーム進行を止めない。
     }
@@ -374,6 +375,85 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     gameStateWrapper.value = GameState.gameover;
     if (activePiece != null) activePiece!.isLocked = true;
     onGameOverTriggered?.call();
+  }
+
+  void freezeToBoardOnly() {
+    if (_isRemoved) {
+      return;
+    }
+    gameStateWrapper.value = GameState.gameover;
+    cpuAgent?.stop();
+    cpuAgent = null;
+    isMovingLeft = false;
+    isMovingRight = false;
+    _activePieceSyncCooldown = 0.0;
+    _isSpawning = false;
+    _previewOjamaQueue.clear();
+    _isProcessingPreviewOjamaQueue = false;
+    _pendingPreviewOjamaSpawns = 0;
+    _autonomousRemotePreviewEnabled = false;
+    _hasRemoteOjamaInFlight = false;
+    _remoteOjamaSpawnedAt = null;
+    _deferredRemoteBoardTimer?.cancel();
+    _deferredRemoteBoardTimer = null;
+    _deferredRemoteBoardState = null;
+    _deathLineTransitionTimer?.cancel();
+    _deathLineTransitionTimer = null;
+    _deathLineDangerProgress = _defaultDeathLineProgress;
+    incomingOjama.clear();
+    pendingOjamaSpawns = 0;
+    _pendingOjamaBatchLandings = 0;
+
+    if (activePiece?.parent != null) {
+      activePiece!.removeFromParent();
+    }
+    if (ghostPiece?.parent != null) {
+      ghostPiece!.removeFromParent();
+    }
+    activePiece = null;
+    ghostPiece = null;
+
+    for (final block in List<OjamaBlockComponent>.from(activeOjamaBlocks)) {
+      if (block.parent != null) {
+        block.removeFromParent();
+      }
+    }
+    activeOjamaBlocks.clear();
+
+    for (final component in children.whereType<BallPopRingEffect>().toList()) {
+      component.removeFromParent();
+    }
+    for (final component in children.whereType<SparkEffect>().toList()) {
+      component.removeFromParent();
+    }
+    for (final component
+        in children.whereType<HintOutlineComponent>().toList()) {
+      component.removeFromParent();
+    }
+
+    pauseEngine();
+  }
+
+  @override
+  void onRemove() {
+    if (_isRemoved) {
+      super.onRemove();
+      return;
+    }
+    freezeToBoardOnly();
+    _clearAllBoardComponents();
+    onWazaFired = null;
+    onBoardUpdated = null;
+    onGameOverTriggered = null;
+    onDeathLineCrossed = null;
+    onActivePieceChanged = null;
+    onOjamaSpawned = null;
+    gameStateWrapper.dispose();
+    nextPieceColors.dispose();
+    wazaNameNotifier.dispose();
+    scoreManager.dispose();
+    _isRemoved = true;
+    super.onRemove();
   }
 
   void setDeathLineDangerProgress(double progress) {

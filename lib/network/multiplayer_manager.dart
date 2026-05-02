@@ -731,7 +731,7 @@ class MultiplayerManager {
     try {
       final joined = await _joinRoomWhenReady(roomId);
       if (!joined) {
-        throw StateError('ランダムマッチの部屋に参加できませんでした。');
+        throw StateError('ランク戦の部屋に参加できませんでした。');
       }
       _completeMatchmaking(roomId);
     } catch (error, stackTrace) {
@@ -912,7 +912,7 @@ class MultiplayerManager {
       }
     } on FirebaseException catch (error, stackTrace) {
       _completeMatchmakingError(
-        StateError(_firebaseErrorMessage('ランダムマッチ検索', error)),
+        StateError(_firebaseErrorMessage('ランク戦検索', error)),
         stackTrace,
       );
     } catch (error, stackTrace) {
@@ -1524,6 +1524,7 @@ class MultiplayerManager {
     _opponentBoardSubscription = null;
     _opponentPieceSubscription = null;
     _attackSubscription = null;
+    _stampSubscription = null;
     _opponentOjamaSpawnSubscription = null;
     _opponentStatusSubscription = null;
 
@@ -2551,12 +2552,14 @@ class MultiplayerManager {
     _opponentBoardSubscription?.cancel();
     _opponentPieceSubscription?.cancel();
     _attackSubscription?.cancel();
+    _stampSubscription?.cancel();
     _opponentOjamaSpawnSubscription?.cancel();
     _opponentStatusSubscription?.cancel();
     _roomSubscription = null;
     _opponentBoardSubscription = null;
     _opponentPieceSubscription = null;
     _attackSubscription = null;
+    _stampSubscription = null;
     _opponentOjamaSpawnSubscription = null;
     _opponentStatusSubscription = null;
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../audio/sfx.dart';
+import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 
@@ -20,6 +21,7 @@ class _RankingScreenState extends State<RankingScreen> {
   bool _isLoading = true;
   List<RankingEntry> _entries = const [];
   String? _errorMessage;
+  bool _showDailyWins = false;
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -38,7 +40,9 @@ class _RankingScreenState extends State<RankingScreen> {
     });
 
     try {
-      final entries = await _rankingManager.fetchTopRankings();
+      final entries = _showDailyWins
+          ? await _rankingManager.fetchTopDailyWinRankings()
+          : await _rankingManager.fetchTopRankings();
       if (!mounted) {
         return;
       }
@@ -69,6 +73,8 @@ class _RankingScreenState extends State<RankingScreen> {
             children: [
               _buildHeader(context),
               const SizedBox(height: 16),
+              _buildModeTabs(),
+              const SizedBox(height: 12),
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
@@ -218,10 +224,19 @@ class _RankingScreenState extends State<RankingScreen> {
       itemBuilder: (context, index) {
         final entry = _entries[index];
         final rank = _displayRankAt(index);
-        final isMe = entry.uid == _multiplayerManager.myUid;
+        final isMe = _isCurrentPlayer(entry);
         return _buildRankingRow(entry, rank, isMe);
       },
     );
+  }
+
+  bool _isCurrentPlayer(RankingEntry entry) {
+    final myUid = _multiplayerManager.myUid;
+    final myPublicId = PlayerDataManager.instance.playerId;
+    if (myUid != null && entry.uid == myUid) {
+      return true;
+    }
+    return myPublicId.isNotEmpty && entry.publicId == myPublicId;
   }
 
   int _displayRankAt(int index) {
@@ -230,10 +245,86 @@ class _RankingScreenState extends State<RankingScreen> {
     }
     final current = _entries[index];
     final previous = _entries[index - 1];
-    if (current.rating == previous.rating) {
+    final isSameScore = _showDailyWins
+        ? current.dailyWins == previous.dailyWins
+        : current.rating == previous.rating;
+    if (isSameScore) {
       return _displayRankAt(index - 1);
     }
     return index + 1;
+  }
+
+  Widget _buildModeTabs() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black45,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          _buildModeTab(
+            label: '今シーズン',
+            selected: !_showDailyWins,
+            onTap: () {
+              if (_showDailyWins) {
+                _playUiTap();
+                setState(() {
+                  _showDailyWins = false;
+                });
+                unawaited(_loadRankings());
+              }
+            },
+          ),
+          _buildModeTab(
+            label: '今日の勝利数',
+            selected: _showDailyWins,
+            onTap: () {
+              if (!_showDailyWins) {
+                _playUiTap();
+                setState(() {
+                  _showDailyWins = true;
+                });
+                unawaited(_loadRankings());
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeTab({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? Colors.cyanAccent.withValues(alpha: 0.14) : null,
+            borderRadius: BorderRadius.circular(10),
+            border: selected
+                ? Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5))
+                : null,
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? Colors.cyanAccent : Colors.white70,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildRankingRow(RankingEntry entry, int rank, bool isMe) {
@@ -317,7 +408,7 @@ class _RankingScreenState extends State<RankingScreen> {
           ),
           const SizedBox(width: 12),
           Text(
-            '🏆${entry.rating}',
+            _showDailyWins ? '${entry.dailyWins}勝' : '🏆${entry.rating}',
             style: TextStyle(
               color: accent,
               fontSize: 16,

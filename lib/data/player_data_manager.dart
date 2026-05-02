@@ -500,14 +500,13 @@ class PlayerDataManager {
       );
     }
 
-    _cyberScrap += 10;
-    await _saveAll();
+    await _saveItems();
     return ItemGrantResult(
       item: existing,
       isDuplicate: true,
       leveledUp: false,
-      convertedToScrap: true,
-      cyberScrapAdded: 10,
+      convertedToScrap: false,
+      cyberScrapAdded: 0,
     );
   }
 
@@ -659,13 +658,6 @@ class PlayerDataManager {
       _itemsKey,
       jsonEncode(_ownedItems.map((item) => item.toJson()).toList()),
     );
-  }
-
-  Future<void> _saveAll() async {
-    await _saveEconomy();
-    await _saveItems();
-    await _savePublicProfile();
-    await _saveStats();
   }
 
   Future<void> _savePublicProfile() async {

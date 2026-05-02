@@ -1,8 +1,7 @@
 import 'dart:async';
 
-import 'package:flame_audio/flame_audio.dart';
-
 import '../app_settings.dart';
+import 'sfx_player.dart';
 
 class AppSfx {
   AppSfx._();
@@ -18,7 +17,7 @@ class AppSfx {
   }) async {
     try {
       final master = AppSettings.instance.sfxVolume.value;
-      await FlameAudio.play(
+      await SfxPlayer.play(
         fileName,
         volume: (volume * master).clamp(0.0, 1.0),
       );

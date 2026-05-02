@@ -10,6 +10,10 @@ class RewardedAdManager {
   RewardedAdManager._internal();
 
   static final RewardedAdManager instance = RewardedAdManager._internal();
+  static const Duration _loadTimeout = Duration(seconds: 2);
+
+  RewardedAd? _cachedAd;
+  bool _isLoading = false;
 
   String? get _adUnitId {
     if (Platform.isAndroid) {
@@ -25,51 +29,94 @@ class RewardedAdManager {
     return null;
   }
 
+  Future<void> warmUp() async {
+    await _ensureLoaded();
+  }
+
   Future<bool> showDoubleRewardAd() async {
-    final adUnitId = _adUnitId;
-    if (adUnitId == null) {
+    try {
+      await _ensureLoaded().timeout(_loadTimeout);
+    } on MissingPluginException {
+      return false;
+    } on TimeoutException {
       return false;
     }
 
+    final ad = _cachedAd;
+    if (ad == null) {
+      return false;
+    }
+    _cachedAd = null;
+
     final completer = Completer<bool>();
+    var rewarded = false;
+    ad.fullScreenContentCallback = FullScreenContentCallback(
+      onAdDismissedFullScreenContent: (ad) {
+        ad.dispose();
+        if (!completer.isCompleted) {
+          completer.complete(rewarded);
+        }
+        unawaited(warmUp());
+      },
+      onAdFailedToShowFullScreenContent: (ad, error) {
+        ad.dispose();
+        if (!completer.isCompleted) {
+          completer.complete(false);
+        }
+        unawaited(warmUp());
+      },
+    );
+    ad.show(
+      onUserEarnedReward: (_, __) {
+        rewarded = true;
+      },
+    );
+    return completer.future;
+  }
+
+  Future<void> _ensureLoaded() async {
+    if (_cachedAd != null || _isLoading) {
+      while (_isLoading) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      return;
+    }
+    final adUnitId = _adUnitId;
+    if (adUnitId == null) {
+      return;
+    }
+
+    _isLoading = true;
+    final completer = Completer<void>();
     try {
       await RewardedAd.load(
         adUnitId: adUnitId,
         request: const AdRequest(),
         rewardedAdLoadCallback: RewardedAdLoadCallback(
           onAdLoaded: (ad) {
-            var rewarded = false;
-            ad.fullScreenContentCallback = FullScreenContentCallback(
-              onAdDismissedFullScreenContent: (ad) {
-                ad.dispose();
-                if (!completer.isCompleted) {
-                  completer.complete(rewarded);
-                }
-              },
-              onAdFailedToShowFullScreenContent: (ad, error) {
-                ad.dispose();
-                if (!completer.isCompleted) {
-                  completer.complete(false);
-                }
-              },
-            );
-            ad.show(
-              onUserEarnedReward: (_, __) {
-                rewarded = true;
-              },
-            );
+            _disposeCachedAd();
+            _cachedAd = ad;
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
           },
           onAdFailedToLoad: (_) {
             if (!completer.isCompleted) {
-              completer.complete(false);
+              completer.complete();
             }
           },
         ),
       );
+      await completer.future;
     } on MissingPluginException {
-      return false;
+      rethrow;
+    } finally {
+      _isLoading = false;
     }
+  }
 
-    return completer.future;
+  void _disposeCachedAd() {
+    _cachedAd?.dispose();
+    _cachedAd = null;
   }
 }

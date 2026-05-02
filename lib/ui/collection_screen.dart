@@ -89,6 +89,7 @@ class _CollectionScreenState extends State<CollectionScreen>
             selected: GameItemCatalog.defaultStamps.any(
               (item) => item.id == stamp.id,
             ),
+            available: true,
             onTap: null,
           ),
       ],
@@ -110,6 +111,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                     : '未解放',
             icon: badge.icon,
             selected: equipped.contains(badge.id),
+            available: unlocked.contains(badge.id),
             onTap: unlocked.contains(badge.id)
                 ? () async {
                     _playUiTap();
@@ -162,6 +164,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                     : '未所持',
             icon: Icons.blur_on,
             selected: _playerData.equippedBallSkinId == skin.id,
+            available: ownedSkinIds.contains(skin.id),
             onTap: ownedSkinIds.contains(skin.id)
                 ? () async {
                     _playUiTap();
@@ -191,6 +194,7 @@ class _CollectionScreenState extends State<CollectionScreen>
               _playerData.equippedPlayerIconId == 'default' ? '装備中' : 'タップで装備',
           icon: Icons.person,
           selected: _playerData.equippedPlayerIconId == 'default',
+          available: true,
           onTap: () async {
             _playUiTap();
             await _playerData.setEquippedPlayerIconId('default');
@@ -213,6 +217,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                     : '未所持',
             icon: _iconForPlayerIcon(icon.iconName),
             selected: _playerData.equippedPlayerIconId == icon.id,
+            available: ownedIconIds.contains(icon.id),
             onTap: ownedIconIds.contains(icon.id)
                 ? () async {
                     _playUiTap();
@@ -252,8 +257,20 @@ class _CollectionScreenState extends State<CollectionScreen>
     required String subtitle,
     required IconData icon,
     required bool selected,
+    required bool available,
     required VoidCallback? onTap,
   }) {
+    final muted = !available;
+    final borderColor = selected
+        ? Colors.cyanAccent
+        : muted
+            ? Colors.white.withValues(alpha: 0.06)
+            : Colors.white.withValues(alpha: 0.14);
+    final backgroundColor = selected
+        ? Colors.cyanAccent.withValues(alpha: 0.14)
+        : muted
+            ? const Color(0xFF0B1019)
+            : const Color(0xFF111827);
     return InkWell(
       onTap: onTap == null
           ? null
@@ -264,22 +281,35 @@ class _CollectionScreenState extends State<CollectionScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: selected
-              ? Colors.cyanAccent.withValues(alpha: 0.12)
-              : const Color(0xFF111827),
+          color: backgroundColor,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected
-                ? Colors.cyanAccent
-                : Colors.white.withValues(alpha: 0.12),
-          ),
+          border: Border.all(color: borderColor),
         ),
         child: Row(
           children: [
-            Icon(
-              selected ? Icons.check_circle : icon,
-              color: selected ? Colors.amberAccent : Colors.white70,
-              size: 24,
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  selected ? Icons.check_circle : icon,
+                  color: selected
+                      ? Colors.amberAccent
+                      : muted
+                          ? Colors.white24
+                          : Colors.white70,
+                  size: 24,
+                ),
+                if (muted)
+                  const Positioned(
+                    right: -4,
+                    bottom: -4,
+                    child: Icon(
+                      Icons.lock,
+                      size: 12,
+                      color: Colors.white54,
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -291,8 +321,8 @@ class _CollectionScreenState extends State<CollectionScreen>
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: muted ? Colors.white54 : Colors.white,
                       fontWeight: FontWeight.w900,
                       fontSize: 13,
                     ),
@@ -303,7 +333,11 @@ class _CollectionScreenState extends State<CollectionScreen>
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: selected ? Colors.amberAccent : Colors.white54,
+                      color: selected
+                          ? Colors.amberAccent
+                          : muted
+                              ? Colors.white38
+                              : Colors.white54,
                       fontSize: 11,
                       fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
                     ),

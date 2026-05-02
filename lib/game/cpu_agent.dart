@@ -2,6 +2,7 @@
 
 import 'dart:math';
 import 'dart:async';
+import 'dart:io';
 import 'package:flame/components.dart';
 import 'puzzle_game.dart';
 import 'game_models.dart';
@@ -116,14 +117,14 @@ class CPUAgent {
         _moveDelay = 0.09;
         _rotationDelay = 0.09;
         _mistakeRate = 0.0;
-        _lookaheadCount = 12;
+        _lookaheadCount = 0;
         break;
       case CPUDifficulty.oni:
         _thinkDelay = 0.3;
         _moveDelay = 0.04;
         _rotationDelay = 0.075;
         _mistakeRate = 0.0;
-        _lookaheadCount = 18;
+        _lookaheadCount = Platform.isAndroid ? 14 : 18;
         break;
     }
   }
@@ -202,6 +203,10 @@ class CPUAgent {
     _timer = 0.0;
     _rotationTimer = 0.0;
     _dropTimer = 0.0;
+  }
+
+  void stop() {
+    _resetState();
   }
 
   double _evaluateSim(
@@ -385,6 +390,7 @@ class CPUAgent {
     final validTargetXsByRotation = <int, Set<double>>{};
 
     List<_EvalOption> depth1Options = [];
+    final depth1BestByBoard = <String, _EvalOption>{};
     double leftWall = game.grid.leftWallX;
     double rightWall = game.grid.rightWallX;
 
@@ -448,10 +454,16 @@ class CPUAgent {
           board,
           rootAnalysis.protectedWazaBalls,
         );
-        depth1Options.add(_EvalOption(targetX, rot, score, sim));
+        final option = _EvalOption(targetX, rot, score, sim);
+        final boardKey = _boardKey(sim.simGrid.board);
+        final existing = depth1BestByBoard[boardKey];
+        if (existing == null || score > existing.score) {
+          depth1BestByBoard[boardKey] = option;
+        }
       }
     }
 
+    depth1Options = depth1BestByBoard.values.toList();
     depth1Options.sort((a, b) => b.score.compareTo(a.score));
 
     if (depth1Options.isEmpty) {
@@ -468,12 +480,7 @@ class CPUAgent {
         selected = _selectNormalOption(depth1Options);
         break;
       case CPUDifficulty.hard:
-        selected = await _selectHardOption(
-          depth1Options,
-          game.nextPieceColors.value,
-          validTargetXsByRotation,
-          stopwatch,
-        );
+        selected = _selectHardImmediateOption(depth1Options);
         break;
       case CPUDifficulty.oni:
         selected = await _selectOniOption(
@@ -519,73 +526,6 @@ class CPUAgent {
             _normalImmediateScore(a),
           ));
     return ranked.first;
-  }
-
-  Future<_EvalOption> _selectHardOption(
-    List<_EvalOption> options,
-    List<BallColor> nextColors,
-    Map<int, Set<double>> validTargetXsByRotation,
-    Stopwatch stopwatch,
-  ) async {
-    final ranked = List<_EvalOption>.from(options)
-      ..sort((a, b) => _hardImmediateScore(b).compareTo(
-            _hardImmediateScore(a),
-          ));
-    final lookaheadCache = <String, double>{};
-
-    if (nextColors.isEmpty) {
-      return ranked.first;
-    }
-
-    final checkCount = min(_lookaheadCount, ranked.length);
-    for (int i = 0; i < checkCount; i++) {
-      if (stopwatch.elapsedMilliseconds > 16) {
-        await Future.delayed(Duration.zero);
-        stopwatch.reset();
-      }
-
-      final opt1 = ranked[i];
-      final boardKey = _boardKey(opt1.simResult.simGrid.board);
-      if (lookaheadCache.containsKey(boardKey)) {
-        opt1.totalScore = lookaheadCache[boardKey]!;
-        continue;
-      }
-      if (opt1.simResult.wazaCompleted || opt1.score <= -10000000000.0) {
-        opt1.totalScore = _hardImmediateScore(opt1);
-        lookaheadCache[boardKey] = opt1.totalScore;
-        continue;
-      }
-
-      final board2 = opt1.simResult.simGrid.board;
-      final board2Analysis = _analyzeBoard(board2);
-      double maxDepth2Score = -double.infinity;
-
-      for (int rot2 = 0; rot2 < 6; rot2++) {
-        final validTargetXs2 =
-            validTargetXsByRotation[rot2] ?? const <double>{};
-
-        for (final targetX2 in validTargetXs2) {
-          final sim2 = _simulateDrop(board2, targetX2, nextColors, rot2);
-          final score2 = _evaluateSim(
-            sim2,
-            board2Analysis.wazaSeeds,
-            board2,
-            board2Analysis.protectedWazaBalls,
-          );
-          final hardScore2 = _hardSimScore(sim2, score2);
-          if (hardScore2 > maxDepth2Score) {
-            maxDepth2Score = hardScore2;
-          }
-        }
-      }
-
-      opt1.totalScore = _hardImmediateScore(opt1) + (maxDepth2Score * 0.55);
-      lookaheadCache[boardKey] = opt1.totalScore;
-    }
-
-    final topOptions = ranked.sublist(0, checkCount)
-      ..sort((a, b) => b.totalScore.compareTo(a.totalScore));
-    return topOptions.first;
   }
 
   Future<_EvalOption> _selectOniOption(
@@ -685,6 +625,14 @@ class CPUAgent {
 
   double _hardImmediateScore(_EvalOption option) {
     return _hardSimScore(option.simResult, option.score);
+  }
+
+  _EvalOption _selectHardImmediateOption(List<_EvalOption> options) {
+    final ranked = List<_EvalOption>.from(options)
+      ..sort((a, b) => _hardImmediateScore(b).compareTo(
+            _hardImmediateScore(a),
+          ));
+    return ranked.first;
   }
 
   double _hardSimScore(ExtendedSimDropResult sim, double baseScore) {

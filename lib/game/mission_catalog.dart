@@ -40,7 +40,7 @@ class MissionCatalog {
       'watch_rewarded_ad_1' => '動画広告を見る',
       'enter_arena_1' => 'アリーナにエントリー',
       'play_endless_1' => 'エンドレスを開始',
-      'play_random_match_1' => 'ランダムマッチを開始',
+      'play_random_match_1' => 'ランク戦を開始',
       _ => null,
     };
   }
@@ -96,8 +96,8 @@ class MissionCatalog {
     ),
     MissionDefinition(
       id: 'play_random_match_1',
-      title: 'ランダムマッチを開始',
-      description: 'ランダムマッチを1回開始する',
+      title: 'ランク戦を開始',
+      description: 'ランク戦を1回開始する',
       eventKey: 'start_ranked_match',
       target: 1,
       rewardCoins: 900,

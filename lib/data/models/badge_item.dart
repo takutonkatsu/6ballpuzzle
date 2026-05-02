@@ -96,13 +96,13 @@ class BadgeCatalog {
   static const List<BadgeItem> allBadges = [
     BadgeItem(
       id: 'rookie_pilot',
-      label: 'Rookie Pilot',
+      label: 'ルーキーパイロット',
       icon: Icons.trip_origin,
       unlockedCondition: BadgeUnlockCondition(type: BadgeUnlockType.always),
     ),
     BadgeItem(
       id: 'rating_1200',
-      label: '1200 Rating',
+      label: 'レート1200',
       icon: Icons.trending_up,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.highestRating,
@@ -111,7 +111,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'rating_1500',
-      label: '1500 Rating',
+      label: 'レート1500',
       icon: Icons.auto_graph,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.highestRating,
@@ -120,7 +120,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'arena_7',
-      label: 'Arena 7 Wins',
+      label: 'アリーナ7勝',
       icon: Icons.shield,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.maxArenaWins,
@@ -129,7 +129,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'arena_12',
-      label: 'Arena 12 Wins',
+      label: 'アリーナ12勝',
       icon: Icons.emoji_events,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.maxArenaWins,
@@ -138,7 +138,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'anniversary_3',
-      label: '3rd Anniversary',
+      label: '3周年',
       icon: Icons.cake,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.accountYears,
@@ -147,7 +147,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'combo_5',
-      label: '5 Chain',
+      label: '5連鎖',
       icon: Icons.bolt,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.maxCombo,
@@ -156,7 +156,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'straight_master',
-      label: 'Straight Master',
+      label: 'ストレートマスター',
       icon: Icons.linear_scale,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.wazaCount,
@@ -166,7 +166,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'pyramid_architect',
-      label: 'Pyramid Architect',
+      label: 'ピラミッド職人',
       icon: Icons.change_history,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.wazaCount,
@@ -176,7 +176,7 @@ class BadgeCatalog {
     ),
     BadgeItem(
       id: 'hexagon_core',
-      label: 'Hexagon Core',
+      label: 'ヘキサゴンコア',
       icon: Icons.hexagon,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.wazaCount,

@@ -10,6 +10,7 @@ class RankingEntry {
     required this.uid,
     required this.displayName,
     required this.rating,
+    this.publicId = '',
     this.updatedAt,
     this.dailyWins = 0,
     this.dailyWinDate = '',
@@ -18,6 +19,7 @@ class RankingEntry {
   final String uid;
   final String displayName;
   final int rating;
+  final String publicId;
   final int? updatedAt;
   final int dailyWins;
   final String dailyWinDate;
@@ -29,6 +31,7 @@ class RankingEntry {
           _normalizeName(data['name'] as String?) ??
           'Player',
       rating: _intValue(data['rating']) ?? MultiplayerManager.initialRating,
+      publicId: data['publicId']?.toString() ?? '',
       updatedAt: _intValue(data['updatedAt']),
       dailyWins: _intValue(data['dailyWins']) ?? 0,
       dailyWinDate: data['dailyWinDate']?.toString() ?? '',
@@ -124,26 +127,7 @@ class RankingManager {
   }
 
   Future<List<RankingEntry>> fetchTopRankings() async {
-    final snapshot = await _db
-        .child('rankings/global')
-        .orderByChild('rating')
-        .limitToLast(100)
-        .get();
-
-    final raw = snapshot.value;
-    if (raw is! Map) {
-      return const [];
-    }
-
-    final entries = raw.entries
-        .where((entry) => entry.value is Map<dynamic, dynamic>)
-        .map(
-          (entry) => RankingEntry.fromMap(
-            '${entry.key}',
-            entry.value as Map<dynamic, dynamic>,
-          ),
-        )
-        .toList()
+    final entries = await _fetchAllEntries()
       ..sort((a, b) {
         final ratingDiff = b.rating.compareTo(a.rating);
         if (ratingDiff != 0) {
@@ -151,51 +135,70 @@ class RankingManager {
         }
         return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
       });
-
     return entries.take(100).toList();
   }
 
   Future<RankingSummary> fetchMySummary() async {
-    final entries = await fetchTopRankings();
+    final entries = await _fetchAllEntries()
+      ..sort((a, b) {
+        final ratingDiff = b.rating.compareTo(a.rating);
+        if (ratingDiff != 0) {
+          return ratingDiff;
+        }
+        return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
+      });
     final uid = MultiplayerManager.instance.myUid ??
         await AuthManager.instance.ensureSignedIn();
+    await PlayerDataManager.instance.load();
+    final publicId = PlayerDataManager.instance.playerId;
     final today = _todayKey();
-    final myIndex = entries.indexWhere((entry) => entry.uid == uid);
+    final myIndex = entries.indexWhere(
+      (entry) => _matchesCurrentPlayer(
+        entry: entry,
+        uid: uid,
+        publicId: publicId,
+      ),
+    );
     final myEntry = myIndex == -1 ? null : entries[myIndex];
-    final dailyEntries = await fetchTopDailyWinRankings();
-    final dailyIndex = dailyEntries.indexWhere((entry) => entry.uid == uid);
+    final dailyEntries = entries
+        .where((entry) => entry.dailyWinDate == today && entry.dailyWins > 0)
+        .toList()
+      ..sort((a, b) {
+        final winDiff = b.dailyWins.compareTo(a.dailyWins);
+        if (winDiff != 0) {
+          return winDiff;
+        }
+        return b.rating.compareTo(a.rating);
+      });
+    final dailyIndex = dailyEntries.indexWhere(
+      (entry) => _matchesCurrentPlayer(
+        entry: entry,
+        uid: uid,
+        publicId: publicId,
+      ),
+    );
+    final ratingRank = myIndex == -1 ? null : _displayRankAt(entries, myIndex);
+    final dailyRank =
+        dailyIndex == -1 ? null : _displayDailyRankAt(dailyEntries, dailyIndex);
     return RankingSummary(
       ratingRankLabel:
-          myIndex == -1 ? '圏外' : '${_displayRankAt(entries, myIndex)}位',
-      dailyWinRankLabel: dailyIndex == -1 || dailyIndex >= 100
-          ? '圏外'
-          : '${_displayDailyRankAt(dailyEntries, dailyIndex)}位',
+          ratingRank == null || ratingRank > 100 ? '圏外' : '$ratingRank位',
+      dailyWinRankLabel:
+          dailyRank == null || dailyRank > 100 ? '圏外' : '$dailyRank位',
       dailyWins: dailyIndex == -1
           ? (myEntry?.dailyWinDate == today ? myEntry!.dailyWins : 0)
           : dailyEntries[dailyIndex].dailyWins,
     );
   }
 
-  Future<List<RankingEntry>> fetchTopDailyWinRankings() async {
-    final snapshot = await _db
-        .child('rankings/global')
-        .orderByChild('dailyWins')
-        .limitToLast(100)
-        .get();
+  Future<void> clearAllRankings() async {
+    await _db.child('rankings').remove();
+  }
 
-    final raw = snapshot.value;
-    if (raw is! Map) {
-      return const [];
-    }
+  Future<List<RankingEntry>> fetchTopDailyWinRankings() async {
+    final rawEntries = await _fetchAllEntries();
     final today = _todayKey();
-    final entries = raw.entries
-        .where((entry) => entry.value is Map<dynamic, dynamic>)
-        .map(
-          (entry) => RankingEntry.fromMap(
-            '${entry.key}',
-            entry.value as Map<dynamic, dynamic>,
-          ),
-        )
+    final entries = rawEntries
         .where((entry) => entry.dailyWinDate == today && entry.dailyWins > 0)
         .toList()
       ..sort((a, b) {
@@ -206,6 +209,23 @@ class RankingManager {
         return b.rating.compareTo(a.rating);
       });
     return entries.take(100).toList();
+  }
+
+  Future<List<RankingEntry>> _fetchAllEntries() async {
+    final snapshot = await _db.child('rankings/global').get();
+    final raw = snapshot.value;
+    if (raw is! Map) {
+      return const [];
+    }
+    return raw.entries
+        .where((entry) => entry.value is Map<dynamic, dynamic>)
+        .map(
+          (entry) => RankingEntry.fromMap(
+            '${entry.key}',
+            entry.value as Map<dynamic, dynamic>,
+          ),
+        )
+        .toList();
   }
 
   Future<void> _deleteDuplicateEntries({
@@ -234,6 +254,17 @@ class RankingManager {
     if (updates.isNotEmpty) {
       await _db.child('rankings/global').update(updates);
     }
+  }
+
+  bool _matchesCurrentPlayer({
+    required RankingEntry entry,
+    required String uid,
+    required String publicId,
+  }) {
+    if (entry.uid == uid) {
+      return true;
+    }
+    return publicId.isNotEmpty && entry.publicId == publicId;
   }
 
   int _displayRankAt(List<RankingEntry> entries, int index) {

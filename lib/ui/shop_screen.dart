@@ -157,7 +157,6 @@ class _ShopScreenState extends State<ShopScreen> {
       if (!rewarded) {
         throw StateError('動画の視聴が完了しませんでした。');
       }
-      await _missionManager.recordEvent('watch_rewarded_ad');
       final result = await _gachaManager.rollFreeAdGacha();
       await _missionManager.recordEvent('roll_gacha');
       await _loadShop();
@@ -413,10 +412,7 @@ class _ShopScreenState extends State<ShopScreen> {
     if (grantResult.leveledUp) {
       return '${item.name} が Lv.${item.level} になりました。';
     }
-    if (grantResult.convertedToScrap) {
-      return '${item.name} は重複したため、スクラップ +${grantResult.cyberScrapAdded} に変換されました。';
-    }
-    return '${item.name} を獲得しました。';
+    return '${item.name} はすでに所持しています。';
   }
 
   @override

@@ -3,15 +3,13 @@ import 'dart:math';
 
 import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
-import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../app_review_config.dart';
 import '../app_settings.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
+import '../audio/sfx_player.dart';
 import '../data/models/badge_item.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
@@ -21,7 +19,6 @@ import '../game/components/effect_components.dart';
 import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
-import '../moderation/moderation_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/banner_ad_widget.dart';
@@ -70,6 +67,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   static const double _compactStampWidth = 118;
   static const Duration _postReadyGoBoardPause = Duration(milliseconds: 350);
   static const Duration _preReadyDelay = Duration(milliseconds: 500);
+  static const Duration _resultFreezeDelay = Duration(milliseconds: 380);
+  static const Duration _resultBoardSettleDelay = Duration(milliseconds: 320);
   static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
@@ -120,6 +119,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   GameItem? _opponentFloatingStamp;
   Timer? _myStampTimer;
   Timer? _opponentStampTimer;
+  Timer? _stampCooldownTimer;
   DateTime? _ignoreEmptyOpponentBoardUntil;
   bool _resultAudioStarted = false;
   DateTime? _resultAudioStartedAt;
@@ -395,6 +395,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _clearAllPendingAttacks();
     _rankedAutoStartTimer?.cancel();
+    _myStampTimer?.cancel();
+    _opponentStampTimer?.cancel();
+    _stampCooldownTimer?.cancel();
+    _shutdownBattleGames();
+    unawaited(SfxPlayer.resetTransientAudio());
     if (!_isReturningToHome) {
       unawaited(_stopBattleBgm());
     }
@@ -403,6 +408,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     _playerFocusNode.dispose();
     super.dispose();
+  }
+
+  void _shutdownBattleGames() {
+    _playerGame.freezeToBoardOnly();
+    _cpuGame?.freezeToBoardOnly();
   }
 
   void _handleOpponentStampReceived(String stampId) {
@@ -434,7 +444,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _isStampCoolingDown = true;
     });
 
-    Timer(const Duration(seconds: 5), () {
+    _stampCooldownTimer?.cancel();
+    _stampCooldownTimer = Timer(const Duration(seconds: 5), () {
       if (mounted) {
         setState(() {
           _isStampCoolingDown = false;
@@ -580,11 +591,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               else
                 _buildGlobalOverlay(),
               if (widget.isArenaMode) _buildArenaRecordBadge(),
-              Positioned(
-                top: 8,
-                left: 8,
-                child: _buildBattleSettingsButton(),
-              ),
+              if (!_isOnlineMode)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: _buildBattleSettingsButton(),
+                ),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
               if (_currentFloatingStamp != null)
                 Positioned(
@@ -782,6 +794,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           iconId: _playerDataManager.equippedPlayerIconId,
           badgeIds: _playerDataManager.equippedBadgeIds,
           ratingDelta: _myResultRatingDeltaText(),
+          ratingDeltaColor: _myResultRatingDeltaColor(),
           showRatingDelta: true,
         ),
         Padding(
@@ -803,6 +816,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           iconId: _opponentResultIconId(),
           badgeIds: _opponentResultBadgeIds(),
           ratingDelta: '',
+          ratingDeltaColor: Colors.pinkAccent,
           showRatingDelta: false,
         ),
       ],
@@ -816,6 +830,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required String iconId,
     required List<String> badgeIds,
     required String ratingDelta,
+    required Color ratingDeltaColor,
     required bool showRatingDelta,
   }) {
     return Container(
@@ -886,7 +901,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       const SizedBox(width: 10),
                       _buildInlineRatingDelta(
                         value: ratingDelta,
-                        color: accentColor,
+                        color: ratingDeltaColor,
                       ),
                     ],
                   ],
@@ -930,6 +945,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return '変動なし';
     }
     return 'なし';
+  }
+
+  Color _myResultRatingDeltaColor() {
+    final delta = _rankedRatingChange?.delta ?? 0;
+    return delta < 0 ? Colors.pinkAccent : Colors.cyanAccent;
   }
 
   String _opponentResultName() {
@@ -1242,8 +1262,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       _opponentDisplayName,
                       isCpu: true,
                       roleLabel: '相手',
-                      onModerationPressed:
-                          _isOnlineMode ? _showOpponentModerationDialog : null,
                     ),
                     const SizedBox(height: 16),
                     _buildNextBadge(
@@ -1296,49 +1314,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildBattleSettingsButton() {
-    final canOpen = _playerGame.gameStateWrapper.value == GameState.playing &&
-        _readyGoOverlayText == null &&
-        !_resultRevealPending &&
-        _onlineResultMessage == null &&
-        _cpuBattlePlayerWon == null;
-    return Tooltip(
-      message: 'Settings',
-      child: InkWell(
-        onTap: !canOpen
-            ? null
-            : () {
-                _playUiTap();
-                _showSettingsMenu();
-              },
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: Colors.cyanAccent.withValues(alpha: canOpen ? 0.34 : 0.16),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color:
-                    Colors.cyanAccent.withValues(alpha: canOpen ? 0.08 : 0.03),
-                blurRadius: 8,
-              ),
-            ],
-          ),
-          child: Icon(
-            Icons.settings,
-            color: Colors.cyanAccent.withValues(alpha: canOpen ? 1 : 0.36),
-            size: 20,
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildWazaNameInGrid(PuzzleGame game) {
     final gridTop = game.grid.offset.y;
     final gridHeight = game.grid.floorY - gridTop;
@@ -1382,7 +1357,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     String name, {
     required bool isCpu,
     required String roleLabel,
-    VoidCallback? onModerationPressed,
   }) {
     final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
     return Column(
@@ -1448,74 +1422,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
           ],
         ),
-        if (onModerationPressed != null) ...[
-          const SizedBox(height: 6),
-          IconButton(
-            tooltip: '通報・ブロック',
-            icon: const Icon(Icons.shield_outlined),
-            color: Colors.white70,
-            iconSize: 18,
-            constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-            padding: EdgeInsets.zero,
-            onPressed: () {
-              _playUiTap();
-              onModerationPressed();
-            },
-          ),
-        ],
       ],
-    );
-  }
-
-  Future<void> _showOpponentModerationDialog() async {
-    final opponentRoleId = _multiplayerManager.opponentRoleId;
-    final opponent = _room?.players[opponentRoleId];
-    final opponentUid = opponent?.uid;
-    if (opponentUid == null || opponentUid.isEmpty) {
-      return;
-    }
-
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF151827),
-          title: const Text('通報・ブロック'),
-          content: Text(
-            '${opponent?.name ?? 'Opponent'} を通報またはブロックできます。',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('キャンセル'),
-            ),
-            TextButton(
-              onPressed: () async {
-                await ModerationManager.instance.blockUser(opponentUid);
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop();
-                }
-              },
-              child: const Text('ブロック'),
-            ),
-            TextButton(
-              onPressed: () async {
-                await ModerationManager.instance.reportUser(
-                  reportedUid: opponentUid,
-                  reportedName: opponent?.name ?? 'Opponent',
-                  reason: 'inappropriate_name_or_behavior',
-                  roomId: widget.roomId,
-                );
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop();
-                }
-              },
-              child: const Text('通報'),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -1650,7 +1557,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           final cpuPlayerWon =
               _cpuBattlePlayerWon ?? (pState != GameState.gameover);
           final title =
-              widget.isCpuMode ? (cpuPlayerWon ? '勝利' : '敗北') : 'GAME OVER';
+              widget.isCpuMode ? (cpuPlayerWon ? '勝ち' : '負け') : 'GAME OVER';
           final titleColor = widget.isCpuMode
               ? (cpuPlayerWon ? Colors.cyanAccent : Colors.pinkAccent)
               : Colors.orangeAccent;
@@ -1713,7 +1620,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     return Positioned.fill(
       child: _buildUnifiedResultSheet(
-        title: win ? '勝利' : '敗北',
+        title: win ? '勝ち' : '負け',
         titleColor: textColor,
         children: [
           _buildBattleResultProfiles(),
@@ -1975,7 +1882,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     widget.isArenaMode
                         ? 'アリーナマッチが成立しました'
                         : widget.isRankedMode
-                            ? 'ランダムマッチが成立しました'
+                            ? 'ランク戦が成立しました'
                             : isHost
                                 ? 'フレンドバトルの部屋を作成しました'
                                 : 'フレンドバトルに参加しました',
@@ -2416,7 +2323,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     setState(() {
       _readyGoOverlayText = 'READY...';
     });
-    unawaited(FlameAudio.play(_readySfx, volume: 1.0));
+    unawaited(SfxPlayer.play(_readySfx, volume: 1.0));
 
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) {
@@ -2461,7 +2368,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _onlineGameStarted = true;
       _readyGoOverlayText = 'READY...';
     });
-    unawaited(FlameAudio.play(_readySfx, volume: 1.0));
+    unawaited(SfxPlayer.play(_readySfx, volume: 1.0));
 
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) {
@@ -2878,6 +2785,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     await _playerDataManager.load();
     final previousLevel = _playerDataManager.level;
     final result = await _arenaManager.recordArenaMatch(isWin);
+    if (isWin) {
+      unawaited(
+        _rankingManager.updateMyRating(
+          rating: _playerDataManager.currentRating,
+          incrementDailyWin: true,
+        ),
+      );
+    }
     final currentLevel = _playerDataManager.level;
     if (!mounted) {
       return;
@@ -2893,17 +2808,28 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Future<void> _returnHomeAfterMatch() async {
     _isReturningToHome = true;
+    _shutdownBattleGames();
+    _myStampTimer?.cancel();
+    _opponentStampTimer?.cancel();
+    _stampCooldownTimer?.cancel();
     await _stopBattleBgm();
     if (_isOnlineMode) {
       await _multiplayerManager.leaveRoom();
       await _multiplayerManager.clearSavedSession();
     }
+    await SfxPlayer.resetTransientAudio();
+    final bootstrapFuture = prepareHomeBootstrapData();
     await InterstitialAdManager.instance.showIfNeeded();
+    await InterstitialAdManager.instance.settleAfterGame();
+    await SfxPlayer.resetTransientAudio();
+    final bootstrapData = await bootstrapFuture;
     if (!mounted) {
       return;
     }
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
+      MaterialPageRoute(
+        builder: (_) => HomeScreen(bootstrapData: bootstrapData),
+      ),
     );
   }
 
@@ -3128,10 +3054,28 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildBattleSettingsButton() {
+    return SafeArea(
+      child: IconButton(
+        onPressed: () {
+          _playUiTap();
+          unawaited(_showSettingsMenu());
+        },
+        icon: const Icon(Icons.settings, color: Colors.white),
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.black.withValues(alpha: 0.45),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+        ),
+      ),
+    );
+  }
+
   Future<void> _showSettingsMenu() {
     if (_blocksOnlineExit) {
       return Future<void>.value();
     }
+
+    final shouldResumeBattle = _pauseBattleForSettings();
 
     return showDialog<void>(
       context: context,
@@ -3167,7 +3111,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'SETTINGS',
+                  '設定',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.cyanAccent,
@@ -3236,37 +3180,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ],
-                if (AppReviewConfig.hasPrivacyPolicy) ...[
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: () {
-                      _playUiTap();
-                      unawaited(
-                        launchUrl(
-                          Uri.parse(AppReviewConfig.privacyPolicyUrl),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.privacy_tip_outlined, size: 18),
-                    label: const Text('プライバシーポリシー'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.greenAccent,
-                      side: BorderSide(
-                        color: Colors.greenAccent.withValues(alpha: 0.72),
-                        width: 1.3,
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      textStyle: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.8,
-                      ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 12),
                 OutlinedButton(
                   onPressed: () {
@@ -3294,7 +3207,31 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ),
         );
       },
-    );
+    ).whenComplete(() {
+      if (shouldResumeBattle) {
+        _resumeBattleFromSettings();
+      }
+    });
+  }
+
+  bool _pauseBattleForSettings() {
+    if (_isOnlineMode ||
+        !_isBattleInProgress ||
+        _readyGoOverlayText != null ||
+        _resultRevealPending) {
+      return false;
+    }
+    _playerGame.pauseEngine();
+    _cpuGame?.pauseEngine();
+    return true;
+  }
+
+  void _resumeBattleFromSettings() {
+    if (!mounted || _isReturningToHome) {
+      return;
+    }
+    _playerGame.resumeEngine();
+    _cpuGame?.resumeEngine();
   }
 
   Future<void> _returnHomeFromSettings() async {
@@ -3391,6 +3328,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     _resultRevealPending = true;
+    if (!resultWasForfeit) {
+      await Future<void>.delayed(_resultFreezeDelay);
+      if (!mounted) {
+        return;
+      }
+    }
     _freezeBattleBoards();
     final targetGame = playerWon &&
             _cpuGame != null &&
@@ -3399,7 +3342,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         : _playerGame;
     _triggerResultAudio(playerWon: playerWon);
     await targetGame.animateDeathLineToRed();
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await Future<void>.delayed(_resultBoardSettleDelay);
     await _waitForResultAudioLead(playerWon: playerWon);
     if (!mounted) {
       return;

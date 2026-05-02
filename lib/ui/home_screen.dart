@@ -59,7 +59,7 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
     var rating = multiplayerManager.currentRating;
     try {
       rating = await multiplayerManager.initializeUser(name: savedName);
-      unawaited(rankingManager.updateMyRating(rating: rating));
+      await rankingManager.updateMyRating(rating: rating);
     } catch (_) {
       rating = multiplayerManager.currentRating;
     }
@@ -78,7 +78,7 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
         rating = resolution.newRating!;
         multiplayerManager.currentRating = rating;
         await playerDataManager.setCurrentRating(rating);
-        unawaited(rankingManager.updateMyRating(rating: rating));
+        await rankingManager.updateMyRating(rating: rating);
       }
 
       final arenaTransition = await _applyResolvedOnlineSessionForBootstrap(
@@ -188,7 +188,7 @@ String _buildAbandonedMatchMessageForBootstrap(
   final modeLabel = session.isArenaMode
       ? 'アリーナ'
       : session.isRankedMode
-          ? 'ランダムマッチ'
+          ? 'ランク戦'
           : 'フレンド対戦';
   final buffer = StringBuffer(
     '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
@@ -933,7 +933,7 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(width: 8),
               _buildRoundIcon(
                 Icons.settings,
-                Colors.purpleAccent,
+                Colors.cyanAccent,
                 () => unawaited(_showSettingsDialog()),
                 tooltip: '設定',
               ),
@@ -941,7 +941,7 @@ class _HomeScreenState extends State<HomeScreen>
               if (_debugControlsEnabled) ...[
                 _buildRoundIcon(
                   Icons.bug_report,
-                  Colors.purpleAccent,
+                  Colors.cyanAccent,
                   () => unawaited(_showDebugMenu()),
                   tooltip: 'デバッグ',
                 ),
@@ -949,7 +949,7 @@ class _HomeScreenState extends State<HomeScreen>
               ],
               _buildRoundIcon(
                 Icons.bar_chart,
-                Colors.lightBlueAccent,
+                Colors.cyanAccent,
                 _openRecordScreen,
                 tooltip: 'レコード',
               ),
@@ -1868,11 +1868,6 @@ class _HomeScreenState extends State<HomeScreen>
             '広告消',
             () => unawaited(_showAdRemovalDialog(context)),
           ),
-          _buildBottomTextButton(
-            Icons.info_outline,
-            '情報',
-            () => unawaited(_showAppInfoDialog(context)),
-          ),
         ],
       ),
     );
@@ -1884,62 +1879,6 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  Future<void> _showAppInfoDialog(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
-          title: '情報',
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (AppReviewConfig.hasPrivacyPolicy) ...[
-                _buildCyberDialogButton(
-                  label: 'プライバシーポリシー',
-                  accentColor: Colors.cyanAccent,
-                  onPressed: () => unawaited(
-                    _openExternalUri(AppReviewConfig.privacyPolicyUrl),
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              if (AppReviewConfig.hasSupportEmail) ...[
-                _buildCyberDialogButton(
-                  label: '問い合わせ',
-                  accentColor: Colors.amberAccent,
-                  onPressed: () => unawaited(
-                    _openExternalUri(
-                      'mailto:${AppReviewConfig.supportEmail}'
-                      '?subject=Hexagon%20Puzzle%20Support',
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-              const Text(
-                'オンライン対戦中に不適切な名前を見つけた場合は、対戦画面から通報できます。',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.bold,
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 14),
-              _buildCyberDialogButton(
-                label: '閉じる',
-                accentColor: Colors.white54,
-                onPressed: () => Navigator.of(dialogContext).pop(),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   Widget _buildBottomTextButton(
@@ -2463,9 +2402,6 @@ class _HomeScreenState extends State<HomeScreen>
                                 return;
                               }
 
-                              await _missionManager.recordEvent(
-                                'watch_rewarded_ad',
-                              );
                               final amount =
                                   await _missionManager.claimAllClearBonus();
                               await refreshDialogState();
@@ -2586,13 +2522,30 @@ class _HomeScreenState extends State<HomeScreen>
     final claimed = mission['claimed'] as bool? ?? false;
     final isDone = progress >= target;
     final canClaim = isDone && !claimed;
+    final isRewardedAdMission = mission['id'] == 'watch_rewarded_ad_1';
 
     return InkWell(
-      onTap: !canClaim
+      onTap: claimed
           ? null
           : () async {
               _playUiTap();
-              final amount = await _missionManager.claimMissionReward(index);
+              if (isRewardedAdMission) {
+                final rewarded =
+                    await RewardedAdManager.instance.showDoubleRewardAd();
+                if (!rewarded) {
+                  if (mounted) {
+                    await _showAlert(
+                      context,
+                      '広告エラー',
+                      '動画の視聴が完了しませんでした。',
+                    );
+                  }
+                  return;
+                }
+              }
+              final amount = isRewardedAdMission
+                  ? await _missionManager.completeRewardedAdMission(index)
+                  : await _missionManager.claimMissionReward(index);
               await onClaimed(amount);
             },
       borderRadius: BorderRadius.circular(10),
@@ -2604,16 +2557,20 @@ class _HomeScreenState extends State<HomeScreen>
             decoration: BoxDecoration(
               color: canClaim
                   ? Colors.greenAccent.withValues(alpha: 0.14)
-                  : isDone
-                      ? Colors.amberAccent.withValues(alpha: 0.15)
-                      : Colors.amberAccent.withValues(alpha: 0.05),
+                  : isRewardedAdMission && !claimed
+                      ? Colors.cyanAccent.withValues(alpha: 0.12)
+                      : isDone
+                          ? Colors.amberAccent.withValues(alpha: 0.15)
+                          : Colors.amberAccent.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: canClaim
                     ? Colors.greenAccent
-                    : isDone
-                        ? Colors.amberAccent
-                        : Colors.amberAccent.withValues(alpha: 0.3),
+                    : isRewardedAdMission && !claimed
+                        ? Colors.cyanAccent.withValues(alpha: 0.75)
+                        : isDone
+                            ? Colors.amberAccent
+                            : Colors.amberAccent.withValues(alpha: 0.3),
                 width: canClaim ? 2 : 1,
               ),
               boxShadow: canClaim
@@ -2630,13 +2587,24 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Row(
                   children: [
+                    if (isRewardedAdMission) ...[
+                      Icon(
+                        Icons.play_circle_fill_rounded,
+                        size: 18,
+                        color:
+                            canClaim ? Colors.greenAccent : Colors.cyanAccent,
+                      ),
+                      const SizedBox(width: 6),
+                    ],
                     Expanded(
                       child: Text(
                         _missionDisplayTitle(mission),
                         style: TextStyle(
                           color: canClaim
                               ? Colors.greenAccent
-                              : Colors.amberAccent,
+                              : isRewardedAdMission && !claimed
+                                  ? Colors.cyanAccent
+                                  : Colors.amberAccent,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -2660,9 +2628,11 @@ class _HomeScreenState extends State<HomeScreen>
                       child: Text(
                         claimed
                             ? '受取済み'
-                            : canClaim
-                                ? 'CLAIM +$reward'
-                                : '+$reward',
+                            : isRewardedAdMission
+                                ? '動画を見る +$reward'
+                                : canClaim
+                                    ? '受け取る +$reward'
+                                    : '+$reward',
                         style: TextStyle(
                           color: claimed
                               ? Colors.grey
@@ -3111,7 +3081,7 @@ class _HomeScreenState extends State<HomeScreen>
       if (dialogOpen) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      await _showAlert(context, 'ランダムマッチに失敗しました', '$error');
+      await _showAlert(context, 'ランク戦に失敗しました', '$error');
     } finally {
       if (mounted) {
         setState(() {
@@ -3174,7 +3144,7 @@ class _HomeScreenState extends State<HomeScreen>
     final modeLabel = session.isArenaMode
         ? 'アリーナ'
         : session.isRankedMode
-            ? 'ランダムマッチ'
+            ? 'ランク戦'
             : 'フレンド対戦';
     final buffer = StringBuffer(
       '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
@@ -3422,7 +3392,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 10),
                   _buildCyberDialogButton(
                     label: '遊び方',
-                    accentColor: Colors.lightBlueAccent,
+                    accentColor: Colors.cyanAccent,
                     onPressed: () => unawaited(_showHowToPlayDialog()),
                   ),
                   if (AppReviewConfig.hasPrivacyPolicy) ...[

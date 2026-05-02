@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -11,6 +12,8 @@ import 'app_settings.dart';
 import 'auth/auth_manager.dart';
 import 'firebase_options_dev.dart' as firebase_dev;
 import 'firebase_options_prod.dart' as firebase_prod;
+import 'ui/components/interstitial_ad_manager.dart';
+import 'ui/components/rewarded_ad_manager.dart';
 import 'ui/home_screen.dart';
 
 Future<void> main() async {
@@ -90,6 +93,8 @@ Future<void> _initializeMobileAds() async {
 
   try {
     await MobileAds.instance.initialize();
+    unawaited(InterstitialAdManager.instance.warmUp());
+    unawaited(RewardedAdManager.instance.warmUp());
   } on MissingPluginException {
     // プラグイン未登録の古いビルドや開発中の起動でアプリ全体を止めない。
   }

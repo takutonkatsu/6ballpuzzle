@@ -52,9 +52,8 @@ class ScoreManager {
     state.value = ScoreState(
       score: score is num ? score.toInt() : 0,
       level: level is num ? level.toInt() : 1,
-      totalClearedBalls: totalClearedBalls is num
-          ? totalClearedBalls.toInt()
-          : 0,
+      totalClearedBalls:
+          totalClearedBalls is num ? totalClearedBalls.toInt() : 0,
     );
   }
 
@@ -102,5 +101,9 @@ class ScoreManager {
 
   double get currentFallSpeed {
     return 15.0 + (state.value.level - 1) * 10.0;
+  }
+
+  void dispose() {
+    state.dispose();
   }
 }
