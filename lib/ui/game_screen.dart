@@ -69,6 +69,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   static const Duration _preReadyDelay = Duration(milliseconds: 500);
   static const Duration _resultFreezeDelay = Duration(milliseconds: 380);
   static const Duration _resultBoardSettleDelay = Duration(milliseconds: 320);
+  static const Duration _localSessionSnapshotInterval = Duration(seconds: 2);
+  static const Duration _remoteSessionSnapshotInterval = Duration(seconds: 10);
   static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
@@ -123,6 +125,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   DateTime? _ignoreEmptyOpponentBoardUntil;
   bool _resultAudioStarted = false;
   DateTime? _resultAudioStartedAt;
+  DateTime? _lastLocalSessionSnapshotAt;
+  DateTime? _lastRemoteSessionSnapshotAt;
+  bool _isPersistingOnlineSessionSnapshot = false;
 
   final List<Timer> _pendingAttackTimers = [];
 
@@ -386,7 +391,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      unawaited(_persistOnlineSessionSnapshot());
+      unawaited(_persistOnlineSessionSnapshot(forceRemote: true));
     }
   }
 
@@ -3302,16 +3307,42 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _pendingAttackTimers.add(timer);
   }
 
-  Future<void> _persistOnlineSessionSnapshot() async {
+  Future<void> _persistOnlineSessionSnapshot({bool forceRemote = false}) async {
     if (!_isOnlineMode || !_onlineGameStarted || _onlineResultMessage != null) {
       return;
     }
+    if (_isPersistingOnlineSessionSnapshot) {
+      return;
+    }
+    final now = DateTime.now();
+    final shouldSaveLocal = forceRemote ||
+        _lastLocalSessionSnapshotAt == null ||
+        now.difference(_lastLocalSessionSnapshotAt!) >=
+            _localSessionSnapshotInterval;
+    final shouldSaveRemote = forceRemote ||
+        _lastRemoteSessionSnapshotAt == null ||
+        now.difference(_lastRemoteSessionSnapshotAt!) >=
+            _remoteSessionSnapshotInterval;
+    if (!shouldSaveLocal && !shouldSaveRemote) {
+      return;
+    }
+    _isPersistingOnlineSessionSnapshot = true;
     final snapshot = _playerGame.exportRestorableSnapshot();
-    await _multiplayerManager.saveActiveSession(
-      isArenaMode: widget.isArenaMode,
-      snapshot: snapshot,
-    );
-    await _multiplayerManager.sendBattleSnapshot(snapshot);
+    try {
+      if (shouldSaveLocal) {
+        await _multiplayerManager.saveActiveSession(
+          isArenaMode: widget.isArenaMode,
+          snapshot: snapshot,
+        );
+        _lastLocalSessionSnapshotAt = now;
+      }
+      if (shouldSaveRemote) {
+        await _multiplayerManager.sendBattleSnapshot(snapshot);
+        _lastRemoteSessionSnapshotAt = now;
+      }
+    } finally {
+      _isPersistingOnlineSessionSnapshot = false;
+    }
   }
 
   Future<void> _applyAttackToOpponent(OjamaTask task) async {

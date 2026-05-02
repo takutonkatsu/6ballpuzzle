@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
 import '../data/player_data_manager.dart';
@@ -72,6 +73,23 @@ class RankingManager {
 
   static RankingManager get instance => _instance;
 
+  static const int _rankingLimit = 100;
+  static const int _dailyQueryLimit = 160;
+  static const Duration _rankingCacheTtl = Duration(seconds: 45);
+  static const Duration _summaryCacheTtl = Duration(seconds: 30);
+  static const Duration _sameRatingPushInterval = Duration(minutes: 10);
+  static const Duration _duplicateCleanupInterval = Duration(hours: 24);
+  static const String _lastPushPrefix = 'ranking_last_push_v2_';
+  static const String _lastDuplicateCleanupPrefix =
+      'ranking_last_duplicate_cleanup_v1_';
+
+  List<RankingEntry>? _topRatingCache;
+  DateTime? _topRatingCacheAt;
+  List<RankingEntry>? _topDailyCache;
+  DateTime? _topDailyCacheAt;
+  RankingSummary? _summaryCache;
+  DateTime? _summaryCacheAt;
+
   DatabaseReference get _db {
     final app = Firebase.app();
     final database = FirebaseDatabase.instanceFor(
@@ -100,34 +118,62 @@ class RankingManager {
     await PlayerDataManager.instance.load();
     final publicId = PlayerDataManager.instance.playerId;
     final today = _todayKey();
-    final currentSnapshot =
-        await _db.child('rankings/global/$resolvedUid').get();
-    final currentData = currentSnapshot.value is Map
-        ? currentSnapshot.value as Map<dynamic, dynamic>
-        : null;
-    final currentWinDate = currentData?['dailyWinDate']?.toString();
-    final currentWins = currentWinDate == today
-        ? RankingEntry._intValue(currentData?['dailyWins']) ?? 0
-        : 0;
-    final nextDailyWins = currentWins + (incrementDailyWin ? 1 : 0);
+    final prefs = await SharedPreferences.getInstance();
+    final pushKey = '$_lastPushPrefix$resolvedUid';
+    if (!incrementDailyWin &&
+        _canSkipSameRatingPush(
+          prefs: prefs,
+          key: pushKey,
+          displayName: resolvedName,
+          publicId: publicId,
+          rating: rating,
+        )) {
+      return;
+    }
 
-    await _db.child('rankings/global/$resolvedUid').update({
+    final updatePayload = <String, Object?>{
       'uid': resolvedUid,
       'publicId': publicId,
       'displayName': resolvedName.isEmpty ? 'Player' : resolvedName,
       'rating': rating,
-      'dailyWins': nextDailyWins,
-      'dailyWinDate': today,
       'updatedAt': ServerValue.timestamp,
-    });
-    await _deleteDuplicateEntries(
+    };
+
+    if (incrementDailyWin) {
+      final currentSnapshot =
+          await _db.child('rankings/global/$resolvedUid').get();
+      final currentData = currentSnapshot.value is Map
+          ? currentSnapshot.value as Map<dynamic, dynamic>
+          : null;
+      final currentWinDate = currentData?['dailyWinDate']?.toString();
+      final currentWins = currentWinDate == today
+          ? RankingEntry._intValue(currentData?['dailyWins']) ?? 0
+          : 0;
+      updatePayload['dailyWins'] = currentWins + 1;
+      updatePayload['dailyWinDate'] = today;
+    }
+
+    await _db.child('rankings/global/$resolvedUid').update(updatePayload);
+    await _saveLastPush(
+      prefs: prefs,
+      key: pushKey,
+      displayName: resolvedName,
+      publicId: publicId,
+      rating: rating,
+    );
+    _invalidateCaches();
+    await _deleteDuplicateEntriesIfDue(
+      prefs: prefs,
       resolvedUid: resolvedUid,
       publicId: publicId,
     );
   }
 
   Future<List<RankingEntry>> fetchTopRankings() async {
-    final entries = await _fetchAllEntries()
+    if (_isCacheFresh(_topRatingCacheAt)) {
+      return List<RankingEntry>.from(_topRatingCache!);
+    }
+    final entries = await _fetchTopRatingEntries()
       ..sort((a, b) {
         final ratingDiff = b.rating.compareTo(a.rating);
         if (ratingDiff != 0) {
@@ -135,41 +181,37 @@ class RankingManager {
         }
         return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
       });
-    return entries.take(100).toList();
+    _topRatingCache = entries.take(_rankingLimit).toList();
+    _topRatingCacheAt = DateTime.now();
+    return List<RankingEntry>.from(_topRatingCache!);
   }
 
   Future<RankingSummary> fetchMySummary() async {
-    final entries = await _fetchAllEntries()
-      ..sort((a, b) {
-        final ratingDiff = b.rating.compareTo(a.rating);
-        if (ratingDiff != 0) {
-          return ratingDiff;
-        }
-        return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
-      });
+    if (_summaryCache != null &&
+        _isCacheFresh(_summaryCacheAt, _summaryCacheTtl)) {
+      return _summaryCache!;
+    }
     final uid = MultiplayerManager.instance.myUid ??
         await AuthManager.instance.ensureSignedIn();
     await PlayerDataManager.instance.load();
     final publicId = PlayerDataManager.instance.playerId;
     final today = _todayKey();
-    final myIndex = entries.indexWhere(
+    final ratingEntries = await fetchTopRankings();
+    final dailyEntries = await fetchTopDailyWinRankings();
+    final mySnapshot = await _db.child('rankings/global/$uid').get();
+    final myEntry = mySnapshot.value is Map
+        ? RankingEntry.fromMap(
+            uid,
+            mySnapshot.value as Map<dynamic, dynamic>,
+          )
+        : null;
+    final myIndex = ratingEntries.indexWhere(
       (entry) => _matchesCurrentPlayer(
         entry: entry,
         uid: uid,
         publicId: publicId,
       ),
     );
-    final myEntry = myIndex == -1 ? null : entries[myIndex];
-    final dailyEntries = entries
-        .where((entry) => entry.dailyWinDate == today && entry.dailyWins > 0)
-        .toList()
-      ..sort((a, b) {
-        final winDiff = b.dailyWins.compareTo(a.dailyWins);
-        if (winDiff != 0) {
-          return winDiff;
-        }
-        return b.rating.compareTo(a.rating);
-      });
     final dailyIndex = dailyEntries.indexWhere(
       (entry) => _matchesCurrentPlayer(
         entry: entry,
@@ -177,18 +219,23 @@ class RankingManager {
         publicId: publicId,
       ),
     );
-    final ratingRank = myIndex == -1 ? null : _displayRankAt(entries, myIndex);
+    final ratingRank =
+        myIndex == -1 ? null : _displayRankAt(ratingEntries, myIndex);
     final dailyRank =
         dailyIndex == -1 ? null : _displayDailyRankAt(dailyEntries, dailyIndex);
-    return RankingSummary(
-      ratingRankLabel:
-          ratingRank == null || ratingRank > 100 ? '圏外' : '$ratingRank位',
+    final summary = RankingSummary(
+      ratingRankLabel: ratingRank == null || ratingRank > _rankingLimit
+          ? '圏外'
+          : '$ratingRank位',
       dailyWinRankLabel:
-          dailyRank == null || dailyRank > 100 ? '圏外' : '$dailyRank位',
+          dailyRank == null || dailyRank > _rankingLimit ? '圏外' : '$dailyRank位',
       dailyWins: dailyIndex == -1
           ? (myEntry?.dailyWinDate == today ? myEntry!.dailyWins : 0)
           : dailyEntries[dailyIndex].dailyWins,
     );
+    _summaryCache = summary;
+    _summaryCacheAt = DateTime.now();
+    return summary;
   }
 
   Future<void> clearAllRankings() async {
@@ -196,7 +243,10 @@ class RankingManager {
   }
 
   Future<List<RankingEntry>> fetchTopDailyWinRankings() async {
-    final rawEntries = await _fetchAllEntries();
+    if (_isCacheFresh(_topDailyCacheAt)) {
+      return List<RankingEntry>.from(_topDailyCache!);
+    }
+    final rawEntries = await _fetchTopDailyWinEntries();
     final today = _todayKey();
     final entries = rawEntries
         .where((entry) => entry.dailyWinDate == today && entry.dailyWins > 0)
@@ -208,11 +258,30 @@ class RankingManager {
         }
         return b.rating.compareTo(a.rating);
       });
-    return entries.take(100).toList();
+    _topDailyCache = entries.take(_rankingLimit).toList();
+    _topDailyCacheAt = DateTime.now();
+    return List<RankingEntry>.from(_topDailyCache!);
   }
 
-  Future<List<RankingEntry>> _fetchAllEntries() async {
-    final snapshot = await _db.child('rankings/global').get();
+  Future<List<RankingEntry>> _fetchTopRatingEntries() async {
+    final snapshot = await _db
+        .child('rankings/global')
+        .orderByChild('rating')
+        .limitToLast(_rankingLimit)
+        .get();
+    return _entriesFromSnapshot(snapshot);
+  }
+
+  Future<List<RankingEntry>> _fetchTopDailyWinEntries() async {
+    final snapshot = await _db
+        .child('rankings/global')
+        .orderByChild('dailyWins')
+        .limitToLast(_dailyQueryLimit)
+        .get();
+    return _entriesFromSnapshot(snapshot);
+  }
+
+  List<RankingEntry> _entriesFromSnapshot(DataSnapshot snapshot) {
     final raw = snapshot.value;
     if (raw is! Map) {
       return const [];
@@ -228,11 +297,18 @@ class RankingManager {
         .toList();
   }
 
-  Future<void> _deleteDuplicateEntries({
+  Future<void> _deleteDuplicateEntriesIfDue({
+    required SharedPreferences prefs,
     required String resolvedUid,
     required String publicId,
   }) async {
     if (publicId.isEmpty) {
+      return;
+    }
+    final cleanupKey = '$_lastDuplicateCleanupPrefix$publicId';
+    final lastCleanup = prefs.getInt(cleanupKey) ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - lastCleanup < _duplicateCleanupInterval.inMilliseconds) {
       return;
     }
     final snapshot = await _db.child('rankings/global').get();
@@ -254,6 +330,53 @@ class RankingManager {
     if (updates.isNotEmpty) {
       await _db.child('rankings/global').update(updates);
     }
+    await prefs.setInt(cleanupKey, now);
+  }
+
+  bool _canSkipSameRatingPush({
+    required SharedPreferences prefs,
+    required String key,
+    required String displayName,
+    required String publicId,
+    required int rating,
+  }) {
+    final pushedAt = prefs.getInt('${key}_at') ?? 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - pushedAt >= _sameRatingPushInterval.inMilliseconds) {
+      return false;
+    }
+    return prefs.getInt('${key}_rating') == rating &&
+        prefs.getString('${key}_displayName') == displayName &&
+        prefs.getString('${key}_publicId') == publicId;
+  }
+
+  Future<void> _saveLastPush({
+    required SharedPreferences prefs,
+    required String key,
+    required String displayName,
+    required String publicId,
+    required int rating,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await Future.wait([
+      prefs.setInt('${key}_at', now),
+      prefs.setInt('${key}_rating', rating),
+      prefs.setString('${key}_displayName', displayName),
+      prefs.setString('${key}_publicId', publicId),
+    ]);
+  }
+
+  bool _isCacheFresh(DateTime? fetchedAt, [Duration ttl = _rankingCacheTtl]) {
+    return fetchedAt != null && DateTime.now().difference(fetchedAt) < ttl;
+  }
+
+  void _invalidateCaches() {
+    _topRatingCache = null;
+    _topRatingCacheAt = null;
+    _topDailyCache = null;
+    _topDailyCacheAt = null;
+    _summaryCache = null;
+    _summaryCacheAt = null;
   }
 
   bool _matchesCurrentPlayer({

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -48,6 +49,7 @@ Future<void> main() async {
       'Continuing with the native-configured app.',
     );
   }
+  _configureRealtimeDatabaseCache(activeApp);
 
   if (enableAppCheck) {
     try {
@@ -69,6 +71,19 @@ Future<void> main() async {
   await AppSettings.instance.load();
   await FlameAudio.bgm.initialize();
   runApp(const MyApp());
+}
+
+void _configureRealtimeDatabaseCache(FirebaseApp app) {
+  try {
+    final database = FirebaseDatabase.instanceFor(
+      app: app,
+      databaseURL: app.options.databaseURL,
+    );
+    database.setPersistenceEnabled(true);
+    database.setPersistenceCacheSizeBytes(2 * 1024 * 1024);
+  } catch (error) {
+    debugPrint('Realtime Database cache configuration skipped: $error');
+  }
 }
 
 Future<FirebaseApp> _initializeFirebaseApp(FirebaseOptions options) async {
