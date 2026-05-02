@@ -82,6 +82,9 @@ class MissionManager {
     if (index < 0 || index >= missions.length) {
       throw RangeError.index(index, missions, 'index');
     }
+    if (missions[index]['id'] == 'watch_rewarded_ad_1') {
+      throw StateError('動画広告ミッションは固定です。');
+    }
 
     await _playerData.spendCoins(rerollCost);
     final currentIds =
@@ -89,7 +92,11 @@ class MissionManager {
     currentIds.remove(missions[index]['id']?.toString() ?? '');
 
     final candidates = MissionCatalog.dailyPool
-        .where((mission) => !currentIds.contains(mission.id))
+        .where(
+          (mission) =>
+              mission.id != 'watch_rewarded_ad_1' &&
+              !currentIds.contains(mission.id),
+        )
         .toList();
     if (candidates.isEmpty) {
       throw StateError('差し替え可能なミッションがありません。');

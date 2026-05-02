@@ -37,6 +37,7 @@ class MissionCatalog {
       'play_matches_3' => '対戦を3回プレイ',
       'win_matches_2' => '対戦で2勝',
       'roll_gacha_2' => 'ガチャを2回',
+      'watch_rewarded_ad_1' => '動画広告を見る',
       'enter_arena_1' => 'アリーナにエントリー',
       'play_endless_1' => 'エンドレスを開始',
       'play_random_match_1' => 'ランダムマッチを開始',
@@ -68,6 +69,14 @@ class MissionCatalog {
       eventKey: 'roll_gacha',
       target: 2,
       rewardCoins: 700,
+    ),
+    MissionDefinition(
+      id: 'watch_rewarded_ad_1',
+      title: '動画広告を見る',
+      description: '動画広告を1回見る',
+      eventKey: 'watch_rewarded_ad',
+      target: 1,
+      rewardCoins: 1200,
     ),
     MissionDefinition(
       id: 'enter_arena_1',

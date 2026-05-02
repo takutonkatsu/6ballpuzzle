@@ -74,8 +74,8 @@ class _CollectionScreenState extends State<CollectionScreen>
   }
 
   Widget _buildStampsTab() {
-    final stamps =
-        _playerData.ownedItems.where((item) => item.isStamp).toList();
+    final stamps = _playerData.ownedItems.where((item) => item.isStamp).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
     if (stamps.isEmpty) {
       return _emptyState('まだスタンプを持っていません');
     }
@@ -84,9 +84,11 @@ class _CollectionScreenState extends State<CollectionScreen>
         for (final stamp in stamps)
           _simpleCard(
             title: stamp.name,
-            subtitle: 'Lv.${stamp.level}',
+            subtitle: '所持中  Lv.${stamp.level}',
             icon: _iconForStamp(stamp.iconName),
-            selected: false,
+            selected: GameItemCatalog.defaultStamps.any(
+              (item) => item.id == stamp.id,
+            ),
             onTap: null,
           ),
       ],
@@ -101,7 +103,11 @@ class _CollectionScreenState extends State<CollectionScreen>
         for (final badge in BadgeCatalog.allBadges)
           _simpleCard(
             title: badge.label,
-            subtitle: unlocked.contains(badge.id) ? '装備可能' : '未解放',
+            subtitle: equipped.contains(badge.id)
+                ? '装備中'
+                : unlocked.contains(badge.id)
+                    ? 'タップで装備'
+                    : '未解放',
             icon: badge.icon,
             selected: equipped.contains(badge.id),
             onTap: unlocked.contains(badge.id)
@@ -143,13 +149,17 @@ class _CollectionScreenState extends State<CollectionScreen>
     return _grid(
       children: [
         for (final skin in [
-          const (id: 'default', label: 'DEFAULT'),
+          const (id: 'default', label: 'デフォルト'),
           ...GameItemCatalog.epicSkins
               .map((item) => (id: item.id, label: item.name)),
         ])
           _simpleCard(
             title: skin.label,
-            subtitle: ownedSkinIds.contains(skin.id) ? '使用可能' : '未所持',
+            subtitle: _playerData.equippedBallSkinId == skin.id
+                ? '装備中'
+                : ownedSkinIds.contains(skin.id)
+                    ? 'タップで装備'
+                    : '未所持',
             icon: Icons.blur_on,
             selected: _playerData.equippedBallSkinId == skin.id,
             onTap: ownedSkinIds.contains(skin.id)
@@ -176,8 +186,9 @@ class _CollectionScreenState extends State<CollectionScreen>
     return _grid(
       children: [
         _simpleCard(
-          title: 'DEFAULT',
-          subtitle: '初期アイコン',
+          title: 'デフォルト',
+          subtitle:
+              _playerData.equippedPlayerIconId == 'default' ? '装備中' : 'タップで装備',
           icon: Icons.person,
           selected: _playerData.equippedPlayerIconId == 'default',
           onTap: () async {
@@ -195,7 +206,11 @@ class _CollectionScreenState extends State<CollectionScreen>
         for (final icon in GameItemCatalog.playerIcons)
           _simpleCard(
             title: icon.name,
-            subtitle: ownedIconIds.contains(icon.id) ? '使用可能' : '未所持',
+            subtitle: _playerData.equippedPlayerIconId == icon.id
+                ? '装備中'
+                : ownedIconIds.contains(icon.id)
+                    ? 'タップで装備'
+                    : '未所持',
             icon: _iconForPlayerIcon(icon.iconName),
             selected: _playerData.equippedPlayerIconId == icon.id,
             onTap: ownedIconIds.contains(icon.id)
@@ -217,13 +232,18 @@ class _CollectionScreenState extends State<CollectionScreen>
   }
 
   Widget _grid({required List<Widget> children}) {
-    return GridView.count(
-      padding: const EdgeInsets.all(16),
-      crossAxisCount: 2,
-      childAspectRatio: 1.05,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      children: children,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth >= 520 ? 3 : 2;
+        return GridView.count(
+          padding: const EdgeInsets.all(12),
+          crossAxisCount: crossAxisCount,
+          childAspectRatio: 2.6,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          children: children,
+        );
+      },
     );
   }
 
@@ -240,42 +260,55 @@ class _CollectionScreenState extends State<CollectionScreen>
           : () {
               onTap();
             },
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: selected
               ? Colors.cyanAccent.withValues(alpha: 0.12)
               : const Color(0xFF111827),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: selected
                 ? Colors.cyanAccent
                 : Colors.white.withValues(alpha: 0.12),
           ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Row(
           children: [
-            Icon(icon,
-                color: selected ? Colors.amberAccent : Colors.white70,
-                size: 32),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-              ),
+            Icon(
+              selected ? Icons.check_circle : icon,
+              color: selected ? Colors.amberAccent : Colors.white70,
+              size: 24,
             ),
-            const SizedBox(height: 6),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white54,
-                fontSize: 12,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? Colors.amberAccent : Colors.white54,
+                      fontSize: 11,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

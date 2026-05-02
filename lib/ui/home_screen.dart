@@ -257,6 +257,9 @@ class _HomeScreenState extends State<HomeScreen>
   int _coins = PlayerDataManager.initialCoins;
   int _claimableMissionCount = 0;
   int _completedMissionCount = 0;
+  int _todayRankedWins = 0;
+  String _seasonRankLabel = '圏外';
+  String _dailyWinRankLabel = '圏外';
   bool _isLoadingProfile = true;
   late AnimationController _animController;
   bool _isHomeBgmPlaying = false;
@@ -420,6 +423,7 @@ class _HomeScreenState extends State<HomeScreen>
     _rating = bootstrapData.rating;
     _isLoadingProfile = false;
     _syncPlayerEconomyState();
+    unawaited(_refreshRankingSummary());
 
     final pendingLevelUpRewardLog = bootstrapData.pendingLevelUpRewardLog;
     if (pendingLevelUpRewardLog != null && pendingLevelUpRewardLog.isNotEmpty) {
@@ -515,6 +519,22 @@ class _HomeScreenState extends State<HomeScreen>
     }).length;
   }
 
+  Future<void> _refreshRankingSummary() async {
+    try {
+      final summary = await _rankingManager.fetchMySummary();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _todayRankedWins = summary.dailyWins;
+        _seasonRankLabel = summary.ratingRankLabel;
+        _dailyWinRankLabel = summary.dailyWinRankLabel;
+      });
+    } catch (_) {
+      // ランキング取得失敗はホーム表示を止めない。
+    }
+  }
+
   double get _levelProgress {
     if (_nextLevelRequiredExp <= 0) {
       return 0;
@@ -539,10 +559,10 @@ class _HomeScreenState extends State<HomeScreen>
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         const ballHeight = 152.0;
-                        const spacing = 12.0;
+                        const spacing = 8.0;
                         final modeHeight =
                             (constraints.maxHeight - ballHeight - spacing)
-                                .clamp(192.0, 280.0);
+                                .clamp(170.0, 280.0);
 
                         return Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -808,6 +828,7 @@ class _HomeScreenState extends State<HomeScreen>
         displayName: savedName,
       ),
     );
+    unawaited(_refreshRankingSummary());
   }
 
   void _openRecordScreen() {
@@ -857,11 +878,25 @@ class _HomeScreenState extends State<HomeScreen>
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1.2)),
-                      Text(_isLoadingProfile ? 'レート: ...' : 'レート: $_rating',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold)),
+                      Text(
+                        _isLoadingProfile
+                            ? '🏆 ...'
+                            : '🏆 $_rating  $_seasonRankLabel',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '本日 $_todayRankedWins勝  $_dailyWinRankLabel',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(width: 12),
@@ -917,14 +952,6 @@ class _HomeScreenState extends State<HomeScreen>
                 Colors.lightBlueAccent,
                 _openRecordScreen,
                 tooltip: 'レコード',
-              ),
-              const SizedBox(width: 8),
-              _buildRoundIcon(
-                Icons.assignment_turned_in,
-                Colors.amberAccent,
-                () => unawaited(_showDailyMissionsDialog(context)),
-                tooltip: 'デイリーミッション',
-                badgeCount: _claimableMissionCount,
               ),
             ],
           ),
@@ -1304,7 +1331,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                               ),
                               child: Text(
-                                _isLoadingProfile ? 'レート ...' : 'レート $_rating',
+                                _isLoadingProfile ? '🏆 ...' : '現在🏆$_rating',
                                 style: const TextStyle(
                                   color: Colors.amberAccent,
                                   fontSize: 11,
@@ -1474,120 +1501,124 @@ class _HomeScreenState extends State<HomeScreen>
             Align(
               alignment: alignment,
               child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: crossAxisAlignment,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isActive
-                            ? Colors.black.withValues(alpha: 0.72)
-                            : Colors.white.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: isActive
-                              ? Colors.amberAccent
-                              : Colors.white.withValues(alpha: 0.32),
-                          width: 1.2,
+                padding: const EdgeInsets.all(8),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: alignment,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: crossAxisAlignment,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
                         ),
-                        boxShadow: isActive
-                            ? [
-                                BoxShadow(
-                                  color: Colors.amberAccent
-                                      .withValues(alpha: 0.18),
-                                  blurRadius: 6,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: isActive
-                          ? Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  '${_arenaManager.currentWins}勝',
-                                  style: const TextStyle(
-                                    color: Colors.amberAccent,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  lossMarks,
-                                  style: TextStyle(
-                                    color: losses == 0
-                                        ? Colors.white38
-                                        : Colors.redAccent,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0,
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Text(
-                              badgeLabel,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: hasFinishedRun
-                                    ? Colors.amberAccent
-                                    : Colors.white70,
-                                fontSize: hasFinishedRun ? 12 : 11,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.4,
-                              ),
-                            ),
-                    ),
-                    const SizedBox(height: 5),
-                    if (isActive)
-                      _buildArenaInfoLine(
-                        label: '現在報酬',
-                        amount: currentReward.coins,
-                        alignment: alignment,
-                        color: Colors.amberAccent,
-                      )
-                    else if (hasFinishedRun)
-                      _buildArenaInfoLine(
-                        label: '再入場',
-                        amount: ArenaManager.entryCost,
-                        alignment: alignment,
-                        color: Colors.white70,
-                      )
-                    else
-                      _buildArenaInfoLine(
-                        label: '12勝で',
-                        amount: maxReward.coins,
-                        alignment: alignment,
-                        color: Colors.amberAccent,
-                      ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'アリーナ',
-                      textAlign:
-                          alignment.x > 0 ? TextAlign.right : TextAlign.left,
-                      style: TextStyle(
-                        color: accentColor,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 17,
-                        letterSpacing: 1.6,
-                        shadows: [
-                          Shadow(color: accentColor, blurRadius: 8),
-                          Shadow(
-                            color: Colors.black.withValues(alpha: 0.45),
-                            blurRadius: 2,
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? Colors.black.withValues(alpha: 0.72)
+                              : Colors.white.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: isActive
+                                ? Colors.amberAccent
+                                : Colors.white.withValues(alpha: 0.32),
+                            width: 1.2,
                           ),
-                        ],
+                          boxShadow: isActive
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.amberAccent
+                                        .withValues(alpha: 0.18),
+                                    blurRadius: 6,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: isActive
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${_arenaManager.currentWins}勝',
+                                    style: const TextStyle(
+                                      color: Colors.amberAccent,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    lossMarks,
+                                    style: TextStyle(
+                                      color: losses == 0
+                                          ? Colors.white38
+                                          : Colors.redAccent,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                badgeLabel,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: hasFinishedRun
+                                      ? Colors.amberAccent
+                                      : Colors.white70,
+                                  fontSize: hasFinishedRun ? 12 : 11,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 3),
+                      if (isActive)
+                        _buildArenaInfoLine(
+                          label: '現在報酬',
+                          amount: currentReward.coins,
+                          alignment: alignment,
+                          color: Colors.amberAccent,
+                        )
+                      else if (hasFinishedRun)
+                        _buildArenaInfoLine(
+                          label: '再入場',
+                          amount: ArenaManager.entryCost,
+                          alignment: alignment,
+                          color: Colors.amberAccent,
+                        )
+                      else
+                        _buildArenaInfoLine(
+                          label: '12勝で',
+                          amount: maxReward.coins,
+                          alignment: alignment,
+                          color: Colors.amberAccent,
+                        ),
+                      const SizedBox(height: 1),
+                      Text(
+                        'アリーナ',
+                        textAlign:
+                            alignment.x > 0 ? TextAlign.right : TextAlign.left,
+                        style: TextStyle(
+                          color: accentColor,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
+                          letterSpacing: 1.6,
+                          shadows: [
+                            Shadow(color: accentColor, blurRadius: 8),
+                            Shadow(
+                              color: Colors.black.withValues(alpha: 0.45),
+                              blurRadius: 2,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1792,7 +1823,7 @@ class _HomeScreenState extends State<HomeScreen>
               alignment: Alignment.centerLeft,
               child: _buildCoinAmount(
                 reward.coins,
-                color: Colors.white,
+                color: Colors.amberAccent,
                 iconSize: 14,
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -1815,7 +1846,6 @@ class _HomeScreenState extends State<HomeScreen>
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _buildBottomTextButton(
             Icons.storefront,
@@ -1828,9 +1858,10 @@ class _HomeScreenState extends State<HomeScreen>
             () => unawaited(_openCollectionScreen()),
           ),
           _buildBottomTextButton(
-            Icons.help_outline,
-            '遊び方',
-            () => unawaited(_showHowToPlayDialog()),
+            Icons.assignment_turned_in,
+            'ミッション',
+            () => unawaited(_showDailyMissionsDialog(context)),
+            badgeCount: _claimableMissionCount,
           ),
           _buildBottomTextButton(
             Icons.block,
@@ -1914,24 +1945,63 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildBottomTextButton(
     IconData icon,
     String label,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
-      onTap: () {
-        _playUiTap();
-        onTap();
-      },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Colors.cyanAccent.withValues(alpha: 0.7), size: 24),
-          const SizedBox(height: 4),
-          Text(label,
-              style: TextStyle(
+    VoidCallback onTap, {
+    int badgeCount = 0,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          _playUiTap();
+          onTap();
+        },
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.topCenter,
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
                   color: Colors.cyanAccent.withValues(alpha: 0.7),
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold)),
-        ],
+                  size: 24,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.cyanAccent.withValues(alpha: 0.7),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            if (badgeCount > 0)
+              Positioned(
+                top: -6,
+                right: 18,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$badgeCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -2086,7 +2156,6 @@ class _HomeScreenState extends State<HomeScreen>
                           final redeemed = await AppSettings.instance
                               .redeemAdRemovalGiftCode(
                             code: giftCodeController.text,
-                            playerId: _playerDataManager.playerId,
                           );
                           if (dialogContext.mounted) {
                             Navigator.of(dialogContext).pop();
@@ -2097,21 +2166,9 @@ class _HomeScreenState extends State<HomeScreen>
                           await _showAlert(
                             this.context,
                             redeemed ? '広告削除' : 'コードエラー',
-                            redeemed
-                                ? 'ギフトコードを適用しました。'
-                                : 'このプレイヤーIDでは使えないコードです。',
+                            redeemed ? 'ギフトコードを適用しました。' : 'このコードは無効、または使用済みです。',
                           );
                         },
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'あなたのID：${_playerDataManager.playerId}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
                       ),
                     ],
                     const SizedBox(height: 14),
@@ -2406,6 +2463,9 @@ class _HomeScreenState extends State<HomeScreen>
                                 return;
                               }
 
+                              await _missionManager.recordEvent(
+                                'watch_rewarded_ad',
+                              );
                               final amount =
                                   await _missionManager.claimAllClearBonus();
                               await refreshDialogState();
@@ -2850,6 +2910,7 @@ class _HomeScreenState extends State<HomeScreen>
         _rating = rating;
         _isLoadingProfile = false;
       });
+      unawaited(_refreshRankingSummary());
     } catch (_) {
       if (!mounted) {
         return;
@@ -2859,6 +2920,7 @@ class _HomeScreenState extends State<HomeScreen>
         _isLoadingProfile = false;
       });
       unawaited(_playerDataManager.setCurrentRating(_rating));
+      unawaited(_refreshRankingSummary());
     }
   }
 
@@ -3084,6 +3146,7 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _rating = resolution.newRating ?? _multiplayerManager.currentRating;
     });
+    unawaited(_refreshRankingSummary());
     if (resolution.wasAbandoned) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) {
@@ -3355,6 +3418,12 @@ class _HomeScreenState extends State<HomeScreen>
                         },
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildCyberDialogButton(
+                    label: '遊び方',
+                    accentColor: Colors.lightBlueAccent,
+                    onPressed: () => unawaited(_showHowToPlayDialog()),
                   ),
                   if (AppReviewConfig.hasPrivacyPolicy) ...[
                     const SizedBox(height: 10),
@@ -3817,7 +3886,6 @@ class _HomeScreenState extends State<HomeScreen>
         TextEditingController(text: '${_arenaManager.currentLosses}');
     final coinsController = TextEditingController(text: '$_coins');
     final expDeltaController = TextEditingController(text: '1000');
-    final giftPlayerIdController = TextEditingController();
     var arenaActive = _arenaManager.isArenaActive;
     var generatedGiftCode = '';
 
@@ -3884,9 +3952,7 @@ class _HomeScreenState extends State<HomeScreen>
               }
 
               void generateGiftCode() {
-                final code = AppSettings.instance.generateAdRemovalGiftCode(
-                  giftPlayerIdController.text,
-                );
+                final code = AppSettings.instance.generateAdRemovalGiftCode();
                 setSheetState(() {
                   generatedGiftCode = code;
                 });
@@ -3934,29 +4000,8 @@ class _HomeScreenState extends State<HomeScreen>
                         _buildDebugNumberField('コイン', coinsController),
                         const SizedBox(height: 10),
                         if (_adGiftCodeIssuerEnabled) ...[
-                          TextField(
-                            controller: giftPlayerIdController,
-                            textCapitalization: TextCapitalization.characters,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: InputDecoration(
-                              labelText: '広告削除ギフト 対象プレイヤーID',
-                              labelStyle:
-                                  const TextStyle(color: Colors.white70),
-                              enabledBorder: OutlineInputBorder(
-                                borderSide: BorderSide(
-                                  color: Colors.purpleAccent
-                                      .withValues(alpha: 0.35),
-                                ),
-                              ),
-                              focusedBorder: const OutlineInputBorder(
-                                borderSide:
-                                    BorderSide(color: Colors.purpleAccent),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
                           _buildCyberDialogButton(
-                            label: '広告削除ギフトコード発行',
+                            label: '使い切りギフトコード発行',
                             accentColor: Colors.purpleAccent,
                             onPressed: generateGiftCode,
                           ),
@@ -4098,7 +4143,6 @@ class _HomeScreenState extends State<HomeScreen>
       arenaLossesController.dispose();
       coinsController.dispose();
       expDeltaController.dispose();
-      giftPlayerIdController.dispose();
     }
   }
 

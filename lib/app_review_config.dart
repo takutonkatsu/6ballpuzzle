@@ -4,14 +4,15 @@ class AppReviewConfig {
   static const bool _isNonProdFlavor =
       String.fromEnvironment('FLAVOR', defaultValue: 'dev') != 'prod';
 
-  static const bool debugMenuEnabled =
-      bool.fromEnvironment(
-        'ENABLE_DEBUG_MENU',
-        defaultValue: _isNonProdFlavor,
-      );
+  static const bool debugMenuEnabled = bool.fromEnvironment(
+    'ENABLE_DEBUG_MENU',
+    defaultValue: _isNonProdFlavor,
+  );
 
-  static const String privacyPolicyUrl =
-      String.fromEnvironment('PRIVACY_POLICY_URL');
+  static const String privacyPolicyUrl = String.fromEnvironment(
+    'PRIVACY_POLICY_URL',
+    defaultValue: 'https://takutonkatsu.github.io/Hexagon/',
+  );
   static const String supportEmail = String.fromEnvironment('SUPPORT_EMAIL');
 
   static const String iosBannerAdUnitId =

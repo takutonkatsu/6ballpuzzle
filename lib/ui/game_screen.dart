@@ -6,7 +6,9 @@ import 'package:flame/game.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../app_review_config.dart';
 import '../app_settings.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
@@ -765,26 +767,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildOnlineMatchSummary() {
-    if (widget.isArenaMode) {
-      final wins = _arenaMatchResult?.wins ?? _arenaManager.currentWins;
-      final losses = _arenaMatchResult?.losses ?? _arenaManager.currentLosses;
-      return _buildResultInfoRow(
-        label: 'アリーナ',
-        value: '$wins勝 $losses敗',
-        color: Colors.lightBlueAccent,
-      );
-    }
-    if (widget.isRankedMode) {
-      return _buildRankedRatingChange();
-    }
-    return _buildResultInfoRow(
-      label: 'BATTLE',
-      value: 'FRIEND MATCH',
-      color: Colors.cyanAccent,
-    );
-  }
-
   Widget _buildBattleResultProfiles() {
     if (!widget.isCpuMode && !_isOnlineMode) {
       return const SizedBox.shrink();
@@ -799,10 +781,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           name: _myDisplayName,
           iconId: _playerDataManager.equippedPlayerIconId,
           badgeIds: _playerDataManager.equippedBadgeIds,
-          ratingValue: _myResultRatingValue(),
           ratingDelta: _myResultRatingDeltaText(),
-          expText: _myResultExpText(),
-          isOpponent: false,
+          showRatingDelta: true,
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -822,10 +802,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           name: _opponentResultName(),
           iconId: _opponentResultIconId(),
           badgeIds: _opponentResultBadgeIds(),
-          ratingValue: _opponentResultRatingValue(),
-          ratingDelta: _opponentResultRatingDeltaText(),
-          expText: _opponentResultExpText(),
-          isOpponent: true,
+          ratingDelta: '',
+          showRatingDelta: false,
         ),
       ],
     );
@@ -837,10 +815,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required String name,
     required String iconId,
     required List<String> badgeIds,
-    required String ratingValue,
     required String ratingDelta,
-    required String expText,
-    required bool isOpponent,
+    required bool showRatingDelta,
   }) {
     return Container(
       width: double.infinity,
@@ -883,111 +859,66 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          _buildBadgeIconRow(badgeIds),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    _buildBadgeIconRow(badgeIds),
+                    if (showRatingDelta &&
+                        ratingDelta.isNotEmpty &&
+                        ratingDelta != 'なし') ...[
+                      const SizedBox(width: 10),
+                      _buildInlineRatingDelta(
+                        value: ratingDelta,
+                        color: accentColor,
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildResultProfileStat(
-                  label: 'レート増減',
-                  value: ratingDelta,
-                  subValue: ratingValue,
-                  color: accentColor,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildResultProfileStat(
-                  label: '獲得EXP',
-                  value: expText,
-                  color: isOpponent ? Colors.white70 : Colors.greenAccent,
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
   }
 
-  Widget _buildResultProfileStat({
-    required String label,
+  Widget _buildInlineRatingDelta({
     required String value,
     required Color color,
-    String? subValue,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.36)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          if (subValue != null && subValue.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              subValue,
-              style: const TextStyle(
-                color: Colors.white54,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ],
+      child: Text(
+        value,
+        style: TextStyle(
+          color: color,
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
-  }
-
-  String _myResultRatingValue() {
-    if (widget.isRankedMode && _rankedRatingChange != null) {
-      return '現在 ${_rankedRatingChange!.newRating}';
-    }
-    if (widget.isArenaMode) {
-      final wins = _arenaMatchResult?.wins ?? _arenaManager.currentWins;
-      final losses = _arenaMatchResult?.losses ?? _arenaManager.currentLosses;
-      return '$wins勝 $losses敗';
-    }
-    return 'Lv.${_playerDataManager.level}';
   }
 
   String _myResultRatingDeltaText() {
@@ -999,14 +930,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return '変動なし';
     }
     return 'なし';
-  }
-
-  String _myResultExpText() {
-    final totalExp = _totalResultExpEarned;
-    if (totalExp == null) {
-      return '集計中';
-    }
-    return '+$totalExp';
   }
 
   String _opponentResultName() {
@@ -1031,35 +954,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     return _room?.players[_multiplayerManager.opponentRoleId]?.badgeIds ??
         const [];
-  }
-
-  String _opponentResultRatingValue() {
-    if (widget.isRankedMode) {
-      final opponent = _room?.players[_multiplayerManager.opponentRoleId];
-      final delta = _rankedRatingChange?.delta;
-      if (opponent?.rating != null && delta != null) {
-        return '現在 ${opponent!.rating! - delta}';
-      }
-    }
-    if (widget.isArenaMode) {
-      return 'アリーナ';
-    }
-    if (widget.isCpuMode) {
-      return _cpuDifficultyLabel(widget.cpuDifficulty);
-    }
-    return '対戦相手';
-  }
-
-  String _opponentResultRatingDeltaText() {
-    if (widget.isRankedMode && _rankedRatingChange != null) {
-      final delta = -_rankedRatingChange!.delta;
-      return delta >= 0 ? '+$delta' : '$delta';
-    }
-    return 'なし';
-  }
-
-  String _opponentResultExpText() {
-    return widget.isCpuMode ? 'なし' : '表示なし';
   }
 
   Widget _buildResultInfoRow({
@@ -1766,13 +1660,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             titleColor: titleColor,
             children: [
               _buildBattleResultProfiles(),
-              const SizedBox(height: 12),
-              _buildResultExpSummary(),
               if (!widget.isCpuMode) ...[
                 const SizedBox(height: 12),
                 _buildResultScoreSummary(),
               ],
               const SizedBox(height: 18),
+              _buildResultExpSummary(),
+              const SizedBox(height: 12),
               if (!widget.isCpuMode) ...[
                 _buildCyberResultButton(
                   label: 'RESTART',
@@ -1823,8 +1717,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         titleColor: textColor,
         children: [
           _buildBattleResultProfiles(),
-          const SizedBox(height: 12),
           if (_onlineResultWasForfeit) ...[
+            const SizedBox(height: 12),
             _buildResultInfoRow(
               label: '決着',
               value: win ? '不戦勝' : '試合放棄',
@@ -1832,16 +1726,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
             const SizedBox(height: 12),
           ],
-          _buildResultExpSummary(),
-          if (!widget.isArenaMode) ...[
-            const SizedBox(height: 12),
-            _buildOnlineMatchSummary(),
-          ],
           if (widget.isArenaMode) ...[
             const SizedBox(height: 12),
             _buildArenaResultSummary(),
           ],
           const SizedBox(height: 18),
+          _buildResultExpSummary(),
+          const SizedBox(height: 12),
           if (!widget.isRankedMode && !_onlineResultWasForfeit) ...[
             _buildCyberResultButton(
               label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH',
@@ -1922,39 +1813,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildRankedRatingChange() {
-    final change = _rankedRatingChange;
-    if (change == null) {
-      return const Text(
-        'レート更新中...',
-        style: TextStyle(
-          color: Colors.white70,
-          fontSize: 14,
-          fontWeight: FontWeight.bold,
-        ),
-      );
-    }
-
-    final isPositive = change.delta >= 0;
-    final deltaText = isPositive ? '+${change.delta}' : '${change.delta}';
-    final glowColor = isPositive ? Colors.cyanAccent : Colors.pinkAccent;
-
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 600),
-      builder: (context, value, child) {
-        final animatedRating = change.oldRating +
-            ((change.newRating - change.oldRating) * value).round();
-        return _buildResultInfoRow(
-          label: 'レート',
-          value: '$animatedRating',
-          trailing: deltaText,
-          color: glowColor,
-        );
-      },
     );
   }
 
@@ -2840,6 +2698,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         unawaited(
           _rankingManager.updateMyRating(
             rating: change.newRating,
+            incrementDailyWin: isWin,
           ),
         );
       }
@@ -3364,6 +3223,37 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       foregroundColor: Colors.cyanAccent,
                       side: BorderSide(
                         color: Colors.cyanAccent.withValues(alpha: 0.72),
+                        width: 1.3,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                ],
+                if (AppReviewConfig.hasPrivacyPolicy) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      _playUiTap();
+                      unawaited(
+                        launchUrl(
+                          Uri.parse(AppReviewConfig.privacyPolicyUrl),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.privacy_tip_outlined, size: 18),
+                    label: const Text('プライバシーポリシー'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.greenAccent,
+                      side: BorderSide(
+                        color: Colors.greenAccent.withValues(alpha: 0.72),
                         width: 1.3,
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 14),

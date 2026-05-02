@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum ControlLayoutPreset {
@@ -17,6 +19,7 @@ class AppSettings {
   static const String _sfxVolumeKey = 'settings_sfx_volume';
   static const String _controlLayoutKey = 'settings_control_layout';
   static const String _adsRemovedKey = 'settings_ads_removed';
+  static const String _usedAdGiftCodesKey = 'settings_used_ad_gift_codes';
 
   final ValueNotifier<double> musicVolume = ValueNotifier(1.0);
   final ValueNotifier<double> sfxVolume = ValueNotifier(1.0);
@@ -70,40 +73,74 @@ class AppSettings {
 
   Future<bool> redeemAdRemovalGiftCode({
     required String code,
-    required String playerId,
   }) async {
-    if (isValidAdRemovalGiftCode(code: code, playerId: playerId)) {
-      await setAdsRemoved(true);
+    final normalizedCode = _normalizeGiftCode(code);
+    if (!isValidAdRemovalGiftCode(code: normalizedCode)) {
+      return false;
+    }
+    final globallyAvailable = await _claimGlobalGiftCode(normalizedCode);
+    if (!globallyAvailable) {
+      return false;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final usedCodes = prefs.getStringList(_usedAdGiftCodesKey) ?? const [];
+    if (usedCodes.contains(normalizedCode)) {
+      return false;
+    }
+    await prefs.setStringList(
+      _usedAdGiftCodesKey,
+      [...usedCodes, normalizedCode],
+    );
+    await setAdsRemoved(true);
+    return true;
+  }
+
+  String generateAdRemovalGiftCode() {
+    final millis = DateTime.now().millisecondsSinceEpoch;
+    final payload = millis.toRadixString(36).toUpperCase().padLeft(8, '0');
+    return 'ADFREE-$payload-${_giftChecksum(payload)}';
+  }
+
+  bool isValidAdRemovalGiftCode({required String code}) {
+    final normalizedCode = _normalizeGiftCode(code);
+    final parts = normalizedCode.split('-');
+    if (parts.length != 3 || parts.first != 'ADFREE') {
+      return false;
+    }
+    return parts[2] == _giftChecksum(parts[1]);
+  }
+
+  String _normalizeGiftCode(String value) {
+    return value.trim().toUpperCase().replaceAll(' ', '');
+  }
+
+  Future<bool> _claimGlobalGiftCode(String normalizedCode) async {
+    try {
+      final app = Firebase.app();
+      final database = FirebaseDatabase.instanceFor(
+        app: app,
+        databaseURL: app.options.databaseURL,
+      );
+      final ref = database.ref(
+        'giftCodes/adRemoval/${normalizedCode.replaceAll('-', '_')}',
+      );
+      final snapshot = await ref.get();
+      if (snapshot.exists) {
+        return false;
+      }
+      await ref.set({
+        'code': normalizedCode,
+        'redeemedAt': ServerValue.timestamp,
+      });
+      return true;
+    } catch (_) {
       return true;
     }
-    return false;
   }
 
-  String generateAdRemovalGiftCode(String playerId) {
-    final normalizedId = _normalizeGiftPlayerId(playerId);
-    if (normalizedId.isEmpty) {
-      return '';
-    }
-    return 'ADFREE-$normalizedId-${_giftChecksum(normalizedId)}';
-  }
-
-  bool isValidAdRemovalGiftCode({
-    required String code,
-    required String playerId,
-  }) {
-    final normalizedId = _normalizeGiftPlayerId(playerId);
-    final normalizedCode = code.trim().toUpperCase().replaceAll(' ', '');
-    return normalizedId.isNotEmpty &&
-        normalizedCode == generateAdRemovalGiftCode(normalizedId);
-  }
-
-  String _normalizeGiftPlayerId(String value) {
-    return value.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
-  }
-
-  String _giftChecksum(String normalizedPlayerId) {
+  String _giftChecksum(String payload) {
     var hash = 0x45D9F3B;
-    for (final unit in '6BALL_AD_FREE_$normalizedPlayerId'.codeUnits) {
+    for (final unit in '6BALL_AD_FREE_$payload'.codeUnits) {
       hash = (hash ^ unit) * 16777619;
       hash &= 0x7fffffff;
     }

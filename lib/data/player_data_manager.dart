@@ -114,7 +114,7 @@ class PlayerDataManager {
   static const String _inventoryRevisionKey = 'player_inventory_revision';
   static const String _pendingLevelUpRewardLogKey =
       'player_pending_level_up_reward_log';
-  static const int _currentInventoryRevision = 1;
+  static const int _currentInventoryRevision = 2;
   static const int _debugBuildCoins = 1000000;
 
   final Random _random = Random();
@@ -221,7 +221,7 @@ class PlayerDataManager {
       return;
     }
 
-    final uid = await AuthManager.instance.ensureSignedIn();
+    await AuthManager.instance.ensureSignedIn();
     final prefs = await SharedPreferences.getInstance();
     final inventoryRevision = prefs.getInt(_inventoryRevisionKey) ?? 0;
     _coins = prefs.getInt(_coinsKey) ?? initialCoins;
@@ -241,6 +241,7 @@ class PlayerDataManager {
             .toList();
       }
     }
+    _ownedItems = _ownedItems.map(_canonicalItem).toList();
 
     final rawMissions = prefs.getString(_currentMissionsKey);
     if (rawMissions != null && rawMissions.isNotEmpty) {
@@ -264,9 +265,14 @@ class PlayerDataManager {
     var shouldSaveProfile = false;
     var shouldSaveStats = false;
     _playerName = prefs.getString(_playerNameKey) ?? '';
-    _playerId = uid;
     final savedPlayerId = prefs.getString(_playerIdKey) ?? '';
-    if (savedPlayerId != uid) {
+    if (savedPlayerId.trim().isEmpty || savedPlayerId.length > 10) {
+      _playerId = _generatePublicPlayerId();
+      shouldSaveProfile = true;
+    } else {
+      _playerId = savedPlayerId;
+    }
+    if (savedPlayerId != _playerId) {
       shouldSaveProfile = true;
     }
     _equippedBadgeIds = _stringListFromJson(
@@ -353,7 +359,10 @@ class PlayerDataManager {
     var changed = false;
 
     if (_lastDailyReset != today ||
-        _currentMissions.length != 3 ||
+        _currentMissions.length != 4 ||
+        !_currentMissions.any(
+          (mission) => mission['id'] == 'watch_rewarded_ad_1',
+        ) ||
         _dailyShopItems.length != 3) {
       _lastDailyReset = today;
       _currentMissions = _generateDailyMissions();
@@ -715,9 +724,18 @@ class PlayerDataManager {
   }
 
   List<Map<String, dynamic>> _generateDailyMissions() {
-    final pool = List<MissionDefinition>.from(MissionCatalog.dailyPool)
+    const requiredAdMissionId = 'watch_rewarded_ad_1';
+    final adMission = MissionCatalog.dailyPool.firstWhere(
+      (mission) => mission.id == requiredAdMissionId,
+    );
+    final pool = MissionCatalog.dailyPool
+        .where((mission) => mission.id != requiredAdMissionId)
+        .toList()
       ..shuffle(_random);
-    return pool.take(3).map((mission) => mission.toMissionMap()).toList();
+    return [
+      adMission.toMissionMap(),
+      ...pool.take(3).map((mission) => mission.toMissionMap()),
+    ];
   }
 
   List<String> _generateDailyShopItems() {
@@ -739,7 +757,28 @@ class PlayerDataManager {
         _equippedPlayerIconId = 'default';
       }
     }
+    if (revision < 2) {
+      for (final stamp in GameItemCatalog.defaultStamps) {
+        if (_ownedItems.every((item) => item.id != stamp.id)) {
+          _ownedItems.add(stamp.copyWith(level: 1));
+          changed = true;
+        }
+      }
+    }
     return changed;
+  }
+
+  GameItem _canonicalItem(GameItem item) {
+    final catalogItem = GameItemCatalog.byId(item.id);
+    if (catalogItem == null) {
+      return item;
+    }
+    return catalogItem.copyWith(level: item.level);
+  }
+
+  String _generatePublicPlayerId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    return List.generate(6, (_) => chars[_random.nextInt(chars.length)]).join();
   }
 
   bool _applyDebugBuildMissionReset() {

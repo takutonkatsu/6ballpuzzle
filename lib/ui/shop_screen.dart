@@ -7,6 +7,7 @@ import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../game/gacha_manager.dart';
 import '../game/mission_manager.dart';
+import 'components/rewarded_ad_manager.dart';
 
 class ShopScreen extends StatefulWidget {
   const ShopScreen({super.key});
@@ -25,6 +26,7 @@ class _ShopScreenState extends State<ShopScreen> {
   int _coins = 0;
   List<GameItem> _items = const [];
   List<GameItem> _ownedItems = const [];
+  int _adRollsUsed = 0;
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -37,19 +39,14 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   Future<void> _loadShop() async {
+    await _playerData.checkDailyReset();
     final ownedItems = await _playerData.getOwnedItems();
-    final items = List<GameItem>.from(GameItemCatalog.shopDirectPurchasePool)
-      ..sort((a, b) {
-        final rarityDiff = a.rarity.index.compareTo(b.rarity.index);
-        if (rarityDiff != 0) {
-          return rarityDiff;
-        }
-        final typeDiff = a.type.index.compareTo(b.type.index);
-        if (typeDiff != 0) {
-          return typeDiff;
-        }
-        return a.name.compareTo(b.name);
-      });
+    final items = _playerData.dailyShopItems
+        .map(GameItemCatalog.byId)
+        .whereType<GameItem>()
+        .take(3)
+        .toList();
+    final adRollsUsed = await _gachaManager.adRollsUsedToday();
     if (!mounted) {
       return;
     }
@@ -57,6 +54,7 @@ class _ShopScreenState extends State<ShopScreen> {
       _coins = _playerData.coins;
       _ownedItems = ownedItems;
       _items = items;
+      _adRollsUsed = adRollsUsed;
       _isLoading = false;
     });
   }
@@ -146,6 +144,63 @@ class _ShopScreenState extends State<ShopScreen> {
     }
   }
 
+  Future<void> _rollFreeAdGacha() async {
+    if (_isBuying || _adRollsUsed >= GachaManager.dailyAdRollLimit) {
+      return;
+    }
+
+    setState(() {
+      _isBuying = true;
+    });
+    try {
+      final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+      if (!rewarded) {
+        throw StateError('動画の視聴が完了しませんでした。');
+      }
+      await _missionManager.recordEvent('watch_rewarded_ad');
+      final result = await _gachaManager.rollFreeAdGacha();
+      await _missionManager.recordEvent('roll_gacha');
+      await _loadShop();
+      if (!mounted) {
+        return;
+      }
+      await _showGachaResultDialog(result);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF151723),
+            title: const Text(
+              '無料ガチャ失敗',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+            content:
+                Text('$error', style: const TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  _playUiTap();
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('OK'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBuying = false;
+        });
+      }
+    }
+  }
+
   Future<void> _rollGacha() async {
     if (_isBuying) {
       return;
@@ -161,31 +216,7 @@ class _ShopScreenState extends State<ShopScreen> {
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF151723),
-            title: const Text(
-              'DATA DECODE',
-              style: TextStyle(color: Colors.purpleAccent),
-            ),
-            content: Text(
-              _grantResultMessage(result.grantResult),
-              style: const TextStyle(color: Colors.white70),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _playUiTap();
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          );
-        },
-      );
+      await _showGachaResultDialog(result);
     } catch (error) {
       if (!mounted) {
         return;
@@ -220,6 +251,107 @@ class _ShopScreenState extends State<ShopScreen> {
         });
       }
     }
+  }
+
+  Future<void> _showGachaResultDialog(GachaRollResult result) {
+    final item = result.grantResult.item;
+    final accent = _colorFor(item);
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF11131F),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+            side: BorderSide(color: accent.withValues(alpha: 0.85), width: 2),
+          ),
+          title: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 700),
+            builder: (context, value, child) {
+              return Transform.scale(
+                scale: 0.92 + value * 0.08,
+                child: Text(
+                  'アイテム解放！',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: accent,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.4,
+                    shadows: [
+                      Shadow(color: accent, blurRadius: 8 + value * 16),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          content: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  accent.withValues(alpha: 0.18),
+                  Colors.purpleAccent.withValues(alpha: 0.12),
+                  Colors.black.withValues(alpha: 0.2),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: accent.withValues(alpha: 0.36)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 900),
+                  builder: (context, value, child) {
+                    return Transform.rotate(
+                      angle: (1 - value) * 0.35,
+                      child: Transform.scale(
+                        scale: 0.72 + value * 0.28,
+                        child: Icon(
+                          _iconForItem(item),
+                          color: accent,
+                          size: 62,
+                          shadows: [Shadow(color: accent, blurRadius: 20)],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  item.name,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _grantResultMessage(result.grantResult),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () {
+                _playUiTap();
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   bool _canBuy(GameItem item) {
@@ -376,6 +508,27 @@ class _ShopScreenState extends State<ShopScreen> {
                           icon: const Icon(Icons.auto_awesome),
                           label: const Text('1回 1000C'),
                         ),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: _isBuying ||
+                                  _adRollsUsed >= GachaManager.dailyAdRollLimit
+                              ? null
+                              : () {
+                                  _playUiTap();
+                                  unawaited(_rollFreeAdGacha());
+                                },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.amberAccent,
+                            side: BorderSide(
+                              color: Colors.amberAccent.withValues(alpha: 0.7),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          icon: const Icon(Icons.ondemand_video),
+                          label: Text(
+                            '動画で無料 $_adRollsUsed/${GachaManager.dailyAdRollLimit}',
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -390,7 +543,7 @@ class _ShopScreenState extends State<ShopScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'ガチャよりかなり高いですが、欲しいものを直接購入できます。',
+                    '本日の品揃えはランダムで3点です。',
                     style: TextStyle(color: Colors.white60),
                   ),
                   const SizedBox(height: 16),

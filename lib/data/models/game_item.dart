@@ -119,10 +119,10 @@ class GameItem {
 class GameItemCatalog {
   GameItemCatalog._();
 
-  static const List<GameItem> commonStamps = [
+  static const List<GameItem> defaultStamps = [
     GameItem(
       id: 'stamp_greet_01',
-      name: 'GREETING',
+      name: 'よろしく',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
       iconName: 'handshake',
@@ -131,7 +131,7 @@ class GameItemCatalog {
     ),
     GameItem(
       id: 'stamp_react_01',
-      name: 'THANKS',
+      name: 'ありがとう',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
       iconName: 'water_drop',
@@ -139,8 +139,21 @@ class GameItemCatalog {
       text: 'ありがとう！',
     ),
     GameItem(
+      id: 'stamp_praise_01',
+      name: 'グッドゲーム',
+      type: ItemType.stamp,
+      rarity: ItemRarity.common,
+      iconName: 'thumb_up',
+      colorName: 'Yellow',
+      text: 'グッドゲーム！',
+    ),
+  ];
+
+  static const List<GameItem> commonStamps = [
+    ...defaultStamps,
+    GameItem(
       id: 'stamp_react_02',
-      name: 'IMPRESSIVE',
+      name: 'すごい',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
       iconName: 'local_fire_department',
@@ -148,17 +161,8 @@ class GameItemCatalog {
       text: 'やるな！',
     ),
     GameItem(
-      id: 'stamp_praise_01',
-      name: 'GOOD GAME',
-      type: ItemType.stamp,
-      rarity: ItemRarity.common,
-      iconName: 'thumb_up',
-      colorName: 'Yellow',
-      text: 'グッドゲーム！',
-    ),
-    GameItem(
       id: 'stamp_taunt_01',
-      name: 'OOPS',
+      name: 'おっと',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
       iconName: 'coffee',
@@ -167,7 +171,7 @@ class GameItemCatalog {
     ),
     GameItem(
       id: 'stamp_taunt_02',
-      name: 'NO WAY',
+      name: 'まさか',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
       iconName: 'visibility',
@@ -179,7 +183,7 @@ class GameItemCatalog {
   static const List<GameItem> rareStamps = [
     GameItem(
       id: 'stamp_data_burst',
-      name: 'DATA BURST',
+      name: '解析完了',
       type: ItemType.stamp,
       rarity: ItemRarity.rare,
       iconName: 'memory',
@@ -191,21 +195,21 @@ class GameItemCatalog {
   static const List<GameItem> playerIcons = [
     GameItem(
       id: 'icon_bolt',
-      name: 'BOLT',
+      name: '稲妻',
       type: ItemType.icon,
       rarity: ItemRarity.common,
       iconName: 'bolt',
     ),
     GameItem(
       id: 'icon_star',
-      name: 'STAR',
+      name: 'スター',
       type: ItemType.icon,
       rarity: ItemRarity.rare,
       iconName: 'star',
     ),
     GameItem(
       id: 'icon_gamepad',
-      name: 'GAMEPAD',
+      name: 'ゲームパッド',
       type: ItemType.icon,
       rarity: ItemRarity.epic,
       iconName: 'gamepad',
@@ -215,13 +219,13 @@ class GameItemCatalog {
   static const List<GameItem> epicSkins = [
     GameItem(
       id: 'skin_neon_chrome',
-      name: 'NEON CHROME',
+      name: 'ネオンクローム',
       type: ItemType.skin,
       rarity: ItemRarity.rare,
     ),
     GameItem(
       id: 'skin_black_ice',
-      name: 'BLACK ICE',
+      name: 'ブラックアイス',
       type: ItemType.skin,
       rarity: ItemRarity.epic,
     ),
@@ -230,13 +234,13 @@ class GameItemCatalog {
   static const List<GameItem> legacyVfxItems = [
     GameItem(
       id: 'vfx_low_bit_glitch',
-      name: 'LOW BIT GLITCH',
+      name: 'ロービットグリッチ',
       type: ItemType.vfx,
       rarity: ItemRarity.rare,
     ),
     GameItem(
       id: 'vfx_overdrive_hex',
-      name: 'OVERDRIVE HEX',
+      name: 'オーバードライブヘックス',
       type: ItemType.vfx,
       rarity: ItemRarity.legendary,
     ),
@@ -246,7 +250,7 @@ class GameItemCatalog {
     ...commonStamps,
     GameItem(
       id: 'icon_bolt',
-      name: 'BOLT',
+      name: '稲妻',
       type: ItemType.icon,
       rarity: ItemRarity.common,
       iconName: 'bolt',
@@ -257,14 +261,14 @@ class GameItemCatalog {
     ...rareStamps,
     GameItem(
       id: 'icon_star',
-      name: 'STAR',
+      name: 'スター',
       type: ItemType.icon,
       rarity: ItemRarity.rare,
       iconName: 'star',
     ),
     GameItem(
       id: 'skin_neon_chrome',
-      name: 'NEON CHROME',
+      name: 'ネオンクローム',
       type: ItemType.skin,
       rarity: ItemRarity.rare,
     ),
@@ -273,14 +277,14 @@ class GameItemCatalog {
   static const List<GameItem> gachaEpicPool = [
     GameItem(
       id: 'icon_gamepad',
-      name: 'GAMEPAD',
+      name: 'ゲームパッド',
       type: ItemType.icon,
       rarity: ItemRarity.epic,
       iconName: 'gamepad',
     ),
     GameItem(
       id: 'skin_black_ice',
-      name: 'BLACK ICE',
+      name: 'ブラックアイス',
       type: ItemType.skin,
       rarity: ItemRarity.epic,
     ),
@@ -298,7 +302,11 @@ class GameItemCatalog {
     ...legacyVfxItems,
   ];
 
-  static const List<GameItem> shopDirectPurchasePool = unlockableItems;
+  static const List<GameItem> shopDirectPurchasePool = [
+    ...rareStamps,
+    ...playerIcons,
+    ...epicSkins,
+  ];
 
   static GameItem? byId(String id) {
     for (final item in allItems) {

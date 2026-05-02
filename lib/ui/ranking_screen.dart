@@ -122,7 +122,7 @@ class _RankingScreenState extends State<RankingScreen> {
               Icon(Icons.emoji_events, color: Colors.amberAccent, size: 20),
               SizedBox(width: 8),
               Text(
-                'GLOBAL RANKING',
+                'ランキング',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -317,7 +317,7 @@ class _RankingScreenState extends State<RankingScreen> {
           ),
           const SizedBox(width: 12),
           Text(
-            '${entry.rating}',
+            '🏆${entry.rating}',
             style: TextStyle(
               color: accent,
               fontSize: 16,
