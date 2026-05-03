@@ -6,11 +6,12 @@ class SeamlessBgm {
   SeamlessBgm._();
 
   static final SeamlessBgm instance = SeamlessBgm._();
+  static const Duration _homeLoopLeadTime = Duration(milliseconds: 30);
+  static const Duration _battleLoopLeadTime = Duration(milliseconds: 32);
 
   final AudioPlayer _playerA = AudioPlayer();
   final AudioPlayer _playerB = AudioPlayer();
   Timer? _loopTimer;
-  Timer? _fadeTimer;
   String? _assetPath;
   Duration? _trackDuration;
   double _baseVolume = 1;
@@ -85,9 +86,7 @@ class SeamlessBgm {
     _generation++;
     _isPlaying = false;
     _loopTimer?.cancel();
-    _fadeTimer?.cancel();
     _loopTimer = null;
-    _fadeTimer = null;
     await Future.wait([
       _playerA.stop(),
       _playerB.stop(),
@@ -109,6 +108,12 @@ class SeamlessBgm {
     await player.setReleaseMode(ReleaseMode.stop);
     await player.setVolume(volume);
     await player.setSource(AssetSource(assetPath));
+  }
+
+  Future<void> _resetStandby(AudioPlayer player) async {
+    await player.pause();
+    await player.seek(Duration.zero);
+    await player.setVolume(0);
   }
 
   double get _effectiveVolume => (_baseVolume * _masterVolume).clamp(0.0, 1.0);
@@ -133,20 +138,19 @@ class SeamlessBgm {
       return;
     }
 
-    const overlap = Duration(milliseconds: 180);
-    final wait = duration > overlap ? duration - overlap : duration;
+    final loopLeadTime = _loopLeadTimeFor(assetPath);
     _loopTimer?.cancel();
+    final wait = duration > loopLeadTime ? duration - loopLeadTime : duration;
     _loopTimer = Timer(wait, () {
       if (!_isPlaying || generation != _generation) {
         return;
       }
-      unawaited(_crossfadeToNext(generation));
+      unawaited(_swapToStandby(generation));
     });
   }
 
-  Future<void> _crossfadeToNext(int generation) async {
-    final assetPath = _assetPath;
-    if (!_isPlaying || assetPath == null || generation != _generation) {
+  Future<void> _swapToStandby(int generation) async {
+    if (!_isPlaying || generation != _generation) {
       return;
     }
 
@@ -154,32 +158,21 @@ class SeamlessBgm {
     final next = _usingA ? _playerB : _playerA;
     _usingA = !_usingA;
 
-    await next.setVolume(0);
+    await next.setVolume(_effectiveVolume);
     await next.seek(Duration.zero);
     await next.resume();
+    _scheduleNext(generation);
+    await Future<void>.delayed(_loopLeadTimeFor(_assetPath));
+    if (!_isPlaying || generation != _generation) {
+      return;
+    }
+    await _resetStandby(current);
+  }
 
-    const steps = 9;
-    const stepDuration = Duration(milliseconds: 20);
-    var step = 0;
-    _fadeTimer?.cancel();
-    _fadeTimer = Timer.periodic(stepDuration, (timer) {
-      if (!_isPlaying || generation != _generation) {
-        timer.cancel();
-        return;
-      }
-
-      step++;
-      final t = step / steps;
-      final effectiveVolume = _effectiveVolume;
-      unawaited(current.setVolume(effectiveVolume * (1 - t)));
-      unawaited(next.setVolume(effectiveVolume * t));
-
-      if (step >= steps) {
-        timer.cancel();
-        unawaited(current.stop());
-        unawaited(_prepare(current, assetPath, 0));
-        _scheduleNext(generation);
-      }
-    });
+  Duration _loopLeadTimeFor(String? assetPath) {
+    return switch (assetPath) {
+      'audio/battle_bgm01.wav' => _battleLoopLeadTime,
+      _ => _homeLoopLeadTime,
+    };
   }
 }

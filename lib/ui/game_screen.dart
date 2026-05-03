@@ -957,7 +957,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _buildResultInfoRow(
           label: 'EXP',
           value: '+$totalExp',
-          color: Colors.greenAccent,
+          color: Colors.white,
           centerValue: true,
         ),
         if (_didLevelUpFromResultExp) ...[

@@ -735,12 +735,12 @@ class _HomeScreenState extends State<HomeScreen>
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     border: Border.all(
-                      color: Colors.amberAccent.withValues(alpha: 0.5),
+                      color: Colors.cyanAccent.withValues(alpha: 0.5),
                     ),
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.amberAccent.withValues(alpha: 0.2),
+                        color: Colors.cyanAccent.withValues(alpha: 0.16),
                         blurRadius: 8,
                       ),
                     ],
@@ -794,11 +794,11 @@ class _HomeScreenState extends State<HomeScreen>
           color: Colors.black54,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: Colors.purpleAccent.withValues(alpha: 0.58),
+            color: Colors.cyanAccent.withValues(alpha: 0.58),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.purpleAccent.withValues(alpha: 0.18),
+              color: Colors.cyanAccent.withValues(alpha: 0.18),
               blurRadius: 8,
             ),
           ],
@@ -810,10 +810,10 @@ class _HomeScreenState extends State<HomeScreen>
               width: compact ? 18 : 22,
               height: compact ? 18 : 22,
               decoration: BoxDecoration(
-                color: Colors.purpleAccent.withValues(alpha: 0.16),
+                color: Colors.cyanAccent.withValues(alpha: 0.16),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: Colors.purpleAccent.withValues(alpha: 0.65),
+                  color: Colors.cyanAccent.withValues(alpha: 0.65),
                 ),
               ),
               child: Icon(
@@ -900,10 +900,10 @@ class _HomeScreenState extends State<HomeScreen>
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                    color: Colors.pinkAccent.withValues(alpha: 0.48)),
+                    color: Colors.cyanAccent.withValues(alpha: 0.48)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.pinkAccent.withValues(alpha: 0.14),
+                    color: Colors.cyanAccent.withValues(alpha: 0.14),
                     blurRadius: 14,
                   ),
                 ],
@@ -915,7 +915,7 @@ class _HomeScreenState extends State<HomeScreen>
                     children: [
                       const Text('シーズン 0',
                           style: TextStyle(
-                              color: Colors.pinkAccent,
+                              color: Colors.cyanAccent,
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1.2)),
@@ -965,7 +965,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 10),
                   const Icon(
                     Icons.chevron_right_rounded,
-                    color: Colors.pinkAccent,
+                    color: Colors.cyanAccent,
                     size: 22,
                   ),
                 ],
@@ -1604,15 +1604,14 @@ class _HomeScreenState extends State<HomeScreen>
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
                             color: isActive
-                                ? Colors.amberAccent
+                                ? Colors.white
                                 : Colors.white.withValues(alpha: 0.32),
                             width: 1.2,
                           ),
                           boxShadow: isActive
                               ? [
                                   BoxShadow(
-                                    color: Colors.amberAccent
-                                        .withValues(alpha: 0.18),
+                                    color: Colors.white.withValues(alpha: 0.18),
                                     blurRadius: 6,
                                   ),
                                 ]
@@ -1626,7 +1625,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   Text(
                                     '${_arenaManager.currentWins}勝',
                                     style: const TextStyle(
-                                      color: Colors.amberAccent,
+                                      color: Colors.white,
                                       fontSize: 13,
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: 0,
@@ -1665,7 +1664,7 @@ class _HomeScreenState extends State<HomeScreen>
                           label: '現在報酬',
                           amount: currentReward.coins,
                           alignment: alignment,
-                          color: Colors.amberAccent,
+                          color: Colors.white,
                         )
                       else if (hasFinishedRun)
                         _buildArenaInfoLine(
@@ -1689,7 +1688,7 @@ class _HomeScreenState extends State<HomeScreen>
                         style: TextStyle(
                           color: accentColor,
                           fontWeight: FontWeight.w900,
-                          fontSize: 16,
+                          fontSize: 18,
                           letterSpacing: 1.6,
                           shadows: [
                             Shadow(color: accentColor, blurRadius: 8),

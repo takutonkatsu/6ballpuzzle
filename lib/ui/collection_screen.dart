@@ -5,6 +5,7 @@ import '../data/models/badge_item.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
+import 'components/hexagon_grid_background.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -84,18 +85,27 @@ class _CollectionScreenState extends State<CollectionScreen>
             ],
           ),
         ),
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(color: Colors.cyanAccent),
-              )
-            : TabBarView(
-                children: [
-                  _buildStampsTab(),
-                  _buildBadgesTab(),
-                  _buildSkinsTab(),
-                  _buildIconsTab(),
-                ],
-              ),
+        body: Stack(
+          children: [
+            const HexagonGridBackground(
+              color: Colors.cyanAccent,
+              opacity: 0.04,
+              hexRadius: 30,
+            ),
+            _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                  )
+                : TabBarView(
+                    children: [
+                      _buildStampsTab(),
+                      _buildBadgesTab(),
+                      _buildSkinsTab(),
+                      _buildIconsTab(),
+                    ],
+                  ),
+          ],
+        ),
       ),
     );
   }

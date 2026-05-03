@@ -98,6 +98,7 @@ class PlayerDataManager {
   static const String _currentMissionsKey = 'player_current_missions_json';
   static const String _dailyShopItemsKey = 'player_daily_shop_items_json';
   static const String _loginStreakKey = 'player_login_streak';
+  static const String _totalLoginDaysKey = 'player_total_login_days';
   static const String _lastLoginDateKey = 'player_last_login_date';
   static const String _playerNameKey = 'player_name';
   static const String _playerIdKey = 'player_public_id';
@@ -149,6 +150,7 @@ class PlayerDataManager {
   List<Map<String, dynamic>> _currentMissions = [];
   List<String> _dailyShopItems = [];
   int _loginStreak = 0;
+  int _totalLoginDays = 0;
   String _lastLoginDate = '';
   String _playerName = '';
   String _playerId = '';
@@ -201,6 +203,7 @@ class PlayerDataManager {
       .toList();
   List<String> get dailyShopItems => List.unmodifiable(_dailyShopItems);
   int get loginStreak => _loginStreak;
+  int get totalLoginDays => _totalLoginDays;
   String get playerName => _playerName;
   String get displayPlayerName =>
       _playerName.trim().isEmpty ? 'プレイヤー' : _playerName.trim();
@@ -299,6 +302,8 @@ class PlayerDataManager {
     }
     _loginStreak = max(0, prefs.getInt(_loginStreakKey) ?? 0);
     _lastLoginDate = prefs.getString(_lastLoginDateKey) ?? '';
+    _totalLoginDays = max(0,
+        prefs.getInt(_totalLoginDaysKey) ?? (_lastLoginDate.isEmpty ? 0 : 1));
 
     var shouldSaveProfile = false;
     var shouldSaveStats = false;
@@ -836,6 +841,7 @@ class PlayerDataManager {
       jsonEncode(_dailyShopItems),
     );
     await prefs.setInt(_loginStreakKey, _loginStreak);
+    await prefs.setInt(_totalLoginDaysKey, _totalLoginDays);
     await prefs.setString(_lastLoginDateKey, _lastLoginDate);
   }
 
@@ -971,6 +977,7 @@ class PlayerDataManager {
       }
     }
     _lastLoginDate = today;
+    _totalLoginDays++;
 
     if (_loginStreak > 0 && _loginStreak % 7 == 0) {
       await addCoins(5000);

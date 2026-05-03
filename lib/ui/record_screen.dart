@@ -83,6 +83,8 @@ class _RecordScreenState extends State<RecordScreen> {
         _statGrid([
           _StatItem('総プレイ回数', '${_playerData.totalMatches}'),
           _StatItem('勝利数', '${_playerData.totalWins}'),
+          _StatItem('総ログイン日数', '${_playerData.totalLoginDays}日'),
+          _StatItem('初めてプレイした日', _formatDate(_playerData.accountCreatedAt)),
         ]),
         _sectionTitle('ランク戦 / 今シーズン'),
         _statGrid([
@@ -489,6 +491,12 @@ class _RecordScreenState extends State<RecordScreen> {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${local.year}/${two(local.month)}/${two(local.day)} '
         '${two(local.hour)}:${two(local.minute)}';
+  }
+
+  String _formatDate(DateTime date) {
+    final local = date.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${local.year}/${two(local.month)}/${two(local.day)}';
   }
 
   String _resultLabel(MatchHistoryEntry entry) {
