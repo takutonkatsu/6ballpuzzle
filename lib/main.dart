@@ -69,8 +69,33 @@ Future<void> main() async {
 
   await AuthManager.instance.ensureSignedIn();
   await AppSettings.instance.load();
+  await _configureExclusiveGameAudio();
   await FlameAudio.bgm.initialize();
   runApp(const MyApp());
+}
+
+Future<void> _configureExclusiveGameAudio() async {
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    return;
+  }
+
+  try {
+    await AudioPlayer.global.setAudioContext(
+      AudioContext(
+        android: const AudioContextAndroid(
+          contentType: AndroidContentType.music,
+          usageType: AndroidUsageType.game,
+          audioFocus: AndroidAudioFocus.gain,
+        ),
+        iOS: AudioContextIOS(
+          category: AVAudioSessionCategory.playback,
+          options: const {},
+        ),
+      ),
+    );
+  } on MissingPluginException {
+    // 開発中の古いネイティブビルドではプラグイン未登録でも起動を止めない。
+  }
 }
 
 void _configureRealtimeDatabaseCache(FirebaseApp app) {

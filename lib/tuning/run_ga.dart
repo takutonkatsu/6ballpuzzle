@@ -38,13 +38,14 @@ class Individual {
 
 void main() {
   print("🧬 ボーナス＆ペナルティ完全自動調整GAシミュレーション開始...");
-  
-  List<Individual> population = List.generate(populationSize, (_) => Individual.random());
+
+  List<Individual> population =
+      List.generate(populationSize, (_) => Individual.random());
   Individual globalBest = population.first;
 
   for (int gen = 1; gen <= generations; gen++) {
     print("--- 世代 $gen / $generations ---");
-    
+
     for (var ind in population) {
       _evaluateIndividual(ind);
       if (ind.fitness > globalBest.fitness) globalBest = ind;
@@ -52,13 +53,15 @@ void main() {
 
     population.sort((a, b) => b.fitness.compareTo(a.fitness));
 
-    print("🏆 スコア: ${population.first.fitness.toStringAsFixed(1)} | 生存: ${population.first.avgTurns}手 | ワザ: ${population.first.totalWazas}回");
+    print(
+        "スコア: ${population.first.fitness.toStringAsFixed(1)} | 生存: ${population.first.avgTurns}手 | ワザ: ${population.first.totalWazas}回");
 
     List<Individual> nextGen = [];
     int eliteCount = (populationSize * 0.1).toInt();
     for (int i = 0; i < eliteCount; i++) nextGen.add(population[i]);
 
-    List<Individual> parents = population.sublist(0, (populationSize * 0.5).toInt());
+    List<Individual> parents =
+        population.sublist(0, (populationSize * 0.5).toInt());
     while (nextGen.length < populationSize) {
       var p1 = parents[rng.nextInt(parents.length)];
       var p2 = parents[rng.nextInt(parents.length)];
@@ -81,24 +84,34 @@ void main() {
     'cavePenalty': globalBest.weights.cavePenalty,
     'dumpBonus': globalBest.weights.dumpBonus,
   }));
-  print("💾 best_weights_full.json に保存しました！出力された値を game_logic.dart と cpu_agent.dart にコピペしてください。");
+  print(
+      "💾 best_weights_full.json に保存しました！出力された値を game_logic.dart と cpu_agent.dart にコピペしてください。");
 }
 
 Individual _crossoverAndMutate(Individual p1, Individual p2) {
   double _mix(double a, double b) => rng.nextBool() ? a : b;
-  double _mut(double val, double maxVal) => rng.nextDouble() < mutationRate ? (val + (rng.nextDouble() * maxVal * 0.2 - maxVal * 0.1)).clamp(0.0, maxVal) : val;
+  double _mut(double val, double maxVal) => rng.nextDouble() < mutationRate
+      ? (val + (rng.nextDouble() * maxVal * 0.2 - maxVal * 0.1))
+          .clamp(0.0, maxVal)
+      : val;
 
   return Individual(CPUWeights(
     safety: _mut(_mix(p1.weights.safety, p2.weights.safety), 100.0),
     shape: _mut(_mix(p1.weights.shape, p2.weights.shape), 20.0),
     flatness: _mut(_mix(p1.weights.flatness, p2.weights.flatness), 20.0),
     connection: _mut(_mix(p1.weights.connection, p2.weights.connection), 30.0),
-    wazaBonus: _mut(_mix(p1.weights.wazaBonus, p2.weights.wazaBonus), 100000000.0),
-    hintBonus: _mut(_mix(p1.weights.hintBonus, p2.weights.hintBonus), 100000000.0),
-    hintPenalty: _mut(_mix(p1.weights.hintPenalty, p2.weights.hintPenalty), 1000000000.0),
-    reachBonus: _mut(_mix(p1.weights.reachBonus, p2.weights.reachBonus), 50000000.0),
-    cavePenalty: _mut(_mix(p1.weights.cavePenalty, p2.weights.cavePenalty), 100000000.0),
-    dumpBonus: _mut(_mix(p1.weights.dumpBonus, p2.weights.dumpBonus), 1000000.0),
+    wazaBonus:
+        _mut(_mix(p1.weights.wazaBonus, p2.weights.wazaBonus), 100000000.0),
+    hintBonus:
+        _mut(_mix(p1.weights.hintBonus, p2.weights.hintBonus), 100000000.0),
+    hintPenalty: _mut(
+        _mix(p1.weights.hintPenalty, p2.weights.hintPenalty), 1000000000.0),
+    reachBonus:
+        _mut(_mix(p1.weights.reachBonus, p2.weights.reachBonus), 50000000.0),
+    cavePenalty:
+        _mut(_mix(p1.weights.cavePenalty, p2.weights.cavePenalty), 100000000.0),
+    dumpBonus:
+        _mut(_mix(p1.weights.dumpBonus, p2.weights.dumpBonus), 1000000.0),
   ));
 }
 
@@ -128,19 +141,25 @@ void _evaluateIndividual(Individual ind) {
       for (int c = 0; c < 10; c++) {
         for (double offset in [-8.0, 0.0, 8.0]) {
           for (int r = 0; r < 6; r++) {
-            SimDropResult result = _simulateDropHeadless(grid, c, offset, r, nextColors);
-            double score = evaluateBoardLogic(result.simGrid, result.newBalls, ind.weights);
-            
+            SimDropResult result =
+                _simulateDropHeadless(grid, c, offset, r, nextColors);
+            double score = evaluateBoardLogic(
+                result.simGrid, result.newBalls, ind.weights);
+
             if (result.wazaCompleted) score += ind.weights.wazaBonus * 2.0;
 
             if (score > bestScore) {
-              bestScore = score; bestCol = c; bestOffset = offset; bestRot = r;
+              bestScore = score;
+              bestCol = c;
+              bestOffset = offset;
+              bestRot = r;
             }
           }
         }
       }
 
-      SimDropResult finalDrop = _simulateDropHeadless(grid, bestCol, bestOffset, bestRot, nextColors);
+      SimDropResult finalDrop =
+          _simulateDropHeadless(grid, bestCol, bestOffset, bestRot, nextColors);
       grid = finalDrop.simGrid;
       if (finalDrop.wazaCompleted) wazas++;
 
@@ -157,13 +176,18 @@ void _evaluateIndividual(Individual ind) {
   ind.totalWazas = wazas;
 }
 
-SimDropResult _simulateDropHeadless(SimGrid baseGrid, int targetCol, double offsetX, int targetRot, List<BallColor> colors) {
+SimDropResult _simulateDropHeadless(SimGrid baseGrid, int targetCol,
+    double offsetX, int targetRot, List<BallColor> colors) {
   SimGrid simGrid = SimGrid(12, Map.from(baseGrid.board));
   Map<HexCoordinate, BallColor> newBalls = {};
-  
+
   double rad = targetRot * pi / 3;
-  List<Vector2> baseOffsets = [Vector2(0, -17.32), Vector2(-15, 8.66), Vector2(15, 8.66)];
-  
+  List<Vector2> baseOffsets = [
+    Vector2(0, -17.32),
+    Vector2(-15, 8.66),
+    Vector2(15, 8.66)
+  ];
+
   List<_BallDrop> drops = [];
   for (int i = 0; i < 3; i++) {
     double nx = baseOffsets[i].x * cos(rad) - baseOffsets[i].y * sin(rad);
@@ -173,26 +197,33 @@ SimDropResult _simulateDropHeadless(SimGrid baseGrid, int targetCol, double offs
   drops.sort((a, b) => b.ny.compareTo(a.ny));
 
   for (var drop in drops) {
-     int c = (targetCol + (drop.nx > 0 ? 1 : drop.nx < 0 ? -1 : 0)).clamp(0, 9);
-     HexCoordinate startHex = simGrid.findNearestEmpty(HexCoordinate(c, 0));
-     HexCoordinate finalHex = simGrid.dropBall(startHex, offsetX);
-     simGrid.board[finalHex] = drop.color;
-     newBalls[finalHex] = drop.color;
+    int c = (targetCol +
+            (drop.nx > 0
+                ? 1
+                : drop.nx < 0
+                    ? -1
+                    : 0))
+        .clamp(0, 9);
+    HexCoordinate startHex = simGrid.findNearestEmpty(HexCoordinate(c, 0));
+    HexCoordinate finalHex = simGrid.dropBall(startHex, offsetX);
+    simGrid.board[finalHex] = drop.color;
+    newBalls[finalHex] = drop.color;
   }
 
   bool wazaCompleted = false;
   Set<HexCoordinate> toRemove = {};
   for (var entry in newBalls.entries) {
-     if (toRemove.contains(entry.key)) continue;
-     var match = simGrid.checkMatchesFrom(entry.key, entry.value);
-     if (match != null && match.matched.length >= 6) {
-        if (match.waza != WazaType.none) wazaCompleted = true;
-        toRemove.addAll(match.matched);
-     }
+    if (toRemove.contains(entry.key)) continue;
+    var match = simGrid.checkMatchesFrom(entry.key, entry.value);
+    if (match != null && match.matched.length >= 6) {
+      if (match.waza != WazaType.none) wazaCompleted = true;
+      toRemove.addAll(match.matched);
+    }
   }
 
   for (var hex in toRemove) simGrid.board.remove(hex);
-  return SimDropResult(simGrid, newBalls, toRemove, wazaCompleted: wazaCompleted);
+  return SimDropResult(simGrid, newBalls, toRemove,
+      wazaCompleted: wazaCompleted);
 }
 
 class _BallDrop {

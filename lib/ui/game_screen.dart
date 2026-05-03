@@ -22,6 +22,7 @@ import '../game/puzzle_game.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/banner_ad_widget.dart';
+import 'components/hexagon_currency_icons.dart';
 import 'components/interstitial_ad_manager.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
@@ -74,8 +75,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   static const double _compactStampWidth = 118;
   static const Duration _postReadyGoBoardPause = Duration(milliseconds: 350);
   static const Duration _preReadyDelay = Duration(milliseconds: 500);
-  static const Duration _resultFreezeDelay = Duration(milliseconds: 380);
-  static const Duration _resultBoardSettleDelay = Duration(milliseconds: 320);
+  static const Duration _resultFreezeDelay = Duration(milliseconds: 700);
+  static const Duration _resultBoardSettleDelay = Duration(milliseconds: 650);
+  static const Duration _resultOpponentDisplayGrace =
+      Duration(milliseconds: 450);
   static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
@@ -797,13 +800,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final losses = result?.losses ?? _arenaManager.currentLosses;
     final reward = result?.reward;
 
-    final rewardText = result?.isCompleted == true && reward != null
-        ? 'コイン +${reward.coins}'
-        : '$wins勝 $losses敗';
+    if (result?.isCompleted == true && reward != null) {
+      return _buildResultInfoRow(
+        label: 'アリーナ報酬',
+        value: '+${reward.coins}',
+        color: Colors.lightBlueAccent,
+        leadingValue: const HexagonCoinIcon(size: 18),
+      );
+    }
 
     return _buildResultInfoRow(
-      label: result?.isCompleted == true ? 'アリーナ報酬' : 'アリーナ',
-      value: rewardText,
+      label: 'アリーナ',
+      value: '$wins勝 $losses敗',
       color: Colors.lightBlueAccent,
     );
   }
@@ -812,7 +820,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final totalCoins = _totalResultCoinsEarned;
     if (totalCoins == null) {
       return const Text(
-        'コインを集計中...',
+        '集計中...',
         style: TextStyle(
           color: Colors.white70,
           fontSize: 16,
@@ -821,10 +829,75 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       );
     }
 
-    return _buildResultInfoRow(
-      label: 'コイン',
-      value: '+$totalCoins',
-      color: Colors.amberAccent,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.42)),
+      ),
+      child: Row(
+        children: [
+          const HexagonCoinIcon(size: 18),
+          const Spacer(),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                '+$totalCoins',
+                maxLines: 1,
+                style: const TextStyle(
+                  color: Colors.amberAccent,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+          if (_shouldShowResultCoinTripleButton) ...[
+            const SizedBox(width: 10),
+            _buildResultCoinTripleButton(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  bool get _shouldShowResultCoinTripleButton =>
+      _resultCoinTripleInProgress ||
+      (!_resultCoinTripleClaimed && _resultCoinBaseEarned != null);
+
+  Widget _buildResultCoinTripleButton() {
+    final waiting = _resultCoinTripleInProgress;
+    return InkWell(
+      onTap: waiting
+          ? null
+          : () {
+              unawaited(_claimResultTripleCoinBonus());
+            },
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.amberAccent.withValues(alpha: waiting ? 0.08 : 0.18),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: Colors.amberAccent.withValues(alpha: waiting ? 0.28 : 0.72),
+          ),
+        ),
+        child: Text(
+          waiting ? '再生中...' : '▶×3倍',
+          style: TextStyle(
+            color: waiting ? Colors.white54 : Colors.amberAccent,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.6,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1010,6 +1083,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required String value,
     required Color color,
   }) {
+    final isRatingValue = value != '変動なし';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
@@ -1017,13 +1091,22 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: color.withValues(alpha: 0.36)),
       ),
-      child: Text(
-        value,
-        style: TextStyle(
-          color: color,
-          fontSize: 15,
-          fontWeight: FontWeight.w900,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isRatingValue) ...[
+            const HexagonTrophyIcon(size: 16),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1073,6 +1156,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required String value,
     required Color color,
     String? trailing,
+    Widget? leadingValue,
   }) {
     return Container(
       width: double.infinity,
@@ -1094,6 +1178,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
           ),
           const Spacer(),
+          if (leadingValue != null) ...[
+            leadingValue,
+            const SizedBox(width: 6),
+          ],
           Flexible(
             child: FittedBox(
               fit: BoxFit.scaleDown,
@@ -1668,26 +1756,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               const SizedBox(height: 12),
               _buildResultExpSummary(),
               const SizedBox(height: 12),
-              if (_resultCoinTripleInProgress) ...[
-                _buildCyberResultButton(
-                  label: '動画を再生中...',
-                  baseColor: Colors.amberAccent,
-                  isWaiting: true,
-                  onPressed: null,
-                ),
-                const SizedBox(height: 12),
-              ] else if (!_resultCoinTripleClaimed &&
-                  _resultCoinBaseEarned != null) ...[
-                _buildCyberResultButton(
-                  label: '動画で3倍',
-                  baseColor: Colors.amberAccent,
-                  isWaiting: false,
-                  onPressed: () {
-                    unawaited(_claimResultTripleCoinBonus());
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
               if (!widget.isCpuMode) ...[
                 _buildCyberResultButton(
                   label: 'RESTART',
@@ -1705,7 +1773,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 12),
               ],
               _buildCyberResultButton(
-                label: 'HOME',
+                label: 'ホームへ戻る',
                 baseColor: Colors.white54,
                 isWaiting: false,
                 onPressed: () {
@@ -1731,22 +1799,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     final win = _onlineResultMessage == 'YOU WIN!!';
     final textColor = win ? Colors.cyanAccent : Colors.pinkAccent;
+    final title = win && _onlineResultWasForfeit ? '不戦勝' : (win ? '勝ち' : '負け');
 
     return Positioned.fill(
       child: _buildUnifiedResultSheet(
-        title: win ? '勝ち' : '負け',
+        title: title,
         titleColor: textColor,
         children: [
           _buildBattleResultProfiles(),
-          if (_onlineResultWasForfeit) ...[
-            const SizedBox(height: 12),
-            _buildResultInfoRow(
-              label: '決着',
-              value: win ? '不戦勝' : '試合放棄',
-              color: textColor,
-            ),
-            const SizedBox(height: 12),
-          ],
           if (widget.isArenaMode) ...[
             const SizedBox(height: 12),
             _buildArenaResultSummary(),
@@ -1756,26 +1816,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           const SizedBox(height: 12),
           _buildResultExpSummary(),
           const SizedBox(height: 12),
-          if (_resultCoinTripleInProgress) ...[
-            _buildCyberResultButton(
-              label: '動画を再生中...',
-              baseColor: Colors.amberAccent,
-              isWaiting: true,
-              onPressed: null,
-            ),
-            const SizedBox(height: 12),
-          ] else if (!_resultCoinTripleClaimed &&
-              _resultCoinBaseEarned != null) ...[
-            _buildCyberResultButton(
-              label: '動画で3倍',
-              baseColor: Colors.amberAccent,
-              isWaiting: false,
-              onPressed: () {
-                unawaited(_claimResultTripleCoinBonus());
-              },
-            ),
-            const SizedBox(height: 12),
-          ],
           if (!widget.isRankedMode && !_onlineResultWasForfeit) ...[
             _buildCyberResultButton(
               label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH',
@@ -1790,7 +1830,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             const SizedBox(height: 12),
           ],
           _buildCyberResultButton(
-            label: 'HOME',
+            label: 'ホームへ戻る',
             baseColor: Colors.white54,
             isWaiting: false,
             onPressed: () {
@@ -3052,8 +3092,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final scoreState = _playerGame.scoreManager.state.value;
     final scoreBonus = scoreState.score ~/ 120;
     final levelBonus = scoreState.level * 45;
-    final chainBonus = _playerGame.scoreManager.maxChainThisRun * 30;
-    return max(100, scoreBonus + levelBonus + chainBonus);
+    return max(100, scoreBonus + levelBonus);
   }
 
   Future<void> _applySoloExpReward() async {
@@ -3104,7 +3143,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       isWin: isWin,
       mode: mode,
       opponentName: opponentName,
-      maxCombo: _playerGame.scoreManager.maxChainThisRun,
       wazaCounts: {
         'straight': _playerWazaCounts[WazaType.straight] ?? 0,
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
@@ -3120,7 +3158,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       isWin: false,
       mode: 'SOLO',
       opponentName: 'エンドレス',
-      maxCombo: _playerGame.scoreManager.maxChainThisRun,
       wazaCounts: {
         'straight': _playerWazaCounts[WazaType.straight] ?? 0,
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
@@ -3687,6 +3724,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             (opponentCrossedDeathLine || resultWasForfeit)
         ? _cpuGame!
         : _playerGame;
+    if (!resultWasForfeit && opponentCrossedDeathLine) {
+      await Future<void>.delayed(_resultOpponentDisplayGrace);
+      if (!mounted) {
+        return;
+      }
+    }
     _triggerResultAudio(playerWon: playerWon);
     await targetGame.animateDeathLineToRed();
     await Future<void>.delayed(_resultBoardSettleDelay);

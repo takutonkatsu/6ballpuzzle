@@ -100,7 +100,6 @@ class _RecordScreenState extends State<RecordScreen> {
     ].reduce((a, b) => a > b ? a : b);
     return _tabList(
       children: [
-        _bigStat('最大連鎖', '${_playerData.maxCombo}', Colors.amberAccent),
         _barStat('ストレート', counts['straight'] ?? 0, maxCount, Colors.cyanAccent),
         _barStat(
             'ピラミッド', counts['pyramid'] ?? 0, maxCount, Colors.purpleAccent),

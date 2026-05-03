@@ -21,6 +21,7 @@ import '../purchases/ad_removal_purchase_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
+import 'components/hexagon_currency_icons.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
 import 'collection_screen.dart';
@@ -161,7 +162,6 @@ Future<_ArenaRecordTransition?> _applyResolvedOnlineSessionForBootstrap(
     isWin: isWin,
     mode: mode,
     opponentName: resolution.opponentName ?? 'UNKNOWN',
-    maxCombo: 0,
     wazaCounts: const {
       'straight': 0,
       'pyramid': 0,
@@ -289,22 +289,16 @@ class _HomeScreenState extends State<HomeScreen>
     double fontSize = 10,
     FontWeight fontWeight = FontWeight.w900,
     MainAxisSize mainAxisSize = MainAxisSize.min,
+    String prefix = '',
   }) {
-    return Row(
+    return HexagonCoinAmount(
+      amount,
+      color: color,
+      iconSize: iconSize,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
       mainAxisSize: mainAxisSize,
-      children: [
-        Icon(Icons.monetization_on, color: color, size: iconSize),
-        const SizedBox(width: 2),
-        Text(
-          '$amount',
-          maxLines: 1,
-          style: TextStyle(
-            color: color,
-            fontSize: fontSize,
-            fontWeight: fontWeight,
-          ),
-        ),
-      ],
+      prefix: prefix,
     );
   }
 
@@ -743,11 +737,7 @@ class _HomeScreenState extends State<HomeScreen>
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.monetization_on,
-                        color: Colors.amberAccent,
-                        size: compact ? 14 : 16,
-                      ),
+                      HexagonCoinIcon(size: compact ? 14 : 16),
                       SizedBox(width: compact ? 3 : 4),
                       Expanded(
                         child: FittedBox(
@@ -918,15 +908,22 @@ class _HomeScreenState extends State<HomeScreen>
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                               letterSpacing: 1.2)),
-                      Text(
-                        _isLoadingProfile
-                            ? '🏆 ...'
-                            : '🏆 $_rating  $_seasonRankLabel',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const HexagonTrophyIcon(size: 16),
+                          const SizedBox(width: 5),
+                          Text(
+                            _isLoadingProfile
+                                ? '...'
+                                : '$_rating  $_seasonRankLabel',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -954,8 +951,7 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ],
                       ),
-                      child: const Icon(Icons.emoji_events,
-                          color: Colors.amberAccent, size: 18),
+                      child: const HexagonTrophyIcon(size: 18),
                     ),
                   ),
                 ],
@@ -1158,13 +1154,24 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      '次のレベルアップ報酬： $nextRewardCoins コイン',
-                      style: const TextStyle(
-                        color: Colors.amberAccent,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        const Text(
+                          '次のレベルアップ報酬： ',
+                          style: TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        _buildCoinAmount(
+                          nextRewardCoins,
+                          color: Colors.amberAccent,
+                          iconSize: 15,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1369,14 +1376,31 @@ class _HomeScreenState extends State<HomeScreen>
                                   color: Colors.white.withValues(alpha: 0.66),
                                 ),
                               ),
-                              child: Text(
-                                _isLoadingProfile ? '🏆 ...' : '現在🏆$_rating',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.8,
-                                ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    '現在',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  const HexagonTrophyIcon(size: 12),
+                                  const SizedBox(width: 3),
+                                  Text(
+                                    _isLoadingProfile ? '...' : '$_rating',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -2408,10 +2432,10 @@ class _HomeScreenState extends State<HomeScreen>
                       onClaimed: (amount) async {
                         await refreshDialogState();
                         if (context.mounted && amount > 0) {
-                          await _showAlert(
+                          await _showCoinRewardAlert(
                             context,
                             'ミッション報酬',
-                            '+$amount コインを受け取りました。',
+                            amount,
                           );
                         }
                       },
@@ -2431,10 +2455,10 @@ class _HomeScreenState extends State<HomeScreen>
                               await refreshDialogState();
 
                               if (context.mounted) {
-                                await _showAlert(
+                                await _showCoinRewardAlert(
                                   context,
                                   '全達成ボーナス',
-                                  '+$amount コインを受け取りました。',
+                                  amount,
                                 );
                               }
                             } catch (error) {
@@ -2563,13 +2587,26 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          '7日ごとに5000コイン',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              '7日ごとに',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            _buildCoinAmount(
+                              5000,
+                              color: Colors.white70,
+                              iconSize: 13,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ],
                         ),
                       ],
                     ),
@@ -2602,9 +2639,10 @@ class _HomeScreenState extends State<HomeScreen>
     final canClaim = isDone && !claimed;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
+    final canReroll = !claimed && !canClaim && !isRewardedAdMission;
 
     return InkWell(
-      onTap: claimed
+      onTap: claimed || (!canClaim && !isRewardedAdMission)
           ? null
           : () async {
               _playUiTap();
@@ -2724,6 +2762,51 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
                     ),
+                    if (canReroll) ...[
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () async {
+                          _playUiTap();
+                          final rewarded = await RewardedAdManager.instance
+                              .showDoubleRewardAd();
+                          if (!rewarded) {
+                            if (mounted) {
+                              await _showAlert(
+                                context,
+                                '広告エラー',
+                                '動画の視聴が完了しませんでした。',
+                              );
+                            }
+                            return;
+                          }
+                          try {
+                            await _missionManager.rerollMission(index);
+                            await onClaimed(0);
+                          } catch (error) {
+                            if (mounted) {
+                              await _showAlert(context, 'ERROR', '$error');
+                            }
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(999),
+                        child: Container(
+                          width: 34,
+                          height: 34,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.cyanAccent.withValues(alpha: 0.12),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.cyanAccent.withValues(alpha: 0.55),
+                            ),
+                          ),
+                          child: const Text(
+                            '🔄',
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -2792,7 +2875,7 @@ class _HomeScreenState extends State<HomeScreen>
           if (!context.mounted) {
             return;
           }
-          await _showAlert(context, 'コインが足りません', '$error');
+          await _showAlert(context, '不足しています', '$error');
           return;
         }
         await _refreshPlayerEconomy();
@@ -3278,7 +3361,6 @@ class _HomeScreenState extends State<HomeScreen>
       isWin: isWin,
       mode: mode,
       opponentName: resolution.opponentName ?? 'UNKNOWN',
-      maxCombo: 0,
       wazaCounts: const {
         'straight': 0,
         'pyramid': 0,
@@ -3400,6 +3482,50 @@ class _HomeScreenState extends State<HomeScreen>
                   height: 1.5,
                 ),
                 textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              _buildCyberDialogButton(
+                label: 'OK',
+                accentColor: Colors.cyanAccent,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showCoinRewardAlert(
+    BuildContext context,
+    String title,
+    int amount,
+  ) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.cyanAccent,
+          title: title,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildCoinAmount(
+                    amount,
+                    color: Colors.amberAccent,
+                    iconSize: 22,
+                    fontSize: 20,
+                    prefix: '+',
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'を受け取りました。',
+                    style: TextStyle(color: Colors.white70, height: 1.5),
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
               _buildCyberDialogButton(
@@ -4062,7 +4188,7 @@ class _HomeScreenState extends State<HomeScreen>
                         const SizedBox(height: 16),
                         _buildDebugNumberField('レート', rateController),
                         const SizedBox(height: 10),
-                        _buildDebugNumberField('コイン', coinsController),
+                        _buildDebugNumberField('所持数', coinsController),
                         const SizedBox(height: 10),
                         if (_adGiftCodeIssuerEnabled) ...[
                           _buildCyberDialogButton(

@@ -8,6 +8,7 @@ import '../data/player_data_manager.dart';
 import '../game/gacha_manager.dart';
 import '../game/mission_manager.dart';
 import 'components/gacha_animation_screen.dart';
+import 'components/hexagon_currency_icons.dart';
 import 'components/rewarded_ad_manager.dart';
 
 class ShopScreen extends StatefulWidget {
@@ -28,6 +29,9 @@ class _ShopScreenState extends State<ShopScreen> {
   List<GameItem> _items = const [];
   List<GameItem> _ownedItems = const [];
   int _adRollsUsed = 0;
+
+  int get _remainingAdRolls =>
+      (GachaManager.dailyAdRollLimit - _adRollsUsed).clamp(0, 999);
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -404,11 +408,10 @@ class _ShopScreenState extends State<ShopScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.monetization_on,
-                                color: Colors.amberAccent, size: 28),
+                            const HexagonCoinIcon(size: 28),
                             const SizedBox(width: 12),
                             Text(
-                              '$_coins コイン',
+                              '$_coins',
                               style: const TextStyle(
                                 color: Colors.amberAccent,
                                 fontWeight: FontWeight.w900,
@@ -502,10 +505,10 @@ class _ShopScreenState extends State<ShopScreen> {
                               ),
                               icon: const Icon(Icons.auto_awesome,
                                   color: Colors.white),
-                              label: Row(
+                              label: const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Text(
+                                  Text(
                                     'ガチャを引く（',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w900,
@@ -513,14 +516,10 @@ class _ShopScreenState extends State<ShopScreen> {
                                       fontSize: 16,
                                     ),
                                   ),
-                                  const Icon(
-                                    Icons.monetization_on,
-                                    color: Colors.amberAccent,
-                                    size: 18,
-                                  ),
+                                  HexagonCoinIcon(size: 18),
                                   Text(
                                     '${GachaManager.rollCost}）',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: 0.5,
                                       fontSize: 16,
@@ -554,7 +553,7 @@ class _ShopScreenState extends State<ShopScreen> {
                               ),
                               icon: const Icon(Icons.ondemand_video),
                               label: Text(
-                                '動画で無料 $_adRollsUsed/${GachaManager.dailyAdRollLimit}',
+                                '動画で無料 残り$_remainingAdRolls回',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     letterSpacing: 0.5),
@@ -701,14 +700,21 @@ class _ShopScreenState extends State<ShopScreen> {
                 ),
                 padding: EdgeInsets.zero,
               ),
-              child: Text(
-                canBuy ? '${_priceFor(item)}コイン' : '購入済み',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.5,
-                  fontSize: 14,
-                ),
-              ),
+              child: canBuy
+                  ? HexagonCoinAmount(
+                      _priceFor(item),
+                      color: accent,
+                      iconSize: 16,
+                      fontSize: 14,
+                    )
+                  : const Text(
+                      '購入済み',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                        fontSize: 14,
+                      ),
+                    ),
             ),
           ),
         ],

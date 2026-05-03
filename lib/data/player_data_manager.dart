@@ -109,7 +109,6 @@ class PlayerDataManager {
   static const String _totalMatchesKey = 'player_total_matches';
   static const String _totalWinsKey = 'player_total_wins';
   static const String _totalLossesKey = 'player_total_losses';
-  static const String _maxComboKey = 'player_max_combo';
   static const String _wazaCountsKey = 'player_waza_counts_json';
   static const String _matchHistoryKey = 'player_match_history_json';
   static const String _modePlayCountsKey = 'player_mode_play_counts_json';
@@ -147,7 +146,6 @@ class PlayerDataManager {
   int _totalMatches = 0;
   int _totalWins = 0;
   int _totalLosses = 0;
-  int _maxCombo = 0;
   Map<String, int> _wazaCounts = {
     'straight': 0,
     'pyramid': 0,
@@ -194,7 +192,6 @@ class PlayerDataManager {
   int get totalMatches => _totalMatches;
   int get totalWins => _totalWins;
   int get totalLosses => _totalLosses;
-  int get maxCombo => _maxCombo;
   Map<String, int> get wazaCounts => Map.unmodifiable(_wazaCounts);
   List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
   Map<String, int> get modePlayCounts => Map.unmodifiable(_modePlayCounts);
@@ -205,7 +202,6 @@ class PlayerDataManager {
           maxArenaWins: _maxArenaWins,
           accountAge: accountAge,
           totalWins: _totalWins,
-          maxCombo: _maxCombo,
           wazaCounts: _wazaCounts,
         ),
       )
@@ -309,7 +305,6 @@ class PlayerDataManager {
     _totalMatches = prefs.getInt(_totalMatchesKey) ?? 0;
     _totalWins = prefs.getInt(_totalWinsKey) ?? 0;
     _totalLosses = prefs.getInt(_totalLossesKey) ?? 0;
-    _maxCombo = prefs.getInt(_maxComboKey) ?? 0;
     _wazaCounts = {
       'straight': 0,
       'pyramid': 0,
@@ -399,7 +394,7 @@ class PlayerDataManager {
   Future<void> spendCoins(int amount) async {
     await load();
     if (_coins < amount) {
-      throw StateError('コインが足りません。必要: $amount / 所持: $_coins');
+      throw StateError('不足しています。必要: $amount / 所持: $_coins');
     }
     _coins -= amount;
     await _saveEconomy();
@@ -598,7 +593,6 @@ class PlayerDataManager {
     required bool isWin,
     required String mode,
     required String opponentName,
-    required int maxCombo,
     required Map<String, int> wazaCounts,
     int? score,
     int? ratingAfter,
@@ -611,7 +605,6 @@ class PlayerDataManager {
     } else {
       _totalLosses++;
     }
-    _maxCombo = max(_maxCombo, maxCombo);
     _modePlayCounts[mode] = (_modePlayCounts[mode] ?? 0) + 1;
     for (final entry in wazaCounts.entries) {
       _wazaCounts[entry.key] = (_wazaCounts[entry.key] ?? 0) + entry.value;
@@ -699,7 +692,6 @@ class PlayerDataManager {
     await prefs.setInt(_totalMatchesKey, _totalMatches);
     await prefs.setInt(_totalWinsKey, _totalWins);
     await prefs.setInt(_totalLossesKey, _totalLosses);
-    await prefs.setInt(_maxComboKey, _maxCombo);
     await prefs.setString(_wazaCountsKey, jsonEncode(_wazaCounts));
     await prefs.setString(_modePlayCountsKey, jsonEncode(_modePlayCounts));
     await prefs.setString(
@@ -828,8 +820,8 @@ class PlayerDataManager {
     }
     final prefs = await SharedPreferences.getInstance();
     final message = currentLevel == previousLevel + 1
-        ? 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として $rewardCoins コインを獲得しました。'
-        : 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として合計 $rewardCoins コインを獲得しました。';
+        ? 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として $rewardCoins を獲得しました。'
+        : 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として合計 $rewardCoins を獲得しました。';
     await prefs.setString(_pendingLevelUpRewardLogKey, message);
   }
 
@@ -861,7 +853,7 @@ class PlayerDataManager {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         _pendingLoginBonusLogKey,
-        '連続ログイン$_loginStreak日達成！\n5000コインを獲得しました。',
+        '連続ログイン$_loginStreak日達成！\n5000を獲得しました。',
       );
     }
     return true;

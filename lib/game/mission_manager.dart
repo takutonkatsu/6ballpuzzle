@@ -7,7 +7,6 @@ class MissionManager {
   MissionManager._internal();
 
   static final MissionManager instance = MissionManager._internal();
-  static const int rerollCost = 500;
   static const int allClearBonusCoins = 2000;
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
@@ -83,7 +82,6 @@ class MissionManager {
       throw StateError('動画広告ミッションは固定です。');
     }
 
-    await _playerData.spendCoins(rerollCost);
     final currentIds =
         missions.map((mission) => mission['id']?.toString() ?? '').toSet();
     currentIds.remove(missions[index]['id']?.toString() ?? '');
@@ -152,7 +150,7 @@ class MissionManager {
       mission['allClearBonusClaimed'] = true;
     }
 
-    final claimAmount = allClearBonusCoins;
+    const claimAmount = allClearBonusCoins;
     if (claimAmount == 0) return 0;
 
     await _playerData.addCoins(claimAmount);

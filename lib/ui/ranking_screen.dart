@@ -6,6 +6,7 @@ import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
+import 'components/hexagon_currency_icons.dart';
 
 class RankingScreen extends StatefulWidget {
   const RankingScreen({super.key});
@@ -125,7 +126,7 @@ class _RankingScreenState extends State<RankingScreen> {
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.emoji_events, color: Colors.amberAccent, size: 20),
+              HexagonTrophyIcon(size: 20),
               SizedBox(width: 8),
               Text(
                 'ランキング',
@@ -407,14 +408,21 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
           ),
           const SizedBox(width: 12),
-          Text(
-            _showDailyWins ? '${entry.dailyWins}勝' : '🏆${entry.rating}',
-            style: TextStyle(
-              color: accent,
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
+          _showDailyWins
+              ? Text(
+                  '${entry.dailyWins}勝',
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                )
+              : HexagonTrophyAmount(
+                  entry.rating,
+                  color: accent,
+                  iconSize: 17,
+                  fontSize: 16,
+                ),
         ],
       ),
     );

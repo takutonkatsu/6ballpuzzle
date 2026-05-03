@@ -8,6 +8,7 @@ import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
+import 'components/hexagon_currency_icons.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -334,11 +335,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '・10文字以内\n・変更には10000コインが必要です\n・不適切な名前の使用はアカウント停止に繋がる恐れがあります',
+                '・10文字以内',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              const Row(
+                children: [
+                  Text(
+                    '・変更には',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  SizedBox(width: 4),
+                  HexagonCoinAmount(
+                    _nameChangeCost,
+                    color: Colors.white70,
+                    iconSize: 13,
+                    fontSize: 12,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'が必要です',
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                '・不適切な名前の使用はアカウント停止に繋がる恐れがあります',
                 style: TextStyle(
                   color: Colors.white70,
                   fontSize: 12,
-                  height: 1.5,
                 ),
               ),
               const SizedBox(height: 12),
@@ -385,13 +411,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (confirmContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF151827),
-          title: const Text('コインを消費します'),
-          content: Text(
-            '名前の変更には $_nameChangeCost コインを消費します。変更しますか？',
-            style: const TextStyle(
-              color: Colors.white70,
-              height: 1.5,
-            ),
+          title: const Text('消費します'),
+          content: const Row(
+            children: [
+              Text(
+                '名前の変更には ',
+                style: TextStyle(color: Colors.white70, height: 1.5),
+              ),
+              HexagonCoinAmount(
+                _nameChangeCost,
+                color: Colors.white70,
+                iconSize: 16,
+                fontSize: 14,
+              ),
+              Text(
+                ' を消費します。',
+                style: TextStyle(color: Colors.white70, height: 1.5),
+              ),
+            ],
           ),
           actions: [
             TextButton(

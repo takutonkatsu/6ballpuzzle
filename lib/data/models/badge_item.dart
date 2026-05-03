@@ -6,7 +6,6 @@ enum BadgeUnlockType {
   maxArenaWins,
   accountYears,
   totalWins,
-  maxCombo,
   wazaCount,
 }
 
@@ -26,7 +25,6 @@ class BadgeUnlockCondition {
     required int maxArenaWins,
     required Duration accountAge,
     required int totalWins,
-    required int maxCombo,
     required Map<String, int> wazaCounts,
   }) {
     switch (type) {
@@ -40,8 +38,6 @@ class BadgeUnlockCondition {
         return accountAge.inDays >= threshold * 365;
       case BadgeUnlockType.totalWins:
         return totalWins >= threshold;
-      case BadgeUnlockType.maxCombo:
-        return maxCombo >= threshold;
       case BadgeUnlockType.wazaCount:
         return wazaCounts[wazaKey] != null && wazaCounts[wazaKey]! >= threshold;
     }
@@ -59,8 +55,6 @@ class BadgeUnlockCondition {
         return 'プレイ歴 $threshold年';
       case BadgeUnlockType.totalWins:
         return '通算 $threshold勝';
-      case BadgeUnlockType.maxCombo:
-        return '最大 $threshold連鎖';
       case BadgeUnlockType.wazaCount:
         return '${_wazaLabel(wazaKey)} $threshold回';
     }
@@ -130,7 +124,7 @@ class BadgeCatalog {
     BadgeItem(
       id: 'arena_12',
       label: 'アリーナ12勝',
-      icon: Icons.emoji_events,
+      icon: Icons.workspace_premium,
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.maxArenaWins,
         threshold: 12,
@@ -143,15 +137,6 @@ class BadgeCatalog {
       unlockedCondition: BadgeUnlockCondition(
         type: BadgeUnlockType.accountYears,
         threshold: 3,
-      ),
-    ),
-    BadgeItem(
-      id: 'combo_5',
-      label: '5連鎖',
-      icon: Icons.bolt,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.maxCombo,
-        threshold: 5,
       ),
     ),
     BadgeItem(
