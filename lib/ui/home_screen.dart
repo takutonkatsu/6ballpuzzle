@@ -21,6 +21,7 @@ import '../purchases/ad_removal_purchase_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
+import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
@@ -579,42 +580,51 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F13),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildTopBanner1(),
-            const SizedBox(height: 12),
-            _buildTopBanner2(),
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        const ballHeight = 152.0;
-                        const spacing = 8.0;
-                        final modeHeight =
-                            (constraints.maxHeight - ballHeight - spacing)
-                                .clamp(170.0, 280.0);
+      body: Stack(
+        children: [
+          const HexagonGridBackground(
+            color: Colors.cyanAccent,
+            opacity: 0.035,
+            hexRadius: 30,
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                _buildTopBanner1(),
+                const SizedBox(height: 12),
+                _buildTopBanner2(),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            const ballHeight = 152.0;
+                            const spacing = 8.0;
+                            final modeHeight =
+                                (constraints.maxHeight - ballHeight - spacing)
+                                    .clamp(170.0, 280.0);
 
-                        return Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _build3DRotatingBall(),
-                            const SizedBox(height: spacing),
-                            _buildModeSelectionCutout(height: modeHeight),
-                          ],
-                        );
-                      },
-                    ),
+                            return Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _build3DRotatingBall(),
+                                const SizedBox(height: spacing),
+                                _buildModeSelectionCutout(height: modeHeight),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                _buildBottomBannerTop(),
+                _buildBottomBannerAdPlaceholder(),
+              ],
             ),
-            _buildBottomBannerTop(),
-            _buildBottomBannerAdPlaceholder(),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -888,8 +898,8 @@ class _HomeScreenState extends State<HomeScreen>
               decoration: BoxDecoration(
                 color: Colors.black54,
                 borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: Colors.pinkAccent.withValues(alpha: 0.3)),
+                border: Border.all(
+                    color: Colors.pinkAccent.withValues(alpha: 0.48)),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.pinkAccent.withValues(alpha: 0.14),
@@ -914,15 +924,30 @@ class _HomeScreenState extends State<HomeScreen>
                           const HexagonTrophyIcon(size: 16),
                           const SizedBox(width: 5),
                           Text(
-                            _isLoadingProfile
-                                ? '...'
-                                : '$_rating  $_seasonRankLabel',
+                            _isLoadingProfile ? '...' : '$_rating',
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: Color(0xFFE064FF),
                               fontSize: 15,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w900,
+                              shadows: [
+                                Shadow(
+                                  color: Color(0xAA9D4DFF),
+                                  blurRadius: 8,
+                                ),
+                              ],
                             ),
                           ),
+                          if (!_isLoadingProfile) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              _seasonRankLabel,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 2),
@@ -934,25 +959,47 @@ class _HomeScreenState extends State<HomeScreen>
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(height: 7),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.pinkAccent.withValues(alpha: 0.13),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.pinkAccent.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'ランキングを見る',
+                              style: TextStyle(
+                                color: Colors.pinkAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.7,
+                              ),
+                            ),
+                            SizedBox(width: 4),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: Colors.pinkAccent,
+                              size: 14,
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(width: 12),
-                  InkWell(
-                    onTap: _openRankingScreen,
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: Colors.pinkAccent.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.amberAccent.withValues(alpha: 0.22),
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
-                      child: const HexagonTrophyIcon(size: 18),
-                    ),
+                  const SizedBox(width: 10),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.pinkAccent,
+                    size: 22,
                   ),
                 ],
               ),
@@ -1394,10 +1441,16 @@ class _HomeScreenState extends State<HomeScreen>
                                   Text(
                                     _isLoadingProfile ? '...' : '$_rating',
                                     style: const TextStyle(
-                                      color: Colors.white,
+                                      color: Color(0xFFE064FF),
                                       fontSize: 11,
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: 0.8,
+                                      shadows: [
+                                        Shadow(
+                                          color: Color(0xAA9D4DFF),
+                                          blurRadius: 7,
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -2763,7 +2816,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                     if (canReroll) ...[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       InkWell(
                         onTap: () async {
                           _playUiTap();
@@ -2788,21 +2841,71 @@ class _HomeScreenState extends State<HomeScreen>
                             }
                           }
                         },
-                        borderRadius: BorderRadius.circular(999),
+                        borderRadius: BorderRadius.circular(12),
                         child: Container(
-                          width: 34,
+                          width: 46,
                           height: 34,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: Colors.cyanAccent.withValues(alpha: 0.12),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.cyanAccent.withValues(alpha: 0.55),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.cyanAccent.withValues(alpha: 0.24),
+                                Colors.purpleAccent.withValues(alpha: 0.22),
+                              ],
                             ),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.cyanAccent.withValues(alpha: 0.68),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color:
+                                    Colors.cyanAccent.withValues(alpha: 0.18),
+                                blurRadius: 10,
+                              ),
+                              BoxShadow(
+                                color:
+                                    Colors.purpleAccent.withValues(alpha: 0.14),
+                                blurRadius: 14,
+                              ),
+                            ],
                           ),
-                          child: const Text(
-                            '🔄',
-                            style: TextStyle(fontSize: 16),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.sync_rounded,
+                                    color: Colors.cyanAccent,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.72),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.amberAccent.withValues(
+                                          alpha: 0.72,
+                                        ),
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.play_arrow_rounded,
+                                      color: Colors.amberAccent,
+                                      size: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ),

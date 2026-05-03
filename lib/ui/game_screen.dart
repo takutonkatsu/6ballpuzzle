@@ -837,65 +837,96 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.42)),
       ),
-      child: Row(
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          const HexagonCoinIcon(size: 18),
-          const Spacer(),
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text(
-                '+$totalCoins',
-                maxLines: 1,
-                style: const TextStyle(
-                  color: Colors.amberAccent,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.5,
-                ),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: HexagonCoinIcon(size: 24),
+          ),
+          Center(
+            child: Text(
+              '+$totalCoins',
+              maxLines: 1,
+              style: const TextStyle(
+                color: Colors.amberAccent,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
               ),
             ),
           ),
-          if (_shouldShowResultCoinTripleButton) ...[
-            const SizedBox(width: 10),
-            _buildResultCoinTripleButton(),
-          ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: _buildResultCoinTripleButton(),
+          ),
         ],
       ),
     );
   }
 
-  bool get _shouldShowResultCoinTripleButton =>
-      _resultCoinTripleInProgress ||
-      (!_resultCoinTripleClaimed && _resultCoinBaseEarned != null);
-
   Widget _buildResultCoinTripleButton() {
     final waiting = _resultCoinTripleInProgress;
+    final claimed = _resultCoinTripleClaimed;
     return InkWell(
-      onTap: waiting
+      onTap: waiting || claimed || _resultCoinBaseEarned == null
           ? null
           : () {
               unawaited(_claimResultTripleCoinBonus());
             },
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        width: 118,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.amberAccent.withValues(alpha: waiting ? 0.08 : 0.18),
-          borderRadius: BorderRadius.circular(999),
+          color: claimed
+              ? Colors.greenAccent.withValues(alpha: 0.12)
+              : Colors.amberAccent.withValues(alpha: waiting ? 0.08 : 0.2),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: Colors.amberAccent.withValues(alpha: waiting ? 0.28 : 0.72),
+            color: claimed
+                ? Colors.greenAccent.withValues(alpha: 0.55)
+                : Colors.amberAccent.withValues(alpha: waiting ? 0.28 : 0.78),
           ),
+          boxShadow: claimed || waiting
+              ? null
+              : [
+                  BoxShadow(
+                    color: Colors.amberAccent.withValues(alpha: 0.2),
+                    blurRadius: 12,
+                  ),
+                ],
         ),
-        child: Text(
-          waiting ? '再生中...' : '▶×3倍',
-          style: TextStyle(
-            color: waiting ? Colors.white54 : Colors.amberAccent,
-            fontSize: 12,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0.6,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (!claimed && !waiting) ...[
+              const Icon(
+                Icons.play_circle_fill_rounded,
+                color: Colors.amberAccent,
+                size: 24,
+              ),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              claimed
+                  ? '獲得済み'
+                  : waiting
+                      ? '再生中...'
+                      : '×3倍',
+              style: TextStyle(
+                color: claimed
+                    ? Colors.greenAccent
+                    : waiting
+                        ? Colors.white54
+                        : Colors.amberAccent,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -921,6 +952,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           label: 'EXP',
           value: '+$totalExp',
           color: Colors.greenAccent,
+          centerValue: true,
         ),
         if (_didLevelUpFromResultExp) ...[
           const SizedBox(height: 8),
@@ -1123,8 +1155,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Color _myResultRatingDeltaColor() {
-    final delta = _rankedRatingChange?.delta ?? 0;
-    return delta < 0 ? Colors.pinkAccent : Colors.cyanAccent;
+    return const Color(0xFFE064FF);
   }
 
   String _opponentResultName() {
@@ -1157,6 +1188,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required Color color,
     String? trailing,
     Widget? leadingValue,
+    bool centerValue = false,
   }) {
     return Container(
       width: double.infinity,
@@ -1166,51 +1198,81 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: color.withValues(alpha: 0.42)),
       ),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.5,
-            ),
-          ),
-          const Spacer(),
-          if (leadingValue != null) ...[
-            leadingValue,
-            const SizedBox(width: 6),
-          ],
-          Flexible(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerRight,
-              child: Text(
-                value,
-                maxLines: 1,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.5,
+      child: centerValue
+          ? Stack(
+              alignment: Alignment.center,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
                 ),
-              ),
+                Center(
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const Spacer(),
+                if (leadingValue != null) ...[
+                  leadingValue,
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    trailing,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ),
-          if (trailing != null) ...[
-            const SizedBox(width: 8),
-            Text(
-              trailing,
-              style: TextStyle(
-                color: color,
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ],
-      ),
     );
   }
 
@@ -2376,15 +2438,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  !isOccupied ? '-' : (subLabel ?? '-'),
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.2,
-                  ),
-                ),
+                _buildLobbySubLabelText(!isOccupied ? '-' : (subLabel ?? '-')),
                 if (isOccupied && badgeIds.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   _buildBadgeIconRow(badgeIds),
@@ -2424,7 +2478,44 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   String _buildLobbyRatingLabel(int? rating) {
-    return rating == null ? 'レート -' : 'レート $rating';
+    return rating == null ? 'rating:-' : 'rating:$rating';
+  }
+
+  Widget _buildLobbySubLabelText(String value) {
+    const baseStyle = TextStyle(
+      color: Colors.white70,
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+      letterSpacing: 0.2,
+    );
+    if (!value.startsWith('rating:')) {
+      return Text(value, style: baseStyle);
+    }
+    final number = value.substring('rating:'.length);
+    return RichText(
+      text: TextSpan(
+        style: baseStyle,
+        children: [
+          const WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: HexagonTrophyIcon(size: 13),
+            ),
+          ),
+          TextSpan(
+            text: number,
+            style: const TextStyle(
+              color: Color(0xFFE064FF),
+              fontWeight: FontWeight.w900,
+              shadows: [
+                Shadow(color: Color(0xAA9D4DFF), blurRadius: 7),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _buildArenaLobbySubLabel({required bool isHostSlot}) {

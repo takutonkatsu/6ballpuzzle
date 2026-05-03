@@ -8,6 +8,7 @@ import '../data/player_data_manager.dart';
 import '../game/gacha_manager.dart';
 import '../game/mission_manager.dart';
 import 'components/gacha_animation_screen.dart';
+import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/rewarded_ad_manager.dart';
 
@@ -366,23 +367,19 @@ class _ShopScreenState extends State<ShopScreen> {
         ),
         centerTitle: true,
       ),
-      body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(color: Colors.cyanAccent),
-            )
-          : SafeArea(
-              child: Stack(
-                children: [
-                  // Cyberpunk Grid Background
-                  Positioned.fill(
-                    child: Opacity(
-                      opacity: 0.05,
-                      child: CustomPaint(
-                        painter: _StaticGridPainter(color: Colors.cyanAccent),
-                      ),
-                    ),
-                  ),
-                  ListView(
+      body: Stack(
+        children: [
+          const HexagonGridBackground(
+            color: Colors.cyanAccent,
+            opacity: 0.04,
+            hexRadius: 30,
+          ),
+          _isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.cyanAccent),
+                )
+              : SafeArea(
+                  child: ListView(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 16),
                     children: [
@@ -587,9 +584,9 @@ class _ShopScreenState extends State<ShopScreen> {
                       const SizedBox(height: 40),
                     ],
                   ),
-                ],
-              ),
-            ),
+                ),
+        ],
+      ),
     );
   }
 
@@ -760,33 +757,5 @@ class _ShopScreenState extends State<ShopScreen> {
       case ItemRarity.legendary:
         return 'レジェンド';
     }
-  }
-}
-
-class _StaticGridPainter extends CustomPainter {
-  final Color color;
-
-  _StaticGridPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-
-    const double spacing = 40.0;
-
-    for (double x = 0; x < size.width; x += spacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (double y = 0; y < size.height; y += spacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _StaticGridPainter oldDelegate) {
-    return oldDelegate.color != color;
   }
 }

@@ -331,7 +331,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                 ),
                 const SizedBox(height: 18),
                 const Text(
-                  '2026 Takutonkatsu',
+                  '©︎2026 Takutonkatsu',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white54,
