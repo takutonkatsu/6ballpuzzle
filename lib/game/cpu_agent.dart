@@ -109,14 +109,14 @@ class CPUAgent {
         _thinkDelay = 1.0;
         _moveDelay = 0.16;
         _rotationDelay = 0.16;
-        _mistakeRate = 0.0;
+        _mistakeRate = 0.12;
         _lookaheadCount = 0;
         break;
       case CPUDifficulty.hard:
         _thinkDelay = 0.5;
         _moveDelay = 0.09;
         _rotationDelay = 0.09;
-        _mistakeRate = 0.0;
+        _mistakeRate = 0.04;
         _lookaheadCount = 0;
         break;
       case CPUDifficulty.oni:
@@ -124,7 +124,7 @@ class CPUAgent {
         _moveDelay = 0.04;
         _rotationDelay = 0.075;
         _mistakeRate = 0.0;
-        _lookaheadCount = Platform.isAndroid ? 14 : 18;
+        _lookaheadCount = Platform.isAndroid ? 8 : 12;
         break;
     }
   }
@@ -135,6 +135,70 @@ class CPUAgent {
   double _mistakeRate = 0;
   int _lookaheadCount = 4;
   double _lastCpuX = -9999.0;
+  double _humanPauseTimer = 0.0;
+
+  bool get _movesBeforeRotating =>
+      difficulty == CPUDifficulty.easy || difficulty == CPUDifficulty.normal;
+
+  bool get _usesPostRotationDropPause => difficulty == CPUDifficulty.easy;
+
+  double get _postRotationDropDelay => _usesPostRotationDropPause ? 0.18 : 0.0;
+
+  bool get _usesHumanImperfections => difficulty != CPUDifficulty.oni;
+
+  double get _delayJitterRate {
+    switch (difficulty) {
+      case CPUDifficulty.easy:
+        return 0.45;
+      case CPUDifficulty.normal:
+        return 0.28;
+      case CPUDifficulty.hard:
+        return 0.14;
+      case CPUDifficulty.oni:
+        return 0.0;
+    }
+  }
+
+  double get _hesitationChance {
+    switch (difficulty) {
+      case CPUDifficulty.easy:
+        return 0.24;
+      case CPUDifficulty.normal:
+        return 0.12;
+      case CPUDifficulty.hard:
+        return 0.05;
+      case CPUDifficulty.oni:
+        return 0.0;
+    }
+  }
+
+  double get _maxHesitationDuration {
+    switch (difficulty) {
+      case CPUDifficulty.easy:
+        return 0.22;
+      case CPUDifficulty.normal:
+        return 0.13;
+      case CPUDifficulty.hard:
+        return 0.07;
+      case CPUDifficulty.oni:
+        return 0.0;
+    }
+  }
+
+  double get _targetJitterPixels {
+    switch (difficulty) {
+      case CPUDifficulty.easy:
+        return 8.0;
+      case CPUDifficulty.normal:
+        return 4.0;
+      case CPUDifficulty.hard:
+        return 1.5;
+      case CPUDifficulty.oni:
+        return 0.0;
+    }
+  }
+
+  int get _oniDepth2TargetsPerRotation => Platform.isAndroid ? 8 : 10;
 
   void update(double dt) {
     if (game.gameStateWrapper.value != GameState.playing) return;
@@ -145,7 +209,7 @@ class CPUAgent {
 
     if (_targetPixelX == null && !_isThinking && !_isComputing) {
       _isThinking = true;
-      _timer = _thinkDelay;
+      _timer = _humanizedDelay(_thinkDelay);
     }
     if (_isThinking && (_timer -= dt) <= 0) {
       _isThinking = false;
@@ -154,17 +218,9 @@ class CPUAgent {
     }
 
     if (_targetPixelX != null && !_isComputing) {
-      if (_targetRotationCount != 0) {
-        if ((_rotationTimer -= dt) <= 0) {
-          if (_targetRotationCount > 0) {
-            game.rotateRight();
-            _targetRotationCount--;
-          } else {
-            game.rotateLeft();
-            _targetRotationCount++;
-          }
-          _rotationTimer = _rotationDelay;
-        }
+      if (_humanPauseTimer > 0) {
+        _humanPauseTimer -= dt;
+        return;
       }
 
       double currentX = game.activePiece!.position.x;
@@ -183,13 +239,33 @@ class CPUAgent {
         reachedTarget = true;
       }
 
+      final canRotateNow = !_movesBeforeRotating || reachedTarget;
+      bool rotatedThisFrame = false;
+      if (canRotateNow && _targetRotationCount != 0) {
+        if ((_rotationTimer -= dt) <= 0) {
+          if (_targetRotationCount > 0) {
+            game.rotateRight();
+            _targetRotationCount--;
+          } else {
+            game.rotateLeft();
+            _targetRotationCount++;
+          }
+          _rotationTimer = _humanizedDelay(_rotationDelay);
+          rotatedThisFrame = true;
+          _maybeStartHumanHesitation();
+        }
+      }
+
       if (reachedTarget && _targetRotationCount == 0) {
+        if (rotatedThisFrame && _usesPostRotationDropPause) {
+          _dropTimer = max(_dropTimer, _postRotationDropDelay);
+        }
         if ((_dropTimer -= dt) <= 0) {
           game.hardDrop();
           _resetState();
         }
       } else {
-        _dropTimer = _moveDelay;
+        _dropTimer = _humanizedDelay(_moveDelay);
       }
     }
   }
@@ -200,6 +276,7 @@ class CPUAgent {
     _isThinking = false;
     _isComputing = false;
     _lastCpuX = -9999.0;
+    _humanPauseTimer = 0.0;
     _timer = 0.0;
     _rotationTimer = 0.0;
     _dropTimer = 0.0;
@@ -207,6 +284,51 @@ class CPUAgent {
 
   void stop() {
     _resetState();
+  }
+
+  double _humanizedDelay(double baseDelay) {
+    if (!_usesHumanImperfections || baseDelay <= 0) {
+      return baseDelay;
+    }
+
+    final jitter = _delayJitterRate;
+    final minScale = 1.0 - (jitter * 0.45);
+    final maxScale = 1.0 + jitter;
+    return baseDelay *
+        (minScale + _random.nextDouble() * (maxScale - minScale));
+  }
+
+  double _initialHumanPause() {
+    if (!_usesHumanImperfections) {
+      return 0.0;
+    }
+
+    final maxPause = _maxHesitationDuration * 0.65;
+    return _random.nextDouble() * maxPause;
+  }
+
+  void _maybeStartHumanHesitation() {
+    if (!_usesHumanImperfections ||
+        _maxHesitationDuration <= 0 ||
+        _random.nextDouble() >= _hesitationChance) {
+      return;
+    }
+
+    _humanPauseTimer = max(
+      _humanPauseTimer,
+      _random.nextDouble() * _maxHesitationDuration,
+    );
+  }
+
+  double _humanizedTargetX(double targetX) {
+    if (!_usesHumanImperfections || _targetJitterPixels <= 0) {
+      return targetX;
+    }
+
+    final jitter = (_random.nextDouble() * 2 - 1) * _targetJitterPixels;
+    final leftLimit = game.grid.leftWallX + 16.0;
+    final rightLimit = game.grid.rightWallX - 16.0;
+    return (targetX + jitter).clamp(leftLimit, rightLimit).toDouble();
   }
 
   double _evaluateSim(
@@ -493,31 +615,28 @@ class CPUAgent {
     }
 
     if (game.activePiece != null && !game.activePiece!.isLocked) {
-      _targetPixelX = selected.x;
+      _targetPixelX = _humanizedTargetX(selected.x);
       int bestRot = selected.rot;
       _targetRotationCount = bestRot > 3 ? bestRot - 6 : bestRot;
     }
 
     _isComputing = false;
     _rotationTimer = 0.0;
-    _dropTimer = _moveDelay;
+    _dropTimer = _humanizedDelay(_moveDelay);
+    _humanPauseTimer = _initialHumanPause();
   }
 
   _EvalOption _selectEasyOption(List<_EvalOption> options) {
-    final ranked = List<_EvalOption>.from(options)
-      ..sort((a, b) => _normalImmediateScore(b).compareTo(
-            _normalImmediateScore(a),
-          ));
+    final candidatePool = options.where(
+      (option) => !option.simResult.wazaCompleted,
+    );
+    final ranked = List<_EvalOption>.from(
+      candidatePool.isNotEmpty ? candidatePool : options,
+    )..sort((a, b) => _normalImmediateScore(b).compareTo(
+          _normalImmediateScore(a),
+        ));
 
-    if (ranked.length > 1 && _random.nextDouble() < _mistakeRate) {
-      final inefficientStart = max(1, ranked.length ~/ 2);
-      final inefficientPool = ranked.sublist(inefficientStart);
-      if (inefficientPool.isNotEmpty) {
-        return inefficientPool[_random.nextInt(inefficientPool.length)];
-      }
-    }
-
-    return ranked.first;
+    return _selectWithMistake(ranked);
   }
 
   _EvalOption _selectNormalOption(List<_EvalOption> options) {
@@ -525,7 +644,7 @@ class CPUAgent {
       ..sort((a, b) => _normalImmediateScore(b).compareTo(
             _normalImmediateScore(a),
           ));
-    return ranked.first;
+    return _selectWithMistake(ranked);
   }
 
   Future<_EvalOption> _selectOniOption(
@@ -544,7 +663,7 @@ class CPUAgent {
       return ranked.first;
     }
 
-    final checkCount = min(max(_lookaheadCount, 18), ranked.length);
+    final checkCount = min(_lookaheadCount, ranked.length);
     for (int i = 0; i < checkCount; i++) {
       if (stopwatch.elapsedMilliseconds > 16) {
         await Future.delayed(Duration.zero);
@@ -565,12 +684,16 @@ class CPUAgent {
 
       final board2 = opt1.simResult.simGrid.board;
       final board2Analysis = _analyzeBoard(board2);
+      final depth2TargetXsByRotation = _oniDepth2TargetsByRotation(
+        board2Analysis,
+        validTargetXsByRotation,
+      );
       double maxDepth2Score = -double.infinity;
       double bestNextTurnWazaMult = 0.0;
 
       for (int rot2 = 0; rot2 < 6; rot2++) {
         final validTargetXs2 =
-            validTargetXsByRotation[rot2] ?? const <double>{};
+            depth2TargetXsByRotation[rot2] ?? const <double>{};
 
         for (final targetX2 in validTargetXs2) {
           final sim2 = _simulateDrop(board2, targetX2, nextColors, rot2);
@@ -610,6 +733,111 @@ class CPUAgent {
     return topOptions.first;
   }
 
+  Map<int, Set<double>> _oniDepth2TargetsByRotation(
+    _BoardAnalysis analysis,
+    Map<int, Set<double>> validTargetXsByRotation,
+  ) {
+    return {
+      for (final entry in validTargetXsByRotation.entries)
+        entry.key: _selectOniDepth2TargetXs(
+          analysis,
+          entry.value,
+        ),
+    };
+  }
+
+  Set<double> _selectOniDepth2TargetXs(
+    _BoardAnalysis analysis,
+    Set<double> validTargetXs,
+  ) {
+    if (validTargetXs.length <= _oniDepth2TargetsPerRotation) {
+      return validTargetXs;
+    }
+
+    final sortedXs = validTargetXs.toList()..sort();
+    final selected = <double>{};
+
+    final seedEntries = analysis.wazaSeeds.entries.toList()
+      ..sort((a, b) {
+        final needA = _minimumSeedNeed(a.value);
+        final needB = _minimumSeedNeed(b.value);
+        final needOrder = needA.compareTo(needB);
+        if (needOrder != 0) {
+          return needOrder;
+        }
+        return _bestSeedMultiplier(b.value)
+            .compareTo(_bestSeedMultiplier(a.value));
+      });
+
+    for (final entry in seedEntries) {
+      if (selected.length >= _oniDepth2TargetsPerRotation) {
+        break;
+      }
+      final targetPixelX = game.grid.hexToPixel(entry.key).x;
+      _addNearestLookaheadXs(sortedXs, targetPixelX, selected);
+    }
+
+    if (selected.length < _oniDepth2TargetsPerRotation) {
+      _addEvenlySpacedLookaheadXs(sortedXs, selected);
+    }
+
+    return selected;
+  }
+
+  int _minimumSeedNeed(Map<BallColor, _SeedInfo> colorNeeds) {
+    return colorNeeds.values.map((info) => info.needed).reduce(min);
+  }
+
+  double _bestSeedMultiplier(Map<BallColor, _SeedInfo> colorNeeds) {
+    return colorNeeds.values
+        .map((info) => info.type.multiplier)
+        .reduce((a, b) => a > b ? a : b);
+  }
+
+  void _addNearestLookaheadXs(
+    List<double> sortedXs,
+    double targetPixelX,
+    Set<double> selected,
+  ) {
+    int bestIndex = 0;
+    double bestDistance = double.infinity;
+    for (int i = 0; i < sortedXs.length; i++) {
+      final distance = (sortedXs[i] - targetPixelX).abs();
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+
+    for (final index in [bestIndex, bestIndex - 1, bestIndex + 1]) {
+      if (selected.length >= _oniDepth2TargetsPerRotation) {
+        return;
+      }
+      if (index >= 0 && index < sortedXs.length) {
+        selected.add(sortedXs[index]);
+      }
+    }
+  }
+
+  void _addEvenlySpacedLookaheadXs(
+    List<double> sortedXs,
+    Set<double> selected,
+  ) {
+    final remaining = _oniDepth2TargetsPerRotation - selected.length;
+    if (remaining <= 0) {
+      return;
+    }
+
+    for (int i = 0; i < remaining; i++) {
+      if (selected.length >= _oniDepth2TargetsPerRotation) {
+        return;
+      }
+      final t = remaining == 1 ? 0.5 : i / (remaining - 1);
+      final index = (t * (sortedXs.length - 1)).round();
+      selected.add(sortedXs[index]);
+    }
+  }
+
   double _normalImmediateScore(_EvalOption option) {
     final sim = option.simResult;
     final clearBonus = sim.allMatched.isEmpty ? 0.0 : 1000000000.0;
@@ -632,7 +860,49 @@ class CPUAgent {
       ..sort((a, b) => _hardImmediateScore(b).compareTo(
             _hardImmediateScore(a),
           ));
-    return ranked.first;
+    return _selectWithMistake(ranked);
+  }
+
+  _EvalOption _selectWithMistake(List<_EvalOption> ranked) {
+    if (ranked.length <= 1 ||
+        _mistakeRate <= 0.0 ||
+        _random.nextDouble() >= _mistakeRate) {
+      return ranked.first;
+    }
+
+    final start = _mistakePoolStart(ranked.length);
+    final end = _mistakePoolEnd(ranked.length, start);
+    final mistakePool = ranked.sublist(start, end);
+    if (mistakePool.isEmpty) {
+      return ranked.first;
+    }
+    return mistakePool[_random.nextInt(mistakePool.length)];
+  }
+
+  int _mistakePoolStart(int length) {
+    switch (difficulty) {
+      case CPUDifficulty.easy:
+        return max(1, length ~/ 2);
+      case CPUDifficulty.normal:
+        return max(1, (length * 0.20).floor());
+      case CPUDifficulty.hard:
+        return max(1, (length * 0.08).floor());
+      case CPUDifficulty.oni:
+        return length;
+    }
+  }
+
+  int _mistakePoolEnd(int length, int start) {
+    switch (difficulty) {
+      case CPUDifficulty.easy:
+        return length;
+      case CPUDifficulty.normal:
+        return min(length, max(start + 1, (length * 0.55).ceil()));
+      case CPUDifficulty.hard:
+        return min(length, max(start + 1, (length * 0.25).ceil()));
+      case CPUDifficulty.oni:
+        return length;
+    }
   }
 
   double _hardSimScore(ExtendedSimDropResult sim, double baseScore) {

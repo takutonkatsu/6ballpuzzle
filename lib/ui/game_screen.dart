@@ -35,6 +35,8 @@ class GameScreen extends StatefulWidget {
   final bool isRankedMode;
   final bool isArenaMode;
   final CPUDifficulty cpuDifficulty;
+  final int? rankedBotRating;
+  final String rankedBotName;
 
   const GameScreen({
     super.key,
@@ -45,6 +47,8 @@ class GameScreen extends StatefulWidget {
     this.isRankedMode = false,
     this.isArenaMode = false,
     this.cpuDifficulty = CPUDifficulty.hard,
+    this.rankedBotRating,
+    this.rankedBotName = 'Player',
   });
 
   const GameScreen.online({
@@ -54,6 +58,8 @@ class GameScreen extends StatefulWidget {
     this.isRankedMode = false,
     this.isArenaMode = false,
   })  : cpuDifficulty = CPUDifficulty.hard,
+        rankedBotRating = null,
+        rankedBotName = 'Player',
         isCpuMode = false,
         isOnlineMultiplayer = true;
 
@@ -92,6 +98,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool? _cpuBattlePlayerWon;
   bool _rankedRatingApplied = false;
   RankedRatingChange? _rankedRatingChange;
+  bool _rankedBotMatchOverlayVisible = false;
+  bool _battleIntroLocked = false;
   Timer? _rankedAutoStartTimer;
   bool _rankedAutoStartScheduled = false;
   bool _matchingSfxPlayed = false;
@@ -146,6 +154,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   String get _opponentDisplayName {
     if (widget.isCpuMode) {
+      if (widget.isRankedMode) {
+        return widget.rankedBotName;
+      }
       return 'CPU${_cpuDifficultyLabel(widget.cpuDifficulty)}';
     }
     if (_isOnlineMode) {
@@ -156,6 +167,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   int get _arenaRewardExp => _arenaMatchResult?.reward.exp ?? 0;
+
+  int? get _rankedBotRating =>
+      widget.isCpuMode && widget.isRankedMode ? widget.rankedBotRating : null;
 
   String _cpuDifficultyLabel(CPUDifficulty difficulty) {
     return switch (difficulty) {
@@ -186,12 +200,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return _resultCoinTripleClaimed ? baseCoins * 3 : baseCoins;
   }
 
-  int get _resultCoinAdBonusAmount => (_resultCoinBaseEarned ?? 0) * 2;
-
   bool get _isFriendMode =>
       _isOnlineMode && !widget.isRankedMode && !widget.isArenaMode;
 
   int get _currentPlayerScore => _playerGame.scoreManager.state.value.score;
+
+  bool get _isRankedBotMode =>
+      widget.isCpuMode && widget.isRankedMode && !_isOnlineMode;
 
   bool get _isBattleInProgress =>
       _playerGame.gameStateWrapper.value == GameState.playing &&
@@ -199,6 +214,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       !_resultRevealPending &&
       _onlineResultMessage == null &&
       _cpuBattlePlayerWon == null;
+
+  bool get _canOpenBattleSettings {
+    final playerState = _playerGame.gameStateWrapper.value;
+    final opponentState = _cpuGame?.gameStateWrapper.value;
+    final resultSettled = _onlineResultMessage != null ||
+        _cpuBattlePlayerWon != null ||
+        playerState == GameState.gameover ||
+        opponentState == GameState.gameover;
+    return !_rankedBotMatchOverlayVisible &&
+        !_battleIntroLocked &&
+        _readyGoOverlayText == null &&
+        !_resultRevealPending &&
+        !resultSettled;
+  }
 
   void _playUiTap() {
     if (_isBattleInProgress) {
@@ -380,7 +409,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     if (!_isOnlineMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(_startLocalBattleWithReadyGo(localGameSeed));
+        if (_isRankedBotMode) {
+          unawaited(_startRankedBotBattleAfterMatchOverlay(localGameSeed));
+        } else {
+          unawaited(_startLocalBattleWithReadyGo(localGameSeed));
+        }
       });
     }
   }
@@ -628,6 +661,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 _buildOnlineOverlay()
               else
                 _buildGlobalOverlay(),
+              if (_rankedBotMatchOverlayVisible) _buildRankedBotMatchOverlay(),
               if (widget.isArenaMode) _buildArenaRecordBadge(),
               if (!_isOnlineMode)
                 Positioned(
@@ -774,7 +808,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildResultCoinSummary({required bool isWin}) {
+  Widget _buildResultCoinSummary() {
     final totalCoins = _totalResultCoinsEarned;
     if (totalCoins == null) {
       return const Text(
@@ -787,45 +821,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       );
     }
 
-    final baseLabel = isWin ? '勝利ボーナス' : '敗北ボーナス';
-    final baseAmount = isWin ? 50 : 10;
-    final breakdowns = <String>[
-      '$baseLabel (+$baseAmount)',
-      if (_straightCount > 0)
-        'ストレート x $_straightCount (+${_straightCount * 10})',
-      if (_pyramidCount > 0) 'ピラミッド x $_pyramidCount (+${_pyramidCount * 15})',
-      if (_hexagonCount > 0) 'ヘキサゴン x $_hexagonCount (+${_hexagonCount * 20})',
-      if (_resultCoinTripleClaimed) '動画ボーナス (+$_resultCoinAdBonusAmount)',
-    ];
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildResultInfoRow(
-          label: 'コイン',
-          value: '+$totalCoins',
-          color: Colors.amberAccent,
-        ),
-        const SizedBox(height: 6),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final breakdown in breakdowns)
-                Text(
-                  breakdown,
-                  style: const TextStyle(
-                    color: Colors.white60,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
+    return _buildResultInfoRow(
+      label: 'コイン',
+      value: '+$totalCoins',
+      color: Colors.amberAccent,
     );
   }
 
@@ -1055,7 +1054,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   String _opponentResultIconId() {
     if (widget.isCpuMode) {
-      return 'icon_bolt';
+      return widget.isRankedMode ? 'default' : 'icon_bolt';
     }
     return _room?.players[_multiplayerManager.opponentRoleId]?.playerIconId ??
         'default';
@@ -1665,9 +1664,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 _buildResultScoreSummary(),
               ],
               const SizedBox(height: 18),
-              _buildResultCoinSummary(
-                isWin: widget.isCpuMode ? cpuPlayerWon : false,
-              ),
+              _buildResultCoinSummary(),
               const SizedBox(height: 12),
               _buildResultExpSummary(),
               const SizedBox(height: 12),
@@ -1755,7 +1752,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             _buildArenaResultSummary(),
           ],
           const SizedBox(height: 18),
-          _buildResultCoinSummary(isWin: win),
+          _buildResultCoinSummary(),
           const SizedBox(height: 12),
           _buildResultExpSummary(),
           const SizedBox(height: 12),
@@ -2202,6 +2199,89 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildRankedBotMatchOverlay() {
+    return Positioned.fill(
+      child: Container(
+        color: const Color(0xEE0F0F13),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF141421),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: Colors.pinkAccent.withValues(alpha: 0.75),
+                  width: 1.5,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.pinkAccent.withValues(alpha: 0.32),
+                    blurRadius: 24,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'ランク戦が成立しました',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                      shadows: [
+                        Shadow(color: Colors.pinkAccent, blurRadius: 10),
+                      ],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  _buildLobbyStatusRow(
+                    _myDisplayName,
+                    true,
+                    isOccupied: true,
+                    badgeIds: _playerDataManager.equippedBadgeIds,
+                    playerIconId: _playerDataManager.equippedPlayerIconId,
+                    subLabel: _buildLobbyRatingLabel(
+                        _multiplayerManager.currentRating),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildLobbyStatusRow(
+                    widget.rankedBotName,
+                    true,
+                    isOccupied: true,
+                    badgeIds: const [],
+                    playerIconId: 'default',
+                    subLabel: _buildLobbyRatingLabel(widget.rankedBotRating),
+                  ),
+                  const SizedBox(height: 28),
+                  const SizedBox(
+                    height: 56,
+                    child: Center(
+                      child: Text(
+                        'まもなく開始します...',
+                        style: TextStyle(
+                          color: Colors.amberAccent,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLobbyStatusRow(
     String name,
     bool isReady, {
@@ -2441,6 +2521,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
 
+    setState(() {
+      _battleIntroLocked = true;
+    });
     await _stopBattleBgm();
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
@@ -2489,6 +2572,32 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _cpuGame?.resumeEngine();
     _playerGame.spawnInitialPieceAfterReadyGo();
     _cpuGame?.spawnInitialPieceAfterReadyGo();
+    if (mounted) {
+      setState(() {
+        _battleIntroLocked = false;
+      });
+    }
+  }
+
+  Future<void> _startRankedBotBattleAfterMatchOverlay(int seed) async {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _rankedBotMatchOverlayVisible = true;
+    });
+    _playMatchedSfxOnce();
+
+    await Future<void>.delayed(const Duration(milliseconds: 1400));
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _rankedBotMatchOverlayVisible = false;
+    });
+    await _startLocalBattleWithReadyGo(seed);
   }
 
   Future<void> _startOnlineBattleWithReadyGo(int? seed) async {
@@ -2751,6 +2860,50 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _rankedRatingChange = change;
       });
     } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rankedRatingChange = null;
+      });
+    }
+  }
+
+  Future<void> _applyRankedBotRatingResult({required bool isWin}) async {
+    final opponentRating = _rankedBotRating;
+    if (!widget.isRankedMode ||
+        !widget.isCpuMode ||
+        _rankedRatingApplied ||
+        opponentRating == null) {
+      return;
+    }
+
+    _rankedRatingApplied = true;
+    try {
+      final change = await _multiplayerManager.applyRankedBotResult(
+        isWin: isWin,
+        opponentRating: opponentRating,
+      );
+      unawaited(_playerDataManager.setCurrentRating(change.newRating));
+      unawaited(
+        _playerDataManager.updateLatestRankedHistory(
+          ratingAfter: change.newRating,
+          ratingDelta: change.delta,
+        ),
+      );
+      unawaited(
+        _rankingManager.updateMyRating(
+          rating: change.newRating,
+          incrementDailyWin: isWin,
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rankedRatingChange = change;
+      });
+    } catch (_) {
       if (!mounted) {
         return;
       }
@@ -3258,13 +3411,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildBattleSettingsButton() {
+    final canOpen = _canOpenBattleSettings;
     return SafeArea(
       child: IconButton(
-        onPressed: () {
-          _playUiTap();
-          unawaited(_showSettingsMenu());
-        },
-        icon: const Icon(Icons.settings, color: Colors.white),
+        onPressed: canOpen
+            ? () {
+                _playUiTap();
+                unawaited(_showSettingsMenu());
+              }
+            : null,
+        icon: Icon(
+          Icons.settings,
+          color: canOpen ? Colors.white : Colors.white38,
+        ),
         style: IconButton.styleFrom(
           backgroundColor: Colors.black.withValues(alpha: 0.45),
           side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
@@ -3274,7 +3433,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showSettingsMenu() {
-    if (_blocksOnlineExit) {
+    if (_blocksOnlineExit || !_canOpenBattleSettings) {
       return Future<void>.value();
     }
 
@@ -3542,9 +3701,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       unawaited(_missionManager.recordEvent('play_cpu'));
       if (playerWon) {
         unawaited(_missionManager.recordEvent('win_match'));
+        if (widget.isRankedMode) {
+          unawaited(_missionManager.recordEvent('win_ranked_match'));
+        }
       }
       unawaited(_applyBattleCoinReward(isWin: playerWon));
       unawaited(_applyMatchExpReward(isWin: playerWon));
+      unawaited(_applyRankedBotRatingResult(isWin: playerWon));
       setState(() {
         _resultRevealPending = false;
       });

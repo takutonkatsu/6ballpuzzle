@@ -239,6 +239,8 @@ class MultiplayerManager {
   static MultiplayerManager get instance => _instance;
 
   static const int initialRating = 1000;
+  static const int rankedBotRatingCap = 1500;
+  static const String rankedBotRoomId = '__ranked_bot__';
   static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v2';
   static const List<String> _legacySavedSessionPrefsKeys = [
     'multiplayer_saved_session_v1',
@@ -253,6 +255,8 @@ class MultiplayerManager {
   String playerName = 'Player';
   int currentRating = initialRating;
   bool isRankedMode = false;
+  int? rankedBotRating;
+  CPUDifficulty? rankedBotDifficulty;
 
   StreamSubscription<DatabaseEvent>? _roomSubscription;
   StreamSubscription<DatabaseEvent>? _opponentBoardSubscription;
@@ -289,6 +293,8 @@ class MultiplayerManager {
   String get opponentRoleId => myRoleId == 'host' ? 'guest' : 'host';
   String get displayPlayerName =>
       playerName.trim().isEmpty ? 'Player' : playerName.trim();
+
+  bool isRankedBotRoomId(String? roomId) => roomId == rankedBotRoomId;
 
   void setPlayerName(String name) {
     final nextName = ModerationManager.instance.sanitizePlayerName(name);
@@ -461,6 +467,35 @@ class MultiplayerManager {
     );
   }
 
+  Future<RankedRatingChange> applyRankedBotResult({
+    required bool isWin,
+    required int opponentRating,
+  }) async {
+    final uid = myUid ?? await _loadAuthenticatedUid();
+    myUid = uid;
+
+    final oldRating = currentRating;
+    final newRating = calculateNewRating(oldRating, opponentRating, isWin);
+    final delta = newRating - oldRating;
+    currentRating = newRating;
+
+    final badgeIds = await _currentEquippedBadgeIds();
+    final playerIconId = await _currentEquippedPlayerIconId();
+    await _db.child('users/$uid').update({
+      'name': displayPlayerName,
+      'rating': newRating,
+      'badgeIds': badgeIds,
+      'playerIconId': playerIconId,
+      'updatedAt': ServerValue.timestamp,
+    });
+
+    return RankedRatingChange(
+      oldRating: oldRating,
+      newRating: newRating,
+      delta: delta,
+    );
+  }
+
   Future<void> _applyOpponentRankedResult({
     required String roomId,
     required int myOldRating,
@@ -611,6 +646,8 @@ class MultiplayerManager {
     }
 
     currentRating = myRating;
+    rankedBotRating = null;
+    rankedBotDifficulty = null;
     _isMatchFound = false;
     _isMatchmakingAttemptInProgress = false;
     _matchmakingStartedAt = DateTime.now();
@@ -619,6 +656,7 @@ class MultiplayerManager {
     _matchmakingCompleter = completer;
 
     final entryRef = _db.child('matchmaking/$uid');
+    Timer? rankedBotTimer;
 
     try {
       await entryRef.onDisconnect().remove();
@@ -638,9 +676,14 @@ class MultiplayerManager {
         const Duration(seconds: 2),
         (_) => unawaited(_tryRandomMatch(myRating)),
       );
+      rankedBotTimer = Timer(
+        const Duration(seconds: 15),
+        () => _completeRankedBotMatch(myRating),
+      );
 
       return await completer.future;
     } finally {
+      rankedBotTimer?.cancel();
       await _cleanupMatchmaking();
     }
   }
@@ -863,6 +906,12 @@ class MultiplayerManager {
             opponentUid: candidate.uid,
           );
 
+          if (_isMatchFound || completer.isCompleted) {
+            await _clearFailedMatchRoomState();
+            await _db.child('rooms/$newRoomId').remove();
+            return;
+          }
+
           final guestAssigned = await _assignRandomMatchGuest(
             opponentUid: candidate.uid,
             roomId: newRoomId,
@@ -918,6 +967,44 @@ class MultiplayerManager {
     } catch (error, stackTrace) {
       _completeMatchmakingError(error, stackTrace);
     }
+  }
+
+  void _completeRankedBotMatch(int myRating) {
+    final completer = _matchmakingCompleter;
+    if (completer == null || completer.isCompleted || _isMatchFound) {
+      return;
+    }
+
+    _isMatchFound = true;
+    _matchmakingPollTimer?.cancel();
+    currentRating = myRating;
+    isRankedMode = true;
+    rankedBotRating = _generateRankedBotRating(myRating);
+    rankedBotDifficulty = _rankedBotDifficultyForRating(myRating);
+    completer.complete(rankedBotRoomId);
+  }
+
+  int _generateRankedBotRating(int playerRating) {
+    if (playerRating >= rankedBotRatingCap) {
+      return 1450 + _random.nextInt(51);
+    }
+
+    final minRating = max(0, playerRating - 100);
+    final maxRating = min(rankedBotRatingCap, playerRating + 100);
+    return minRating + _random.nextInt(maxRating - minRating + 1);
+  }
+
+  CPUDifficulty _rankedBotDifficultyForRating(int playerRating) {
+    if (playerRating >= rankedBotRatingCap) {
+      return CPUDifficulty.oni;
+    }
+    if (playerRating >= 1250) {
+      return CPUDifficulty.hard;
+    }
+    if (playerRating >= 950) {
+      return CPUDifficulty.normal;
+    }
+    return CPUDifficulty.easy;
   }
 
   Future<void> _tryArenaMatch(int currentWins) async {

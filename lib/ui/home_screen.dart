@@ -3143,6 +3143,22 @@ class _HomeScreenState extends State<HomeScreen>
       }
 
       unawaited(_stopHomeBgm());
+      if (_multiplayerManager.isRankedBotRoomId(roomId)) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (context) => GameScreen(
+              isCpuMode: true,
+              isRankedMode: true,
+              cpuDifficulty:
+                  _multiplayerManager.rankedBotDifficulty ?? CPUDifficulty.hard,
+              rankedBotRating: _multiplayerManager.rankedBotRating,
+              rankedBotName: 'Player',
+            ),
+          ),
+        );
+        return;
+      }
+
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) => GameScreen.online(
