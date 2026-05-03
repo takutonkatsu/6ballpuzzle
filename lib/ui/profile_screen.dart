@@ -135,7 +135,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'ID ${_playerData.playerId}',
+                      'プレイヤーID ${_playerData.playerId}',
                       style: const TextStyle(
                         color: Colors.white60,
                         fontSize: 12,
@@ -162,7 +162,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const Row(
             children: [
               Text(
-                'BADGES',
+                'バッジ',
                 style: TextStyle(
                   color: Colors.cyanAccent,
                   fontSize: 12,
@@ -198,9 +198,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       children: [
         Expanded(
           child: _profileMetric(
-            label: 'RATE',
+            label: 'レート',
             value: '${_playerData.currentRating}',
-            color: Colors.pinkAccent,
+            color: Colors.amberAccent,
           ),
         ),
         const SizedBox(width: 12),
@@ -294,7 +294,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: badge == null
           ? const Center(
               child: Text(
-                'EMPTY',
+                '未装備',
                 style: TextStyle(
                   color: Colors.white38,
                   fontWeight: FontWeight.bold,
@@ -476,9 +476,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String _skinLabel(String skinId) {
     return switch (skinId) {
-      'skin_neon_chrome' => 'NEON CHROME',
-      'skin_black_ice' => 'BLACK ICE',
-      _ => 'DEFAULT',
+      'skin_neon_chrome' => 'ネオンクローム',
+      'skin_black_ice' => 'ブラックアイス',
+      _ => 'デフォルト',
     };
   }
 

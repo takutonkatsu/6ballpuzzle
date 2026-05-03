@@ -128,6 +128,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     WazaType.pyramid: 0,
     WazaType.hexagon: 0,
   };
+  int _playerNormalClearedBalls = 0;
 
   // Stamp States
   bool _isStampCoolingDown = false;
@@ -402,6 +403,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         unawaited(
           _missionManager.recordEvent('clear_balls', amount: ballsDestroyed),
         );
+      }
+    };
+    _playerGame.onMatchCleared = (ballsDestroyed, highestWaza) {
+      if (highestWaza == WazaType.none) {
+        _playerNormalClearedBalls += ballsDestroyed;
       }
     };
 
@@ -804,7 +810,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return _buildResultInfoRow(
         label: 'アリーナ報酬',
         value: '+${reward.coins}',
-        color: Colors.lightBlueAccent,
+        color: const Color(0xFFEAF6FF),
         leadingValue: const HexagonCoinIcon(size: 18),
       );
     }
@@ -849,7 +855,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               '+$totalCoins',
               maxLines: 1,
               style: const TextStyle(
-                color: Colors.amberAccent,
+                color: Color(0xFFEAF6FF),
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.5,
@@ -876,8 +882,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             },
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        width: 118,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        width: 92,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
           color: claimed
               ? Colors.greenAccent.withValues(alpha: 0.12)
@@ -1155,7 +1161,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Color _myResultRatingDeltaColor() {
-    return const Color(0xFFE064FF);
+    return Colors.amberAccent;
   }
 
   String _opponentResultName() {
@@ -2506,10 +2512,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           TextSpan(
             text: number,
             style: const TextStyle(
-              color: Color(0xFFE064FF),
+              color: Colors.amberAccent,
               fontWeight: FontWeight.w900,
               shadows: [
-                Shadow(color: Color(0xAA9D4DFF), blurRadius: 7),
+                Shadow(color: Color(0xAAFFD54F), blurRadius: 7),
               ],
             ),
           ),
@@ -3065,6 +3071,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _playerWazaCounts[WazaType.straight] = 0;
     _playerWazaCounts[WazaType.pyramid] = 0;
     _playerWazaCounts[WazaType.hexagon] = 0;
+    _playerNormalClearedBalls = 0;
   }
 
   void _recordPlayerWaza(WazaType waza) {
@@ -3144,7 +3151,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _applyMatchExpReward({required bool isWin}) async {
+  Future<void> _applyMatchExpReward({
+    required bool isWin,
+    bool isForfeitWin = false,
+  }) async {
     if (_matchExpApplied) {
       return;
     }
@@ -3156,7 +3166,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       await _playerDataManager.load();
       final previousLevel = _playerDataManager.level;
       await _playerDataManager.addExp(earnedExp);
-      await _recordMatchStats(isWin: isWin);
+      await _recordMatchStats(isWin: isWin, isForfeitWin: isForfeitWin);
       final currentLevel = _playerDataManager.level;
       if (!mounted) {
         return;
@@ -3169,7 +3179,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         }
       });
     } catch (_) {
-      await _recordMatchStats(isWin: isWin);
+      await _recordMatchStats(isWin: isWin, isForfeitWin: isForfeitWin);
       if (!mounted) {
         return;
       }
@@ -3219,7 +3229,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _recordMatchStats({required bool isWin}) async {
+  Future<void> _recordMatchStats({
+    required bool isWin,
+    bool isForfeitWin = false,
+  }) async {
     final mode = widget.isArenaMode
         ? 'ARENA'
         : widget.isRankedMode
@@ -3239,6 +3252,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
         'hexagon': _playerWazaCounts[WazaType.hexagon] ?? 0,
       },
+      clearedBalls: _playerGame.scoreManager.state.value.totalClearedBalls,
+      normalClearedBalls: _playerNormalClearedBalls,
+      maxChain: _playerGame.scoreManager.maxChainThisRun,
+      isForfeitWin: isForfeitWin && isWin,
       ratingAfter: _rankedRatingChange?.newRating,
       ratingDelta: _rankedRatingChange?.delta,
     );
@@ -3254,6 +3271,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
         'hexagon': _playerWazaCounts[WazaType.hexagon] ?? 0,
       },
+      clearedBalls: _playerGame.scoreManager.state.value.totalClearedBalls,
+      normalClearedBalls: _playerNormalClearedBalls,
+      maxChain: _playerGame.scoreManager.maxChainThisRun,
       score: _currentPlayerScore,
     );
   }
@@ -3591,7 +3611,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   spreadRadius: 1,
                 ),
                 BoxShadow(
-                  color: Colors.purpleAccent.withValues(alpha: 0.12),
+                  color: Colors.cyanAccent.withValues(alpha: 0.1),
                   blurRadius: 34,
                 ),
               ],
@@ -3623,9 +3643,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   icon: const Icon(Icons.home, size: 18),
                   label: const Text('ホーム画面に戻る'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.amberAccent,
+                    foregroundColor: Colors.cyanAccent,
                     side: BorderSide(
-                      color: Colors.amberAccent.withValues(alpha: 0.72),
+                      color: Colors.cyanAccent.withValues(alpha: 0.72),
                       width: 1.3,
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -3677,9 +3697,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     Navigator.of(dialogContext).pop();
                   },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
+                    foregroundColor: Colors.cyanAccent,
                     side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.24),
+                      color: Colors.cyanAccent.withValues(alpha: 0.42),
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(
@@ -3690,7 +3710,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       letterSpacing: 1.4,
                     ),
                   ),
-                  child: const Text('CANCEL'),
+                  child: const Text('閉じる'),
                 ),
               ],
             ),
@@ -3857,7 +3877,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         }
       }
       unawaited(_applyBattleCoinReward(isWin: playerWon));
-      unawaited(_applyMatchExpReward(isWin: playerWon));
+      unawaited(
+        _applyMatchExpReward(
+          isWin: playerWon,
+          isForfeitWin: resultWasForfeit && playerWon,
+        ),
+      );
       unawaited(
         _applyRankedRatingResult(
           isWin: playerWon,

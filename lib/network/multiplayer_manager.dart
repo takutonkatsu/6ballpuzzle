@@ -538,7 +538,7 @@ class MultiplayerManager {
 
       for (int attempt = 0; attempt < 10; attempt++) {
         final hostData = await _buildPlayerPayload(status: 'waiting');
-        final roomId = (_random.nextInt(9000) + 1000).toString();
+        final roomId = (_random.nextInt(900000) + 100000).toString();
         final roomRef = _db.child('rooms/$roomId');
         final existing = await roomRef.get();
         if (existing.exists) {
@@ -1587,7 +1587,7 @@ class MultiplayerManager {
 
   Future<String> _generateUniqueRoomId() async {
     for (var attempt = 0; attempt < 20; attempt++) {
-      final roomId = (_random.nextInt(9000) + 1000).toString();
+      final roomId = (_random.nextInt(900000) + 100000).toString();
       final existing = await _db.child('rooms/$roomId').get();
       if (!existing.exists) {
         return roomId;

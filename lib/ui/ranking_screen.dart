@@ -419,7 +419,7 @@ class _RankingScreenState extends State<RankingScreen> {
                 )
               : HexagonTrophyAmount(
                   entry.rating,
-                  color: const Color(0xFFE064FF),
+                  color: Colors.amberAccent,
                   iconSize: 17,
                   fontSize: 16,
                 ),

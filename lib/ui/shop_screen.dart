@@ -410,13 +410,15 @@ class _ShopScreenState extends State<ShopScreen> {
                             Text(
                               '$_coins',
                               style: const TextStyle(
-                                color: Colors.amberAccent,
+                                color: Color(0xFFEAF6FF),
                                 fontWeight: FontWeight.w900,
                                 fontSize: 22,
                                 letterSpacing: 0.5,
                                 shadows: [
                                   Shadow(
-                                      color: Colors.amberAccent, blurRadius: 8)
+                                    color: Colors.white24,
+                                    blurRadius: 8,
+                                  )
                                 ],
                               ),
                             ),
@@ -517,6 +519,7 @@ class _ShopScreenState extends State<ShopScreen> {
                                   Text(
                                     '${GachaManager.rollCost}）',
                                     style: TextStyle(
+                                      color: Color(0xFFEAF6FF),
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: 0.5,
                                       fontSize: 16,
@@ -700,7 +703,7 @@ class _ShopScreenState extends State<ShopScreen> {
               child: canBuy
                   ? HexagonCoinAmount(
                       _priceFor(item),
-                      color: accent,
+                      color: const Color(0xFFEAF6FF),
                       iconSize: 16,
                       fontSize: 14,
                     )

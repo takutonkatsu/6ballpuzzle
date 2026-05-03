@@ -27,7 +27,7 @@ class AppSfx {
     }
   }
 
-  static void playUiTap({double volume = 0.72}) {
+  static void playUiTap({double volume = 1.44}) {
     unawaited(play(uiTap, volume: volume));
   }
 

@@ -73,6 +73,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   Function(WazaType, BallColor?)? onWazaFired;
   Function(int ballsDestroyed)? onBallsCleared;
+  Function(int ballsDestroyed, WazaType highestWaza)? onMatchCleared;
   Function(Map<String, dynamic>)? onBoardUpdated;
   Function()? onGameOverTriggered;
   Function()? onDeathLineCrossed;
@@ -445,6 +446,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _clearAllBoardComponents();
     onWazaFired = null;
     onBallsCleared = null;
+    onMatchCleared = null;
     onBoardUpdated = null;
     onGameOverTriggered = null;
     onDeathLineCrossed = null;
@@ -956,6 +958,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                   validTargets.length, matchResult.highestWaza);
               if (onBallsCleared != null) {
                 onBallsCleared!(validTargets.length);
+              }
+              if (onMatchCleared != null) {
+                onMatchCleared!(validTargets.length, matchResult.highestWaza);
               }
 
               if (matchResult.highestWaza != WazaType.none &&

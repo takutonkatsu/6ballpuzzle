@@ -102,6 +102,9 @@ class ArenaManager {
     if (isWin) {
       currentWins = (currentWins + 1).clamp(0, maxWins);
       await _playerData.updateMaxArenaWins(currentWins);
+      if (currentWins >= maxWins) {
+        await _playerData.recordArenaPerfectClear();
+      }
     } else {
       currentLosses = (currentLosses + 1).clamp(0, maxLosses);
     }

@@ -42,7 +42,7 @@ class HexagonCoinAmount extends StatelessWidget {
   const HexagonCoinAmount(
     this.amount, {
     super.key,
-    this.color = Colors.amberAccent,
+    this.color = const Color(0xFFEAF6FF),
     this.iconSize = 16,
     this.fontSize = 14,
     this.fontWeight = FontWeight.w900,

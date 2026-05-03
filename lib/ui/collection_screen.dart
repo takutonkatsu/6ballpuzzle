@@ -46,9 +46,36 @@ class _CollectionScreenState extends State<CollectionScreen>
       child: Scaffold(
         backgroundColor: const Color(0xFF080A12),
         appBar: AppBar(
-          backgroundColor: const Color(0xFF101423),
-          title: const Text('コレクション'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          centerTitle: true,
+          flexibleSpace: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.purpleAccent.withValues(alpha: 0.2),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+          title: const Text(
+            'コレクション',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.0,
+              shadows: [
+                Shadow(color: Colors.purpleAccent, blurRadius: 10),
+              ],
+            ),
+          ),
           bottom: const TabBar(
+            indicatorColor: Colors.cyanAccent,
+            labelColor: Colors.cyanAccent,
+            unselectedLabelColor: Colors.white60,
             tabs: [
               Tab(text: 'スタンプ'),
               Tab(text: '実績バッジ'),
