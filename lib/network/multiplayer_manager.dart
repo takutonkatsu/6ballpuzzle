@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
 import '../data/player_data_manager.dart';
+import '../firebase_database_provider.dart';
 import '../game/game_models.dart';
 import '../moderation/moderation_manager.dart';
 
@@ -302,12 +303,7 @@ class MultiplayerManager {
   }
 
   DatabaseReference get _db {
-    final app = Firebase.app();
-    final database = FirebaseDatabase.instanceFor(
-      app: app,
-      databaseURL: app.options.databaseURL,
-    );
-    return database.ref();
+    return AppFirebaseDatabase.ref();
   }
 
   Future<List<String>> _currentEquippedBadgeIds() async {

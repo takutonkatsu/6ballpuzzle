@@ -50,6 +50,13 @@ class _CollectionScreenState extends State<CollectionScreen>
           backgroundColor: Colors.transparent,
           elevation: 0,
           centerTitle: true,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new),
+            onPressed: () {
+              _playUiTap();
+              Navigator.of(context).pop();
+            },
+          ),
           flexibleSpace: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -145,6 +152,8 @@ class _CollectionScreenState extends State<CollectionScreen>
                     ? 'タップで装備'
                     : '未解放',
             icon: badge.icon,
+            accentColor: badge.frameColor,
+            replaceSelectedIcon: false,
             selected: equipped.contains(badge.id),
             available: unlocked.contains(badge.id),
             onTap: unlocked.contains(badge.id)
@@ -291,18 +300,21 @@ class _CollectionScreenState extends State<CollectionScreen>
     required String title,
     required String subtitle,
     required IconData icon,
+    Color? accentColor,
+    bool replaceSelectedIcon = true,
     required bool selected,
     required bool available,
     required VoidCallback? onTap,
   }) {
     final muted = !available;
+    final accent = accentColor ?? Colors.cyanAccent;
     final borderColor = selected
-        ? Colors.cyanAccent
+        ? accent
         : muted
             ? Colors.white.withValues(alpha: 0.06)
-            : Colors.white.withValues(alpha: 0.14);
+            : accent.withValues(alpha: 0.38);
     final backgroundColor = selected
-        ? Colors.cyanAccent.withValues(alpha: 0.14)
+        ? accent.withValues(alpha: 0.14)
         : muted
             ? const Color(0xFF0B1019)
             : const Color(0xFF111827);
@@ -326,12 +338,12 @@ class _CollectionScreenState extends State<CollectionScreen>
               clipBehavior: Clip.none,
               children: [
                 Icon(
-                  selected ? Icons.check_circle : icon,
+                  selected && replaceSelectedIcon ? Icons.check_circle : icon,
                   color: selected
-                      ? Colors.amberAccent
+                      ? accent
                       : muted
                           ? Colors.white24
-                          : Colors.white70,
+                          : accent.withValues(alpha: 0.9),
                   size: 24,
                 ),
                 if (muted)
@@ -369,7 +381,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: selected
-                          ? Colors.amberAccent
+                          ? accent
                           : muted
                               ? Colors.white38
                               : Colors.white54,

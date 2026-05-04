@@ -31,6 +31,12 @@
       ".read": false,
       ".write": true,
       ".indexOn": ["reportedUid", "createdAt"]
+    },
+    "giftCodes": {
+      "adRemoval": {
+        ".read": true,
+        ".write": true
+      }
     }
   }
 }

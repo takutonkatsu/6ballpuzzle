@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'app_review_config.dart';
+import 'firebase_database_provider.dart';
 
 enum ControlLayoutPreset {
   rotateMoveMoveRotate,
@@ -20,10 +22,12 @@ class AppSettings {
   static const String _controlLayoutKey = 'settings_control_layout';
   static const String _adsRemovedKey = 'settings_ads_removed';
   static const String _usedAdGiftCodesKey = 'settings_used_ad_gift_codes';
+  static const String _onboardingSeenKey = 'settings_onboarding_seen';
 
   final ValueNotifier<double> musicVolume = ValueNotifier(1.0);
   final ValueNotifier<double> sfxVolume = ValueNotifier(1.0);
   final ValueNotifier<bool> adsRemoved = ValueNotifier(false);
+  final ValueNotifier<bool> onboardingSeen = ValueNotifier(false);
   final ValueNotifier<ControlLayoutPreset> controlLayout =
       ValueNotifier(ControlLayoutPreset.rotateMoveMoveRotate);
 
@@ -39,6 +43,7 @@ class AppSettings {
         (prefs.getDouble(_musicVolumeKey) ?? 1.0).clamp(0.0, 1.0);
     sfxVolume.value = (prefs.getDouble(_sfxVolumeKey) ?? 1.0).clamp(0.0, 1.0);
     adsRemoved.value = prefs.getBool(_adsRemovedKey) ?? false;
+    onboardingSeen.value = prefs.getBool(_onboardingSeenKey) ?? false;
     final rawLayout = prefs.getInt(_controlLayoutKey) ?? 0;
     controlLayout.value = ControlLayoutPreset
         .values[rawLayout.clamp(0, ControlLayoutPreset.values.length - 1)];
@@ -71,9 +76,18 @@ class AppSettings {
     await prefs.setBool(_adsRemovedKey, value);
   }
 
+  Future<void> setOnboardingSeen(bool value) async {
+    onboardingSeen.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_onboardingSeenKey, value);
+  }
+
   Future<bool> redeemAdRemovalGiftCode({
     required String code,
   }) async {
+    if (!AppReviewConfig.adRemovalGiftCodeEnabled) {
+      return false;
+    }
     final normalizedCode = _normalizeGiftCode(code);
     if (!isValidAdRemovalGiftCode(code: normalizedCode)) {
       return false;
@@ -96,12 +110,18 @@ class AppSettings {
   }
 
   String generateAdRemovalGiftCode() {
+    if (!AppReviewConfig.adRemovalGiftCodeEnabled) {
+      return '';
+    }
     final millis = DateTime.now().millisecondsSinceEpoch;
     final payload = millis.toRadixString(36).toUpperCase().padLeft(8, '0');
     return 'ADFREE-$payload-${_giftChecksum(payload)}';
   }
 
   bool isValidAdRemovalGiftCode({required String code}) {
+    if (!AppReviewConfig.adRemovalGiftCodeEnabled) {
+      return false;
+    }
     final normalizedCode = _normalizeGiftCode(code);
     final parts = normalizedCode.split('-');
     if (parts.length != 3 || parts.first != 'ADFREE') {
@@ -116,12 +136,7 @@ class AppSettings {
 
   Future<bool> _claimGlobalGiftCode(String normalizedCode) async {
     try {
-      final app = Firebase.app();
-      final database = FirebaseDatabase.instanceFor(
-        app: app,
-        databaseURL: app.options.databaseURL,
-      );
-      final ref = database.ref(
+      final ref = AppFirebaseDatabase.ref().child(
         'giftCodes/adRemoval/${normalizedCode.replaceAll('-', '_')}',
       );
       final snapshot = await ref.get();

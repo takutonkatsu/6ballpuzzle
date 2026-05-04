@@ -49,8 +49,10 @@ class AuthManager {
 
     final message = (error.message ?? '').toUpperCase();
     return error.code == 'unknown' &&
-        (message.contains('CONFIGURATION_NOT_FOUND') ||
-            message.contains('INTERNAL ERROR HAS OCCURRED'));
+            (message.contains('CONFIGURATION_NOT_FOUND') ||
+                message.contains('INTERNAL ERROR HAS OCCURRED')) ||
+        error.code == 'internal-error' ||
+        error.code == 'network-request-failed';
   }
 
   Future<String> _loadOrCreateFallbackUid() async {
@@ -60,7 +62,15 @@ class AuthManager {
       return savedUid;
     }
 
-    final fallbackUid = 'macos-dev-${DateTime.now().millisecondsSinceEpoch}';
+    final platformPrefix = Platform.isAndroid
+        ? 'android'
+        : Platform.isIOS
+            ? 'ios'
+            : Platform.isMacOS
+                ? 'macos-dev'
+                : 'local';
+    final fallbackUid =
+        '$platformPrefix-${DateTime.now().millisecondsSinceEpoch}';
     await prefs.setString(_fallbackUidPrefsKey, fallbackUid);
     return fallbackUid;
   }

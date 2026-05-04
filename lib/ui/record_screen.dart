@@ -2,9 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/hexagon_grid_background.dart';
 
 class RecordScreen extends StatefulWidget {
   const RecordScreen({super.key});
@@ -45,31 +47,45 @@ class _RecordScreenState extends State<RecordScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 2,
       child: Scaffold(
         backgroundColor: const Color(0xFF080A12),
         appBar: AppBar(
           backgroundColor: const Color(0xFF101423),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new),
+            onPressed: () {
+              AppSfx.playUiTap();
+              Navigator.of(context).pop();
+            },
+          ),
           title: const Text('レコード'),
           bottom: const TabBar(
             tabs: [
               Tab(text: '総合'),
-              Tab(text: 'ワザ'),
               Tab(text: '対戦履歴'),
             ],
           ),
         ),
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(color: Colors.cyanAccent),
-              )
-            : TabBarView(
-                children: [
-                  _summaryTab(),
-                  _techniqueTab(),
-                  _historyTab(),
-                ],
-              ),
+        body: Stack(
+          children: [
+            const HexagonGridBackground(
+              color: Colors.cyanAccent,
+              opacity: 0.04,
+              hexRadius: 30,
+            ),
+            _loading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                  )
+                : TabBarView(
+                    children: [
+                      _summaryTab(),
+                      _historyTab(),
+                    ],
+                  ),
+          ],
+        ),
       ),
     );
   }
@@ -79,10 +95,13 @@ class _RecordScreenState extends State<RecordScreen> {
     return _tabList(
       children: [
         _playStyleRadar(),
+        _wazaTotalsPanel(),
         _sectionTitle('総合'),
         _statGrid([
           _StatItem('総プレイ回数', '${_playerData.totalMatches}'),
           _StatItem('勝利数', '${_playerData.totalWins}'),
+          _StatItem('累計消去ボール数', '${_playerData.totalClearedBalls}'),
+          _StatItem('最大連鎖数', '${_playerData.maxChain}'),
           _StatItem('総ログイン日数', '${_playerData.totalLoginDays}日'),
           _StatItem('初めてプレイした日', _formatDate(_playerData.accountCreatedAt)),
         ]),
@@ -100,7 +119,12 @@ class _RecordScreenState extends State<RecordScreen> {
             '最高レート',
             _ratingValue(_playerData.highestRating, suffix: ' / シーズン0'),
           ),
-          const _StatItem('最高順位', '記録なし'),
+          _StatItem(
+            '最高順位',
+            _playerData.bestRankedRank > 0
+                ? '${_playerData.bestRankedRank}位'
+                : '記録なし',
+          ),
         ]),
         _sectionTitle('アリーナ'),
         _statGrid([
@@ -193,25 +217,24 @@ class _RecordScreenState extends State<RecordScreen> {
     return ((value / maxValue) * 100).clamp(0, 100).toDouble();
   }
 
-  Widget _techniqueTab() {
+  Widget _wazaTotalsPanel() {
     final counts = _playerData.wazaCounts;
     final maxCount = [
-      _playerData.totalClearedBalls,
       counts['straight'] ?? 0,
       counts['pyramid'] ?? 0,
       counts['hexagon'] ?? 0,
-      _playerData.maxChain,
       1,
     ].reduce(math.max);
-    return _tabList(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _barStat('累計消去ボール数', _playerData.totalClearedBalls, maxCount,
-            Colors.greenAccent),
+        _sectionTitle('ワザ累計'),
         _barStat('ヘキサゴン', counts['hexagon'] ?? 0, maxCount, Colors.pinkAccent),
+        const SizedBox(height: 10),
         _barStat(
             'ピラミッド', counts['pyramid'] ?? 0, maxCount, Colors.purpleAccent),
+        const SizedBox(height: 10),
         _barStat('ストレート', counts['straight'] ?? 0, maxCount, Colors.cyanAccent),
-        _barStat('最大連鎖数', _playerData.maxChain, maxCount, Colors.amberAccent),
       ],
     );
   }

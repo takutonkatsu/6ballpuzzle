@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -15,8 +16,11 @@ class BannerAdWidget extends StatefulWidget {
 }
 
 class _BannerAdWidgetState extends State<BannerAdWidget> {
+  static const Duration _retryDelay = Duration(seconds: 8);
+
   BannerAd? _bannerAd;
   bool _isLoaded = false;
+  Timer? _retryTimer;
 
   static String? get _adUnitId {
     if (Platform.isAndroid) {
@@ -41,6 +45,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   void _handleAdsRemovedChanged() {
     if (AppSettings.instance.adsRemoved.value) {
+      _retryTimer?.cancel();
       _bannerAd?.dispose();
       _bannerAd = null;
       if (mounted) {
@@ -57,6 +62,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     if (AppSettings.instance.adsRemoved.value || _bannerAd != null) {
       return;
     }
+    _retryTimer?.cancel();
     final adUnitId = _adUnitId;
     if (adUnitId == null) {
       return;
@@ -78,7 +84,14 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
           });
         },
         onAdFailedToLoad: (ad, error) {
+          debugPrint(
+            'Banner ad failed to load '
+            '(code=${error.code}, domain=${error.domain}): ${error.message}',
+          );
           ad.dispose();
+          _bannerAd = null;
+          _isLoaded = false;
+          _scheduleRetry();
         },
       ),
     );
@@ -90,9 +103,22 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     }
   }
 
+  void _scheduleRetry() {
+    if (AppSettings.instance.adsRemoved.value) {
+      return;
+    }
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_retryDelay, () {
+      if (mounted) {
+        _loadBannerAd();
+      }
+    });
+  }
+
   @override
   void dispose() {
     AppSettings.instance.adsRemoved.removeListener(_handleAdsRemovedChanged);
+    _retryTimer?.cancel();
     _bannerAd?.dispose();
     super.dispose();
   }

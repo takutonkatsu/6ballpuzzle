@@ -1,11 +1,11 @@
 {
-    "name": "six_ball_puzzle",
-    "short_name": "six_ball_puzzle",
+    "name": "ヘキサゴン",
+    "short_name": "ヘキサゴン",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "ヘキサゴン対戦パズル",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

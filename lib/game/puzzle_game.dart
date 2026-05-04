@@ -48,6 +48,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final bool autoStart;
   final bool isRemotePlayerMode;
   final bool useConstantFallSpeed;
+  final bool manualPieceSpawning;
   late Random _rng;
   Random? syncDropRng;
   int currentDropSeed = 0;
@@ -515,6 +516,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     this.autoStart = true,
     this.isRemotePlayerMode = false,
     this.useConstantFallSpeed = false,
+    this.manualPieceSpawning = false,
     this.wallColor,
   }) {
     _rng = seed != null ? Random(seed) : Random();
@@ -624,6 +626,150 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       return;
     }
     _spawnNewPiece();
+  }
+
+  void loadFixedBoard(Map<HexCoordinate, BallColor> balls) {
+    if (gameStateWrapper.value != GameState.playing) {
+      gameStateWrapper.value = GameState.playing;
+    }
+    _clearLockedBalls();
+    _clearHints();
+    _clearActiveOjamaBlocks();
+    if (activePiece?.parent != null) {
+      activePiece!.removeFromParent();
+    }
+    if (ghostPiece?.parent != null) {
+      ghostPiece!.removeFromParent();
+    }
+    activePiece = null;
+    ghostPiece = null;
+
+    for (final entry in balls.entries) {
+      final ball = BallComponent(
+        position: grid.hexToPixel(entry.key),
+        radius: _ballRadius,
+        ballColor: entry.value,
+      );
+      add(ball);
+      grid.lockedBalls[entry.key] = ball;
+    }
+    _updateHints();
+    _notifyBoardUpdated();
+  }
+
+  void spawnFixedPiece({
+    required List<BallColor> colors,
+    required int column,
+    int rotation = 0,
+    double fallSpeed = 0,
+  }) {
+    if (gameStateWrapper.value != GameState.playing) {
+      gameStateWrapper.value = GameState.playing;
+    }
+    if (activePiece?.parent != null) {
+      activePiece!.removeFromParent();
+    }
+    if (ghostPiece?.parent != null) {
+      ghostPiece!.removeFromParent();
+    }
+    final spawnPosition = _pieceSpawnPositionForColumn(column);
+    activePiece = ActivePieceComponent(
+      position: spawnPosition,
+      ballRadius: _ballRadius,
+      fallSpeed: fallSpeed,
+      presetColors: colors,
+    )..priority = 10;
+    activePiece!.setRotationIndex(rotation);
+    add(activePiece!);
+
+    ghostPiece = ActivePieceComponent(
+      position: spawnPosition.clone(),
+      ballRadius: _ballRadius,
+      isGhost: true,
+      fallSpeed: fallSpeed,
+      presetColors: colors,
+    )..priority = 0;
+    ghostPiece!.setRotationIndex(rotation);
+    add(ghostPiece!);
+    _updateGhostPosition();
+    _notifyActivePieceState(force: true, action: 'spawn');
+  }
+
+  void moveFixedPieceByColumns(int delta) {
+    if (activePiece == null || activePiece!.isLocked) {
+      return;
+    }
+    final currentColumn = activePieceColumn;
+    setFixedPieceColumn((currentColumn + delta).clamp(0, 8));
+    _notifyActivePieceState(
+      force: true,
+      action: delta < 0 ? 'start_left' : 'start_right',
+    );
+  }
+
+  void setFixedPieceColumn(int column) {
+    if (activePiece == null || activePiece!.isLocked) {
+      return;
+    }
+    final nextX = _pieceSpawnPositionForColumn(column).x;
+    activePiece!.position.x = nextX;
+    if (ghostPiece != null) {
+      ghostPiece!.position.x = nextX;
+    }
+    _enforceBounds();
+    _updateGhostPosition();
+  }
+
+  int get activePieceColumn {
+    if (activePiece == null) {
+      return 0;
+    }
+    final raw =
+        ((activePiece!.position.x - grid.offset.x) / (_ballRadius * 2)).round();
+    return raw.clamp(0, 8);
+  }
+
+  int get activePieceRotationIndex => activePiece?.logicalRotationIndex ?? 0;
+
+  Future<void> dropFixedPieceToHexes(List<HexCoordinate> targets) async {
+    if (activePiece == null || activePiece!.isLocked || targets.length < 3) {
+      return;
+    }
+    final colors = activePiece!.colors.toList(growable: false);
+    final positions = [
+      for (final target in targets.take(colors.length)) grid.hexToPixel(target),
+    ];
+
+    for (var i = 0; i < positions.length && i < colors.length; i++) {
+      add(
+        SparkEffect(
+          position: positions[i].clone(),
+          sparkColor: colors[i].glowColor,
+        ),
+      );
+    }
+    if (_playsBoardSfx) {
+      _playSfx(_hardDropSfx, volume: 0.85);
+    }
+    _triggerHapticFeedback(HapticFeedback.mediumImpact);
+    _notifyActivePieceState(force: true, action: 'hard_drop');
+
+    if (activePiece?.parent != null) {
+      activePiece!.removeFromParent();
+    }
+    if (ghostPiece?.parent != null) {
+      ghostPiece!.removeFromParent();
+    }
+    activePiece = null;
+    ghostPiece = null;
+    await _executeLogicDrop(positions, colors);
+  }
+
+  Vector2 _pieceSpawnPositionForColumn(int column) {
+    final spawn = _pieceSpawnPosition;
+    final rowOffset = grid.hexToPixel(HexCoordinate(column.clamp(0, 8), 0));
+    spawn.x = rowOffset.x;
+    return spawn;
   }
 
   @override
@@ -1033,7 +1179,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
             var task = incomingOjama.removeFirst();
             _dropOjamaTask(task);
             return;
-          } else if (activePiece == null && !isRemotePlayerMode) {
+          } else if (activePiece == null &&
+              !isRemotePlayerMode &&
+              !manualPieceSpawning) {
             _isSpawning = true;
             await Future.delayed(const Duration(milliseconds: 500));
             if (gameStateWrapper.value != GameState.playing ||
@@ -1480,12 +1628,19 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     piece.setRotationIndex(rotation, animate: duration > 0.01);
-    piece.add(
-      MoveEffect.to(
-        Vector2(x, y),
-        EffectController(duration: duration, curve: Curves.easeOut),
-      ),
-    );
+    for (final effect in piece.children.whereType<MoveEffect>().toList()) {
+      effect.removeFromParent();
+    }
+    if (duration <= 0.01) {
+      piece.position = Vector2(x, y);
+    } else {
+      piece.add(
+        MoveEffect.to(
+          Vector2(x, y),
+          EffectController(duration: duration, curve: Curves.easeOut),
+        ),
+      );
+    }
     if (ghostPiece != null) {
       ghostPiece!.setRotationIndex(rotation);
       ghostPiece!.angle = piece.angle;

@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
 import '../data/player_data_manager.dart';
+import '../firebase_database_provider.dart';
 import 'multiplayer_manager.dart';
 
 class RankingEntry {
@@ -90,12 +91,7 @@ class RankingManager {
   DateTime? _summaryCacheAt;
 
   DatabaseReference get _db {
-    final app = Firebase.app();
-    final database = FirebaseDatabase.instanceFor(
-      app: app,
-      databaseURL: app.options.databaseURL,
-    );
-    return database.ref();
+    return AppFirebaseDatabase.ref();
   }
 
   Future<void> updateMyRating({
@@ -161,11 +157,16 @@ class RankingManager {
       rating: rating,
     );
     _invalidateCaches();
-    await _deleteDuplicateEntriesIfDue(
-      prefs: prefs,
-      resolvedUid: resolvedUid,
-      publicId: publicId,
-    );
+    try {
+      await _deleteDuplicateEntriesIfDue(
+        prefs: prefs,
+        resolvedUid: resolvedUid,
+        publicId: publicId,
+      );
+    } on FirebaseException {
+      // Ranking writes should not fail just because duplicate cleanup is
+      // blocked by stricter production database rules.
+    }
   }
 
   Future<List<RankingEntry>> fetchTopRankings({
@@ -291,6 +292,9 @@ class RankingManager {
         dailyRank = _displayDailyRankAt(sortedDaily, fullDailyIndex);
         resolvedDailyWins = sortedDaily[fullDailyIndex].dailyWins;
       }
+    }
+    if (ratingRank != null && ratingRank <= _rankingLimit) {
+      await PlayerDataManager.instance.recordBestRankedRank(ratingRank);
     }
     final summary = RankingSummary(
       ratingRankLabel: ratingRank == null || ratingRank > _rankingLimit

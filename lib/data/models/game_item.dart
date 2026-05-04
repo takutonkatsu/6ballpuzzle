@@ -153,7 +153,7 @@ class GameItemCatalog {
     ...defaultStamps,
     GameItem(
       id: 'stamp_react_02',
-      name: 'すごい',
+      name: 'やるな',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
       iconName: 'local_fire_department',
@@ -180,17 +180,7 @@ class GameItemCatalog {
     ),
   ];
 
-  static const List<GameItem> rareStamps = [
-    GameItem(
-      id: 'stamp_data_burst',
-      name: '解析完了',
-      type: ItemType.stamp,
-      rarity: ItemRarity.rare,
-      iconName: 'memory',
-      colorName: 'Purple',
-      text: '解析完了！',
-    ),
-  ];
+  static const List<GameItem> rareStamps = [];
 
   static const List<GameItem> playerIcons = [
     GameItem(

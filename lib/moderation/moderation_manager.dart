@@ -1,8 +1,8 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
+import '../firebase_database_provider.dart';
 
 class ModerationManager {
   ModerationManager._();
@@ -61,13 +61,8 @@ class ModerationManager {
     required String reason,
     String? roomId,
   }) async {
-    final app = Firebase.app();
-    final database = FirebaseDatabase.instanceFor(
-      app: app,
-      databaseURL: app.options.databaseURL,
-    );
     final reporterUid = await AuthManager.instance.ensureSignedIn();
-    await database.ref('reports').push().set({
+    await AppFirebaseDatabase.ref().child('reports').push().set({
       'reporterUid': reporterUid,
       'reportedUid': reportedUid,
       'reportedName': reportedName,

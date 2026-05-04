@@ -1,4 +1,4 @@
-package com.example.six_ball_puzzle
+package com.takutonkatsu.hexagon
 
 import io.flutter.embedding.android.FlutterActivity
 

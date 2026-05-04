@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../app_settings.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 
@@ -21,8 +22,12 @@ class GachaManager {
   static final GachaManager instance = GachaManager._internal();
   static const int rollCost = 5000;
   static const int dailyAdRollLimit = 3;
+  static const int dailyPremiumFreeRollLimit = 1;
   static const String _adRollDateKey = 'gacha_ad_roll_date';
   static const String _adRollCountKey = 'gacha_ad_roll_count';
+  static const String _premiumFreeRollDateKey = 'gacha_premium_free_roll_date';
+  static const String _premiumFreeRollCountKey =
+      'gacha_premium_free_roll_count';
 
   final Random _random = Random();
   final PlayerDataManager _playerData = PlayerDataManager.instance;
@@ -44,6 +49,21 @@ class GachaManager {
     return result;
   }
 
+  Future<GachaRollResult> rollPremiumDailyFreeGacha() async {
+    if (!AppSettings.instance.adsRemoved.value) {
+      throw StateError('広告削除が有効ではありません。');
+    }
+    final used = await premiumFreeRollsUsedToday();
+    if (used >= dailyPremiumFreeRollLimit) {
+      throw StateError('本日の無料ガチャは受取済みです。');
+    }
+    final result = await _grantDrawnItem();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_premiumFreeRollDateKey, _todayKey());
+    await prefs.setInt(_premiumFreeRollCountKey, used + 1);
+    return result;
+  }
+
   Future<int> adRollsUsedToday() async {
     final prefs = await SharedPreferences.getInstance();
     final savedDate = prefs.getString(_adRollDateKey);
@@ -51,6 +71,15 @@ class GachaManager {
       return 0;
     }
     return prefs.getInt(_adRollCountKey) ?? 0;
+  }
+
+  Future<int> premiumFreeRollsUsedToday() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedDate = prefs.getString(_premiumFreeRollDateKey);
+    if (savedDate != _todayKey()) {
+      return 0;
+    }
+    return prefs.getInt(_premiumFreeRollCountKey) ?? 0;
   }
 
   Future<GachaRollResult> _grantDrawnItem() async {

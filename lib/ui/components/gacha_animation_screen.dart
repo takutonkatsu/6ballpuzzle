@@ -21,10 +21,14 @@ class GachaAnimationScreen extends StatefulWidget {
 
 class _GachaAnimationScreenState extends State<GachaAnimationScreen>
     with TickerProviderStateMixin {
+  static const String _waitingSfx = 'Scene_Change11-1(Up)_ガチャ待機.mp3';
+  static const String _revealSfx = '決定ボタンを押す25_ガチャ排出.mp3';
+
   late AnimationController _mainController;
   late Animation<double> _chargeAnimation;
   late Animation<double> _revealScaleAnimation;
   bool _canDismiss = false;
+  bool _playedRevealSfx = false;
 
   @override
   void initState() {
@@ -48,6 +52,13 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
       ),
     );
 
+    Future<void>.delayed(const Duration(milliseconds: 1300), () {
+      if (!mounted) {
+        return;
+      }
+      AppSfx.play(_waitingSfx, volume: 0.9);
+    });
+    _mainController.addListener(_playRevealSfxWhenReady);
     _mainController.forward().then((_) {
       if (mounted) {
         setState(() {
@@ -59,8 +70,17 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
 
   @override
   void dispose() {
+    _mainController.removeListener(_playRevealSfxWhenReady);
     _mainController.dispose();
     super.dispose();
+  }
+
+  void _playRevealSfxWhenReady() {
+    if (_playedRevealSfx || _mainController.value < 0.7) {
+      return;
+    }
+    _playedRevealSfx = true;
+    AppSfx.play(_revealSfx, volume: 1.0);
   }
 
   Color _colorFor(GameItem item) {
@@ -98,6 +118,15 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
       case ItemRarity.legendary:
         return 'レジェンド';
     }
+  }
+
+  String _itemTypeLabel(GameItem item) {
+    return switch (item.type) {
+      ItemType.stamp => 'スタンプ',
+      ItemType.skin => 'ボールスキン',
+      ItemType.icon => 'プレイヤーアイコン',
+      ItemType.vfx => 'エフェクト',
+    };
   }
 
   @override
@@ -204,6 +233,36 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: accent.withValues(alpha: 0.72),
+                                width: 1.3,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: accent.withValues(alpha: 0.24),
+                                  blurRadius: 14,
+                                ),
+                              ],
+                            ),
+                            child: Text(
+                              _itemTypeLabel(item),
+                              style: TextStyle(
+                                color: accent,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.4,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 18),
                           Icon(
                             _iconForItem(item),
                             size: 100,
@@ -326,17 +385,38 @@ class _GridPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
 
-    const double spacing = 40.0;
+    const double radius = 24.0;
+    final width = sqrt(3) * radius;
+    const verticalStep = radius * 1.5;
+    final drift = (progress * verticalStep * 2) % verticalStep;
 
-    // Moving grid lines
-    final double offset = (progress * 100) % spacing;
+    for (double y = -verticalStep * 2 + drift;
+        y < size.height + verticalStep;
+        y += verticalStep) {
+      final row = ((y + verticalStep * 2 - drift) / verticalStep).round();
+      final xOffset = row.isEven ? 0.0 : width / 2;
+      for (double x = -width + xOffset; x < size.width + width; x += width) {
+        canvas.drawPath(_hexPath(Offset(x, y), radius), paint);
+      }
+    }
+  }
 
-    for (double x = -spacing + offset; x < size.width; x += spacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+  Path _hexPath(Offset center, double radius) {
+    final path = Path();
+    for (var i = 0; i < 6; i++) {
+      final angle = -pi / 2 + pi / 3 * i;
+      final point = Offset(
+        center.dx + cos(angle) * radius,
+        center.dy + sin(angle) * radius,
+      );
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
     }
-    for (double y = -spacing + offset; y < size.height; y += spacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
+    path.close();
+    return path;
   }
 
   @override

@@ -5,11 +5,18 @@
 		<key>CADisableMinimumFrameDurationOnPhone</key>
 		<true/>
 		<key>GADApplicationIdentifier</key>
-		<string>ca-app-pub-3940256099942544~1458002511</string>
+		<string>ca-app-pub-5703232072169520~4353803852</string>
+		<key>SKAdNetworkItems</key>
+		<array>
+			<dict>
+				<key>SKAdNetworkIdentifier</key>
+				<string>cstr6suwn9.skadnetwork</string>
+			</dict>
+		</array>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Six Ball Puzzle</string>
+	<string>ヘキサゴン</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -17,7 +24,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>six_ball_puzzle</string>
+	<string>ヘキサゴン</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

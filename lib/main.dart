@@ -4,15 +4,16 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'app_settings.dart';
 import 'auth/auth_manager.dart';
+import 'firebase_database_provider.dart';
 import 'firebase_options_dev.dart' as firebase_dev;
 import 'firebase_options_prod.dart' as firebase_prod;
+import 'purchases/ad_removal_purchase_manager.dart';
 import 'ui/components/interstitial_ad_manager.dart';
 import 'ui/components/rewarded_ad_manager.dart';
 import 'ui/home_screen.dart';
@@ -69,6 +70,7 @@ Future<void> main() async {
 
   await AuthManager.instance.ensureSignedIn();
   await AppSettings.instance.load();
+  unawaited(AdRemovalPurchaseManager.instance.initialize());
   await _configureExclusiveGameAudio();
   await FlameAudio.bgm.initialize();
   runApp(const MyApp());
@@ -100,10 +102,7 @@ Future<void> _configureExclusiveGameAudio() async {
 
 void _configureRealtimeDatabaseCache(FirebaseApp app) {
   try {
-    final database = FirebaseDatabase.instanceFor(
-      app: app,
-      databaseURL: app.options.databaseURL,
-    );
+    final database = AppFirebaseDatabase.instance();
     database.setPersistenceEnabled(true);
     database.setPersistenceCacheSizeBytes(2 * 1024 * 1024);
   } catch (error) {
@@ -164,6 +163,8 @@ class StartupLoadingScreen extends StatefulWidget {
 
 class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     with SingleTickerProviderStateMixin {
+  static const Duration _bootstrapTimeout = Duration(seconds: 8);
+
   late final AnimationController _progressController;
 
   @override
@@ -177,16 +178,35 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   }
 
   Future<void> _boot() async {
-    final bootstrapFuture = prepareHomeBootstrapData();
+    final bootstrapFuture = prepareHomeBootstrapData().timeout(
+      _bootstrapTimeout,
+      onTimeout: () {
+        debugPrint('Home bootstrap timed out; continuing with local defaults.');
+        return const HomeBootstrapData(
+          playerName: '',
+          rating: 1000,
+        );
+      },
+    );
     final minimumDisplayFuture = Future.wait<void>([
       _progressController.forward(from: 0),
       Future<void>.delayed(const Duration(milliseconds: 1800)),
     ]);
-    final results = await Future.wait<Object?>([
-      minimumDisplayFuture,
-      bootstrapFuture,
-    ]);
-    final bootstrapData = results[1] as HomeBootstrapData;
+    HomeBootstrapData bootstrapData;
+    try {
+      final results = await Future.wait<Object?>([
+        minimumDisplayFuture,
+        bootstrapFuture,
+      ]);
+      bootstrapData = results[1] as HomeBootstrapData;
+    } catch (error, stackTrace) {
+      debugPrint('Home bootstrap failed; continuing with local defaults: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      bootstrapData = const HomeBootstrapData(
+        playerName: '',
+        rating: 1000,
+      );
+    }
     if (!mounted) {
       return;
     }

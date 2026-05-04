@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../app_settings.dart';
 import '../audio/sfx.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
@@ -30,9 +31,13 @@ class _ShopScreenState extends State<ShopScreen> {
   List<GameItem> _items = const [];
   List<GameItem> _ownedItems = const [];
   int _adRollsUsed = 0;
+  int _premiumFreeRollsUsed = 0;
 
   int get _remainingAdRolls =>
       (GachaManager.dailyAdRollLimit - _adRollsUsed).clamp(0, 999);
+  int get _remainingPremiumFreeRolls =>
+      (GachaManager.dailyPremiumFreeRollLimit - _premiumFreeRollsUsed)
+          .clamp(0, 999);
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -53,6 +58,8 @@ class _ShopScreenState extends State<ShopScreen> {
         .take(3)
         .toList();
     final adRollsUsed = await _gachaManager.adRollsUsedToday();
+    final premiumFreeRollsUsed =
+        await _gachaManager.premiumFreeRollsUsedToday();
     if (!mounted) {
       return;
     }
@@ -61,6 +68,7 @@ class _ShopScreenState extends State<ShopScreen> {
       _ownedItems = ownedItems;
       _items = items;
       _adRollsUsed = adRollsUsed;
+      _premiumFreeRollsUsed = premiumFreeRollsUsed;
       _isLoading = false;
     });
   }
@@ -164,6 +172,59 @@ class _ShopScreenState extends State<ShopScreen> {
         throw StateError('動画の視聴が完了しませんでした。');
       }
       final result = await _gachaManager.rollFreeAdGacha();
+      await _missionManager.recordEvent('roll_gacha');
+      await _loadShop();
+      if (!mounted) {
+        return;
+      }
+      await _showGachaResultDialog(result);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF151723),
+            title: const Text(
+              '無料ガチャ失敗',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+            content:
+                Text('$error', style: const TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  _playUiTap();
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('閉じる'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBuying = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _rollPremiumDailyFreeGacha() async {
+    if (_isBuying ||
+        _premiumFreeRollsUsed >= GachaManager.dailyPremiumFreeRollLimit) {
+      return;
+    }
+
+    setState(() {
+      _isBuying = true;
+    });
+    try {
+      final result = await _gachaManager.rollPremiumDailyFreeGacha();
       await _missionManager.recordEvent('roll_gacha');
       await _loadShop();
       if (!mounted) {
@@ -337,11 +398,19 @@ class _ShopScreenState extends State<ShopScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final adsRemoved = AppSettings.instance.adsRemoved.value;
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0F),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new),
+          onPressed: () {
+            _playUiTap();
+            Navigator.of(context).pop();
+          },
+        ),
         flexibleSpace: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -530,14 +599,26 @@ class _ShopScreenState extends State<ShopScreen> {
                             ),
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
-                              onPressed: _isBuying ||
-                                      _adRollsUsed >=
-                                          GachaManager.dailyAdRollLimit
-                                  ? null
-                                  : () {
-                                      _playUiTap();
-                                      unawaited(_rollFreeAdGacha());
-                                    },
+                              onPressed: adsRemoved
+                                  ? (_isBuying ||
+                                          _premiumFreeRollsUsed >=
+                                              GachaManager
+                                                  .dailyPremiumFreeRollLimit)
+                                      ? null
+                                      : () {
+                                          _playUiTap();
+                                          unawaited(
+                                            _rollPremiumDailyFreeGacha(),
+                                          );
+                                        }
+                                  : (_isBuying ||
+                                          _adRollsUsed >=
+                                              GachaManager.dailyAdRollLimit)
+                                      ? null
+                                      : () {
+                                          _playUiTap();
+                                          unawaited(_rollFreeAdGacha());
+                                        },
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.amberAccent,
                                 side: BorderSide(
@@ -551,12 +632,19 @@ class _ShopScreenState extends State<ShopScreen> {
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 16),
                               ),
-                              icon: const Icon(Icons.ondemand_video),
+                              icon: Icon(
+                                adsRemoved
+                                    ? Icons.auto_awesome
+                                    : Icons.ondemand_video,
+                              ),
                               label: Text(
-                                '動画で無料 残り$_remainingAdRolls回',
+                                adsRemoved
+                                    ? '1日1回無料 残り$_remainingPremiumFreeRolls回'
+                                    : '動画で無料 残り$_remainingAdRolls回',
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5),
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
                               ),
                             ),
                           ],

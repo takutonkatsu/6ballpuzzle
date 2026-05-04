@@ -46,28 +46,31 @@ class DefaultFirebaseOptions {
     messagingSenderId: '599331155949',
     projectId: 'hexagon-puzzle-prod',
     authDomain: 'hexagon-puzzle-prod.firebaseapp.com',
-    databaseURL: 'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'hexagon-puzzle-prod.firebasestorage.app',
     measurementId: 'G-HBLKE4F3KR',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyAau_Kg-abGomqyT3EAujl8VmQPgUhmI3U',
-    appId: '1:599331155949:android:321bcf7d017f2a7cee81e4',
-    messagingSenderId: '599331155949',
-    projectId: 'hexagon-puzzle-prod',
-    databaseURL: 'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
-    storageBucket: 'hexagon-puzzle-prod.firebasestorage.app',
+    apiKey: 'AIzaSyAuj6qEABHMpVGoHZ0Dc0GameBtM7QKPfU',
+    appId: '1:92968589553:android:e29607415d086ccb3b3150',
+    messagingSenderId: '92968589553',
+    projectId: 'hexagon-puzzle-prod-e811c',
+    databaseURL:
+        'https://hexagon-puzzle-prod-e811c-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'hexagon-puzzle-prod-e811c.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyDZpxxumudwoXtj2ja2iUI274tAn1lTUTo',
-    appId: '1:599331155949:ios:319666fdce2a48bdee81e4',
-    messagingSenderId: '599331155949',
-    projectId: 'hexagon-puzzle-prod',
-    databaseURL: 'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
-    storageBucket: 'hexagon-puzzle-prod.firebasestorage.app',
-    iosBundleId: 'com.example.sixBallPuzzle',
+    apiKey: 'AIzaSyB2Pr_xHU5E6qagt1A1j3U3i4GkcGEfOEA',
+    appId: '1:92968589553:ios:c2c67d4b11deffcc3b3150',
+    messagingSenderId: '92968589553',
+    projectId: 'hexagon-puzzle-prod-e811c',
+    databaseURL:
+        'https://hexagon-puzzle-prod-e811c-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'hexagon-puzzle-prod-e811c.firebasestorage.app',
+    iosBundleId: 'com.takutonkatsu.hexagon',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -75,7 +78,8 @@ class DefaultFirebaseOptions {
     appId: '1:599331155949:ios:319666fdce2a48bdee81e4',
     messagingSenderId: '599331155949',
     projectId: 'hexagon-puzzle-prod',
-    databaseURL: 'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'hexagon-puzzle-prod.firebasestorage.app',
     iosBundleId: 'com.example.sixBallPuzzle',
   );
@@ -86,9 +90,9 @@ class DefaultFirebaseOptions {
     messagingSenderId: '599331155949',
     projectId: 'hexagon-puzzle-prod',
     authDomain: 'hexagon-puzzle-prod.firebaseapp.com',
-    databaseURL: 'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
+    databaseURL:
+        'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'hexagon-puzzle-prod.firebasestorage.app',
     measurementId: 'G-4YBN3QGDJ1',
   );
-
 }

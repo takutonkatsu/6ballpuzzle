@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
@@ -11,9 +12,11 @@ class RewardedAdManager {
 
   static final RewardedAdManager instance = RewardedAdManager._internal();
   static const Duration _loadTimeout = Duration(seconds: 2);
+  static const Duration _retryDelay = Duration(seconds: 10);
 
   RewardedAd? _cachedAd;
   bool _isLoading = false;
+  Timer? _retryTimer;
 
   String? get _adUnitId {
     if (Platform.isAndroid) {
@@ -94,13 +97,19 @@ class RewardedAdManager {
         request: const AdRequest(),
         rewardedAdLoadCallback: RewardedAdLoadCallback(
           onAdLoaded: (ad) {
+            _retryTimer?.cancel();
             _disposeCachedAd();
             _cachedAd = ad;
             if (!completer.isCompleted) {
               completer.complete();
             }
           },
-          onAdFailedToLoad: (_) {
+          onAdFailedToLoad: (error) {
+            debugPrint(
+              'Rewarded ad failed to load '
+              '(code=${error.code}, domain=${error.domain}): ${error.message}',
+            );
+            _scheduleRetry();
             if (!completer.isCompleted) {
               completer.complete();
             }
@@ -118,5 +127,12 @@ class RewardedAdManager {
   void _disposeCachedAd() {
     _cachedAd?.dispose();
     _cachedAd = null;
+  }
+
+  void _scheduleRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_retryDelay, () {
+      unawaited(warmUp());
+    });
   }
 }

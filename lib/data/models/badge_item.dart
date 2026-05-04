@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 enum BadgeUnlockType {
   always,
   highestRating,
-  maxArenaWins,
+  totalMatches,
+  arenaPerfectClearCount,
   accountYears,
-  totalWins,
   wazaCount,
+  highestEndlessScore,
+  bestRankedRank,
 }
 
 class BadgeUnlockCondition {
@@ -22,24 +24,30 @@ class BadgeUnlockCondition {
 
   bool isUnlocked({
     required int highestRating,
-    required int maxArenaWins,
+    required int totalMatches,
+    required int arenaPerfectClearCount,
     required Duration accountAge,
-    required int totalWins,
     required Map<String, int> wazaCounts,
+    required int highestEndlessScore,
+    required int bestRankedRank,
   }) {
     switch (type) {
       case BadgeUnlockType.always:
         return true;
       case BadgeUnlockType.highestRating:
         return highestRating >= threshold;
-      case BadgeUnlockType.maxArenaWins:
-        return maxArenaWins >= threshold;
+      case BadgeUnlockType.totalMatches:
+        return totalMatches >= threshold;
+      case BadgeUnlockType.arenaPerfectClearCount:
+        return arenaPerfectClearCount >= threshold;
       case BadgeUnlockType.accountYears:
         return accountAge.inDays >= threshold * 365;
-      case BadgeUnlockType.totalWins:
-        return totalWins >= threshold;
       case BadgeUnlockType.wazaCount:
         return wazaCounts[wazaKey] != null && wazaCounts[wazaKey]! >= threshold;
+      case BadgeUnlockType.highestEndlessScore:
+        return highestEndlessScore >= threshold;
+      case BadgeUnlockType.bestRankedRank:
+        return bestRankedRank > 0 && bestRankedRank <= threshold;
     }
   }
 
@@ -49,14 +57,18 @@ class BadgeUnlockCondition {
         return '初期解放';
       case BadgeUnlockType.highestRating:
         return '最高レート $threshold';
-      case BadgeUnlockType.maxArenaWins:
-        return '闘技場 $threshold勝';
+      case BadgeUnlockType.totalMatches:
+        return '総プレイ $threshold回';
+      case BadgeUnlockType.arenaPerfectClearCount:
+        return 'アリーナ12勝 $threshold回';
       case BadgeUnlockType.accountYears:
         return 'プレイ歴 $threshold年';
-      case BadgeUnlockType.totalWins:
-        return '通算 $threshold勝';
       case BadgeUnlockType.wazaCount:
         return '${_wazaLabel(wazaKey)} $threshold回';
+      case BadgeUnlockType.highestEndlessScore:
+        return 'エンドレス最高 $threshold';
+      case BadgeUnlockType.bestRankedRank:
+        return 'ランク戦最高 $threshold位以内';
     }
   }
 
@@ -76,100 +88,113 @@ class BadgeItem {
     required this.label,
     required this.icon,
     required this.unlockedCondition,
+    this.level,
   });
 
   final String id;
   final String label;
   final IconData icon;
   final BadgeUnlockCondition unlockedCondition;
+  final int? level;
+
+  Color get frameColor {
+    return switch (level) {
+      1 => Colors.white,
+      2 => const Color(0xFFCD7F32),
+      3 => const Color(0xFFC0C0C0),
+      4 => const Color(0xFFFFD54F),
+      5 => const Color(0xFFB56CFF),
+      _ => Colors.amberAccent,
+    };
+  }
 }
 
 class BadgeCatalog {
   BadgeCatalog._();
 
-  static const List<BadgeItem> allBadges = [
-    BadgeItem(
-      id: 'rookie_pilot',
-      label: 'ルーキーパイロット',
-      icon: Icons.trip_origin,
-      unlockedCondition: BadgeUnlockCondition(type: BadgeUnlockType.always),
+  static final List<BadgeItem> allBadges = [
+    ..._leveledBadges(
+      idPrefix: 'total_play',
+      label: '総プレイ回数',
+      icon: Icons.sports_esports,
+      type: BadgeUnlockType.totalMatches,
+      thresholds: const [10, 50, 100, 500, 1000],
     ),
-    BadgeItem(
-      id: 'rating_1200',
-      label: 'レート1200',
-      icon: Icons.trending_up,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.highestRating,
-        threshold: 1200,
-      ),
+    ..._leveledBadges(
+      idPrefix: 'hexagon_count',
+      label: '累計ヘキサゴン',
+      icon: Icons.hexagon,
+      type: BadgeUnlockType.wazaCount,
+      thresholds: const [10, 50, 100, 1000, 10000],
+      wazaKey: 'hexagon',
     ),
-    BadgeItem(
-      id: 'rating_1500',
-      label: 'レート1500',
-      icon: Icons.auto_graph,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.highestRating,
-        threshold: 1500,
-      ),
+    ..._leveledBadges(
+      idPrefix: 'pyramid_count',
+      label: '累計ピラミッド',
+      icon: Icons.change_history,
+      type: BadgeUnlockType.wazaCount,
+      thresholds: const [10, 50, 100, 1000, 10000],
+      wazaKey: 'pyramid',
     ),
-    BadgeItem(
-      id: 'arena_7',
-      label: 'アリーナ7勝',
-      icon: Icons.shield,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.maxArenaWins,
-        threshold: 7,
-      ),
+    ..._leveledBadges(
+      idPrefix: 'straight_count',
+      label: '累計ストレート',
+      icon: Icons.linear_scale,
+      type: BadgeUnlockType.wazaCount,
+      thresholds: const [10, 50, 100, 1000, 10000],
+      wazaKey: 'straight',
     ),
-    BadgeItem(
-      id: 'arena_12',
+    ..._leveledBadges(
+      idPrefix: 'arena_12_clear',
       label: 'アリーナ12勝',
       icon: Icons.workspace_premium,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.maxArenaWins,
-        threshold: 12,
-      ),
+      type: BadgeUnlockType.arenaPerfectClearCount,
+      thresholds: const [1, 5, 10, 30, 100],
     ),
-    BadgeItem(
-      id: 'anniversary_3',
-      label: '3周年',
-      icon: Icons.cake,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.accountYears,
-        threshold: 3,
+    for (var year = 1; year <= 10; year++)
+      BadgeItem(
+        id: 'anniversary_$year',
+        label: '$year周年',
+        icon: Icons.cake,
+        unlockedCondition: BadgeUnlockCondition(
+          type: BadgeUnlockType.accountYears,
+          threshold: year,
+        ),
       ),
-    ),
-    BadgeItem(
-      id: 'straight_master',
-      label: 'ストレートマスター',
-      icon: Icons.linear_scale,
+    const BadgeItem(
+      id: 'rank_top_100',
+      label: 'ランク戦TOP100',
+      icon: Icons.leaderboard,
       unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.wazaCount,
-        threshold: 50,
-        wazaKey: 'straight',
-      ),
-    ),
-    BadgeItem(
-      id: 'pyramid_architect',
-      label: 'ピラミッド職人',
-      icon: Icons.change_history,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.wazaCount,
-        threshold: 30,
-        wazaKey: 'pyramid',
-      ),
-    ),
-    BadgeItem(
-      id: 'hexagon_core',
-      label: 'ヘキサゴンコア',
-      icon: Icons.hexagon,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.wazaCount,
-        threshold: 20,
-        wazaKey: 'hexagon',
+        type: BadgeUnlockType.bestRankedRank,
+        threshold: 100,
       ),
     ),
   ];
+
+  static List<BadgeItem> _leveledBadges({
+    required String idPrefix,
+    required String label,
+    required IconData icon,
+    required BadgeUnlockType type,
+    required List<int> thresholds,
+    String? wazaKey,
+  }) {
+    return [
+      for (var i = 0; i < thresholds.length; i++)
+        BadgeItem(
+          id: '${idPrefix}_lv${i + 1}',
+          label: '$label Lv.${i + 1}',
+          icon: icon,
+          level: i + 1,
+          unlockedCondition: BadgeUnlockCondition(
+            type: type,
+            threshold: thresholds[i],
+            wazaKey: wazaKey,
+          ),
+        ),
+    ];
+  }
 
   static BadgeItem? findById(String id) {
     for (final badge in allBadges) {

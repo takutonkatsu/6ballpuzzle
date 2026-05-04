@@ -33,9 +33,14 @@ class MissionCatalog {
   MissionCatalog._();
 
   static const List<String> rewardedAdMissionIds = ['watch_rewarded_ad_1'];
+  static const List<String> loginRewardMissionIds = ['login_bonus_1'];
 
   static bool isRewardedAdMissionId(String id) {
     return rewardedAdMissionIds.contains(id);
+  }
+
+  static bool isLoginRewardMissionId(String id) {
+    return loginRewardMissionIds.contains(id);
   }
 
   static String? localizedTitleForId(String id) {
@@ -53,6 +58,7 @@ class MissionCatalog {
       'score_endless_10000' => 'エンドレスモードで10000点を達成する',
       'roll_gacha_1' => 'ガチャを1回引く',
       'watch_rewarded_ad_1' => '動画広告を見る',
+      'login_bonus_1' => 'ログイン報酬を受け取る',
       _ => null,
     };
   }

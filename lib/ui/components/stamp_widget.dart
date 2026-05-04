@@ -7,11 +7,13 @@ class StampWidget extends StatefulWidget {
     required this.item,
     this.level = 1,
     this.forceLarge = false,
+    this.colorOverride,
   });
 
   final GameItem item;
   final int level;
   final bool forceLarge; // Use for center overlay pops in GameScreen
+  final Color? colorOverride;
 
   @override
   State<StampWidget> createState() => _StampWidgetState();
@@ -93,7 +95,7 @@ class _StampWidgetState extends State<StampWidget>
   @override
   Widget build(BuildContext context) {
     final text = widget.item.text ?? '...';
-    final color = _getColor(widget.item.colorName);
+    final color = widget.colorOverride ?? _getColor(widget.item.colorName);
     final iconData = _getIcon(widget.item.iconName);
 
     final double scale = widget.forceLarge ? 2.0 : 1.0;
@@ -104,11 +106,13 @@ class _StampWidgetState extends State<StampWidget>
         text,
         softWrap: false,
         style: TextStyle(
-          color: Colors.white,
+          color: color,
           fontSize: 14 * scale,
           fontFamily: 'Courier',
           fontWeight: FontWeight.bold,
-          shadows: const [Shadow(color: Colors.white54, blurRadius: 2)],
+          shadows: [
+            Shadow(color: color.withValues(alpha: 0.55), blurRadius: 2)
+          ],
         ),
       );
     }

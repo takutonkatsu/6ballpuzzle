@@ -16,11 +16,13 @@ class InterstitialAdManager {
   static const Duration _showTimeout = Duration(seconds: 8);
   static const Duration _androidCooldownDuration = Duration(seconds: 30);
   static const Duration _androidWarmUpDelay = Duration(seconds: 5);
+  static const Duration _retryDelay = Duration(seconds: 10);
 
   InterstitialAd? _cachedAd;
   bool _isLoading = false;
   Timer? _cooldownTimer;
   Timer? _warmUpTimer;
+  Timer? _retryTimer;
   final ValueNotifier<bool> isCoolingDown = ValueNotifier(false);
 
   String? get _adUnitId {
@@ -39,6 +41,7 @@ class InterstitialAdManager {
 
   Future<void> warmUp() async {
     if (AppSettings.instance.adsRemoved.value) {
+      _retryTimer?.cancel();
       _disposeCachedAd();
       return;
     }
@@ -130,6 +133,11 @@ class InterstitialAdManager {
             }
           },
           onAdFailedToLoad: (_) {
+            debugPrint(
+              'Interstitial ad failed to load '
+              '(code=${_.code}, domain=${_.domain}): ${_.message}',
+            );
+            _scheduleRetry();
             if (!completer.isCompleted) {
               completer.complete();
             }
@@ -149,6 +157,18 @@ class InterstitialAdManager {
     _cachedAd = null;
   }
 
+  void _scheduleRetry() {
+    if (AppSettings.instance.adsRemoved.value) {
+      return;
+    }
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_retryDelay, () {
+      if (!isCoolingDown.value) {
+        unawaited(warmUp());
+      }
+    });
+  }
+
   void _beginCooldown() {
     if (!Platform.isAndroid) {
       return;
@@ -164,6 +184,7 @@ class InterstitialAdManager {
     if (Platform.isAndroid && isCoolingDown.value) {
       return;
     }
+    _retryTimer?.cancel();
     _warmUpTimer?.cancel();
     final delay = Platform.isAndroid ? _androidWarmUpDelay : Duration.zero;
     _warmUpTimer = Timer(delay, () {

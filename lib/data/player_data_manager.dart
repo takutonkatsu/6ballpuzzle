@@ -123,6 +123,7 @@ class PlayerDataManager {
   static const String _rankedCurrentWinStreakKey =
       'player_ranked_current_win_streak';
   static const String _rankedMaxWinStreakKey = 'player_ranked_max_win_streak';
+  static const String _bestRankedRankKey = 'player_best_ranked_rank';
   static const String _arenaPerfectClearCountKey =
       'player_arena_perfect_clear_count';
   static const String _recordResetVersionKey = 'player_record_reset_version';
@@ -134,7 +135,7 @@ class PlayerDataManager {
       'player_pending_level_up_reward_log';
   static const String _pendingLoginBonusLogKey =
       'player_pending_login_bonus_log';
-  static const int _currentInventoryRevision = 2;
+  static const int _currentInventoryRevision = 3;
   static const int _currentRecordResetVersion = 1;
   static const int _debugBuildCoins = 1000000;
 
@@ -172,6 +173,7 @@ class PlayerDataManager {
   int _rankedWins = 0;
   int _rankedCurrentWinStreak = 0;
   int _rankedMaxWinStreak = 0;
+  int _bestRankedRank = 0;
   int _arenaPerfectClearCount = 0;
   Map<String, int> _wazaCounts = {
     'straight': 0,
@@ -198,6 +200,7 @@ class PlayerDataManager {
   int get cyberScrap => _cyberScrap;
   List<GameItem> get ownedItems => List.unmodifiable(_ownedItems);
   String get lastDailyReset => _lastDailyReset;
+  String get lastLoginDate => _lastLoginDate;
   List<Map<String, dynamic>> get currentMissions => _currentMissions
       .map((mission) => Map<String, dynamic>.from(mission))
       .toList();
@@ -227,6 +230,7 @@ class PlayerDataManager {
   int get rankedWins => _rankedWins;
   int get rankedCurrentWinStreak => _rankedCurrentWinStreak;
   int get rankedMaxWinStreak => _rankedMaxWinStreak;
+  int get bestRankedRank => _bestRankedRank;
   int get arenaPerfectClearCount => _arenaPerfectClearCount;
   Map<String, int> get wazaCounts => Map.unmodifiable(_wazaCounts);
   List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
@@ -235,10 +239,12 @@ class PlayerDataManager {
       .where(
         (badge) => badge.unlockedCondition.isUnlocked(
           highestRating: _highestRating,
-          maxArenaWins: _maxArenaWins,
+          totalMatches: _totalMatches,
+          arenaPerfectClearCount: _arenaPerfectClearCount,
           accountAge: accountAge,
-          totalWins: _totalWins,
           wazaCounts: _wazaCounts,
+          highestEndlessScore: _highestEndlessScore,
+          bestRankedRank: _bestRankedRank,
         ),
       )
       .map((badge) => badge.id)
@@ -350,6 +356,7 @@ class PlayerDataManager {
     _rankedWins = prefs.getInt(_rankedWinsKey) ?? 0;
     _rankedCurrentWinStreak = prefs.getInt(_rankedCurrentWinStreakKey) ?? 0;
     _rankedMaxWinStreak = prefs.getInt(_rankedMaxWinStreakKey) ?? 0;
+    _bestRankedRank = prefs.getInt(_bestRankedRankKey) ?? 0;
     _arenaPerfectClearCount = prefs.getInt(_arenaPerfectClearCountKey) ?? 0;
     _wazaCounts = {
       'straight': 0,
@@ -673,6 +680,7 @@ class PlayerDataManager {
     _rankedWins = 0;
     _rankedCurrentWinStreak = 0;
     _rankedMaxWinStreak = 0;
+    _bestRankedRank = 0;
     _arenaPerfectClearCount = 0;
     _wazaCounts = {
       'straight': 0,
@@ -775,6 +783,15 @@ class PlayerDataManager {
     await _saveStats();
   }
 
+  Future<void> recordBestRankedRank(int rank) async {
+    await load();
+    if (rank <= 0 || (_bestRankedRank > 0 && _bestRankedRank <= rank)) {
+      return;
+    }
+    _bestRankedRank = rank;
+    await _saveStats();
+  }
+
   Future<void> _saveEconomy() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_coinsKey, _coins);
@@ -820,6 +837,7 @@ class PlayerDataManager {
     await prefs.setInt(_rankedWinsKey, _rankedWins);
     await prefs.setInt(_rankedCurrentWinStreakKey, _rankedCurrentWinStreak);
     await prefs.setInt(_rankedMaxWinStreakKey, _rankedMaxWinStreak);
+    await prefs.setInt(_bestRankedRankKey, _bestRankedRank);
     await prefs.setInt(_arenaPerfectClearCountKey, _arenaPerfectClearCount);
     await prefs.setString(_wazaCountsKey, jsonEncode(_wazaCounts));
     await prefs.setString(_modePlayCountsKey, jsonEncode(_modePlayCounts));
@@ -906,6 +924,17 @@ class PlayerDataManager {
           _ownedItems.add(stamp.copyWith(level: 1));
           changed = true;
         }
+      }
+    }
+    if (revision < 3) {
+      final allowedStampIds =
+          GameItemCatalog.commonStamps.map((stamp) => stamp.id).toSet();
+      final filteredItems = _ownedItems
+          .where((item) => !item.isStamp || allowedStampIds.contains(item.id))
+          .toList();
+      if (filteredItems.length != _ownedItems.length) {
+        _ownedItems = filteredItems;
+        changed = true;
       }
     }
     return changed;

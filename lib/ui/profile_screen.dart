@@ -18,7 +18,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  static const int _nameChangeCost = 10000;
+  static const int _nameChangeCost = 1000;
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final MultiplayerManager _multiplayerManager = MultiplayerManager.instance;
@@ -51,6 +51,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new),
+          onPressed: () {
+            _playUiTap();
+            Navigator.of(context).pop();
+          },
+        ),
         title: const Text('プロフィール'),
       ),
       body: Stack(
@@ -304,7 +311,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           : Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(badge.icon, color: Colors.amberAccent, size: 24),
+                Icon(badge.icon, color: badge.frameColor, size: 24),
                 const SizedBox(height: 8),
                 Text(
                   badge.label,

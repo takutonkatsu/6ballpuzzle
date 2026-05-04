@@ -38,6 +38,7 @@ class GameScreen extends StatefulWidget {
   final CPUDifficulty cpuDifficulty;
   final int? rankedBotRating;
   final String rankedBotName;
+  final bool isTutorialMode;
 
   const GameScreen({
     super.key,
@@ -50,6 +51,7 @@ class GameScreen extends StatefulWidget {
     this.cpuDifficulty = CPUDifficulty.hard,
     this.rankedBotRating,
     this.rankedBotName = 'Player',
+    this.isTutorialMode = false,
   });
 
   const GameScreen.online({
@@ -61,11 +63,36 @@ class GameScreen extends StatefulWidget {
   })  : cpuDifficulty = CPUDifficulty.hard,
         rankedBotRating = null,
         rankedBotName = 'Player',
+        isTutorialMode = false,
         isCpuMode = false,
         isOnlineMultiplayer = true;
 
   @override
   State<GameScreen> createState() => _GameScreenState();
+}
+
+enum _TutorialPhase {
+  step1Move,
+  step1Drop,
+  step1Clear,
+  step2Move,
+  step2Rotate,
+  step2Drop,
+  step2Clear,
+  step3Incoming,
+  step3Move,
+  step3Rotate,
+  step3Drop,
+  step3Skill,
+  step3Win,
+}
+
+enum _TutorialAction {
+  moveLeft,
+  moveRight,
+  rotateLeft,
+  rotateRight,
+  hardDrop,
 }
 
 class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
@@ -137,13 +164,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Timer? _myStampTimer;
   Timer? _opponentStampTimer;
   Timer? _stampCooldownTimer;
+  Timer? _tutorialTimer;
+  _TutorialPhase? _tutorialPhase;
+  bool _tutorialCompleted = false;
   DateTime? _ignoreEmptyOpponentBoardUntil;
   bool _resultAudioStarted = false;
   DateTime? _resultAudioStartedAt;
   final List<Timer> _pendingAttackTimers = [];
 
   bool get _isOnlineMode => widget.isOnlineMultiplayer;
-  bool get _showsOpponentBoard => widget.isCpuMode || _isOnlineMode;
+  bool get _showsOpponentBoard =>
+      widget.isCpuMode || _isOnlineMode || widget.isTutorialMode;
   bool get _blocksOnlineExit =>
       _isOnlineMode && _onlineGameStarted && _onlineResultMessage == null;
 
@@ -234,7 +265,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   void _playUiTap() {
-    if (_isBattleInProgress) {
+    final playerState = _playerGame.gameStateWrapper.value;
+    final opponentState = _cpuGame?.gameStateWrapper.value;
+    final isResultOrTransition = _readyGoOverlayText != null ||
+        _resultRevealPending ||
+        _onlineResultMessage != null ||
+        _cpuBattlePlayerWon != null ||
+        playerState == GameState.gameover ||
+        opponentState == GameState.gameover;
+    if (_isBattleInProgress || isResultOrTransition) {
       return;
     }
     AppSfx.playUiTap();
@@ -259,8 +298,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       seed: gameSeed,
       autoStart: false,
       useConstantFallSpeed: false,
+      manualPieceSpawning: widget.isTutorialMode,
       wallColor: Colors.blueAccent,
     );
+
+    if (widget.isTutorialMode) {
+      _cpuGame = PuzzleGame(
+        isCpuMode: false,
+        seed: gameSeed,
+        autoStart: false,
+        isRemotePlayerMode: true,
+        manualPieceSpawning: true,
+        wallColor: Colors.redAccent,
+      );
+    }
 
     if (_isOnlineMode) {
       _cpuGame = PuzzleGame(
@@ -305,7 +356,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       }
     }
 
-    if (widget.isCpuMode) {
+    if (widget.isCpuMode && !widget.isTutorialMode) {
       _cpuGame = PuzzleGame(
         isCpuMode: true,
         seed: gameSeed,
@@ -411,12 +462,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       }
     };
 
-    if (widget.isCpuMode && _cpuGame != null) {
+    if (widget.isCpuMode && !widget.isTutorialMode && _cpuGame != null) {
       _cpuGame!.onWazaFired =
           (waza, color) => _sendOjamaWithDelay(_playerGame, waza, color);
     }
 
-    if (!_isOnlineMode) {
+    if (widget.isTutorialMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_startTutorialBattle());
+      });
+    } else if (!_isOnlineMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_isRankedBotMode) {
           unawaited(_startRankedBotBattleAfterMatchOverlay(localGameSeed));
@@ -478,6 +533,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _myStampTimer?.cancel();
     _opponentStampTimer?.cancel();
     _stampCooldownTimer?.cancel();
+    _tutorialTimer?.cancel();
     _shutdownBattleGames();
     unawaited(SfxPlayer.resetTransientAudio());
     if (!_isReturningToHome) {
@@ -644,7 +700,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   if (!widget.isCpuMode && !_isOnlineMode)
                     _buildScoreWidget(_playerGame),
                   Expanded(child: _buildPlayerArea(_playerGame)),
-                  _buildControls(_playerGame),
+                  widget.isTutorialMode
+                      ? _buildTutorialControls()
+                      : _buildControls(_playerGame),
                   ValueListenableBuilder<bool>(
                     valueListenable: AppSettings.instance.adsRemoved,
                     builder: (context, adsRemoved, child) {
@@ -672,12 +730,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 _buildGlobalOverlay(),
               if (_rankedBotMatchOverlayVisible) _buildRankedBotMatchOverlay(),
               if (widget.isArenaMode) _buildArenaRecordBadge(),
-              if (!_isOnlineMode)
+              if (!_isOnlineMode && !widget.isTutorialMode)
                 Positioned(
                   top: 8,
                   left: 8,
                   child: _buildBattleSettingsButton(),
                 ),
+              if (widget.isTutorialMode) _buildTutorialOverlay(),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
               if (_currentFloatingStamp != null)
                 Positioned(
@@ -696,6 +755,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     _opponentFloatingStamp!,
                     compact: true,
                     scale: 2 / 3,
+                    isOpponent: true,
                   ),
                 ),
             ],
@@ -709,8 +769,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     GameItem stamp, {
     bool compact = false,
     double scale = 1,
+    bool isOpponent = false,
   }) {
     final normalizedScale = compact ? scale : 1.0;
+    final borderColor = isOpponent ? Colors.redAccent : Colors.cyanAccent;
     return Semantics(
       label: 'stamp',
       child: IgnorePointer(
@@ -728,13 +790,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               compact ? 10 * normalizedScale : 16,
             ),
             border: Border.all(
-              color: Colors.cyanAccent.withValues(alpha: compact ? 0.36 : 0.5),
+              color: borderColor.withValues(alpha: compact ? 0.7 : 0.5),
               width: compact ? 1.2 * normalizedScale : 2,
             ),
             boxShadow: compact
                 ? [
                     BoxShadow(
-                      color: Colors.cyanAccent.withValues(alpha: 0.18),
+                      color: borderColor.withValues(alpha: 0.18),
                       blurRadius: 8 * normalizedScale,
                     ),
                   ]
@@ -753,6 +815,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               item: stamp,
               level: stamp.level,
               forceLarge: !compact,
+              colorOverride: isOpponent ? Colors.redAccent : null,
             ),
           ),
         ),
@@ -862,10 +925,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ),
             ),
           ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: _buildResultCoinTripleButton(),
-          ),
+          if (!AppSettings.instance.adsRemoved.value)
+            Align(
+              alignment: Alignment.centerRight,
+              child: _buildResultCoinTripleButton(),
+            ),
         ],
       ),
     );
@@ -1373,6 +1437,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTapDown: (_) {
+                    if (widget.isTutorialMode) {
+                      return;
+                    }
                     _playUiTap();
                     game.triggerHardDrop();
                   },
@@ -1383,6 +1450,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTapDown: (_) {
+                  if (widget.isTutorialMode) {
+                    return;
+                  }
                   _playUiTap();
                   game.triggerHardDrop();
                 },
@@ -1407,6 +1477,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
                       onTapDown: (_) {
+                        if (widget.isTutorialMode) {
+                          return;
+                        }
                         _playUiTap();
                         game.triggerHardDrop();
                       },
@@ -1696,13 +1769,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               color: Colors.black.withValues(alpha: 0.55),
               borderRadius: BorderRadius.circular(999),
               border: Border.all(
-                color: Colors.amberAccent.withValues(alpha: 0.7),
+                color: badge.frameColor.withValues(alpha: 0.7),
               ),
             ),
             child: Icon(
               badge.icon,
               size: 14,
-              color: Colors.amberAccent,
+              color: badge.frameColor,
             ),
           ),
       ],
@@ -2653,6 +2726,272 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _startTutorialBattle() async {
+    if (!mounted) {
+      return;
+    }
+    await _stopBattleBgm();
+    _resetResultProgressionState();
+    _playerGame.resumeEngine();
+    _cpuGame?.resumeEngine();
+    _playerGame.startGame(newSeed: 20260503, spawnInitialPiece: false);
+    _cpuGame?.startGame(newSeed: 20260503, spawnInitialPiece: false);
+    _setupTutorialStep1();
+  }
+
+  void _scheduleTutorial(Duration duration, VoidCallback callback) {
+    _tutorialTimer?.cancel();
+    _tutorialTimer = Timer(duration, callback);
+  }
+
+  void _setupTutorialStep1() {
+    if (!mounted) {
+      return;
+    }
+    _playerGame.loadFixedBoard({
+      const HexCoordinate(0, 11): BallColor.red,
+      const HexCoordinate(0, 10): BallColor.blue,
+      const HexCoordinate(1, 11): BallColor.purple,
+      const HexCoordinate(8, 11): BallColor.green,
+      const HexCoordinate(9, 11): BallColor.yellow,
+      const HexCoordinate(8, 10): BallColor.red,
+    });
+    _cpuGame?.loadFixedBoard(const {});
+    _playerGame.spawnFixedPiece(
+      colors: const [BallColor.red, BallColor.red, BallColor.green],
+      column: 1,
+    );
+    setState(() {
+      _tutorialPhase = _TutorialPhase.step1Move;
+      _tutorialCompleted = false;
+    });
+  }
+
+  void _setupTutorialStep2() {
+    if (!mounted) {
+      return;
+    }
+    _playerGame.loadFixedBoard({
+      const HexCoordinate(2, 9): BallColor.blue,
+      const HexCoordinate(3, 9): BallColor.blue,
+      const HexCoordinate(4, 9): BallColor.blue,
+      const HexCoordinate(2, 10): BallColor.blue,
+      const HexCoordinate(3, 10): BallColor.blue,
+      const HexCoordinate(0, 11): BallColor.yellow,
+      const HexCoordinate(7, 11): BallColor.green,
+    });
+    _playerGame.spawnFixedPiece(
+      colors: const [BallColor.yellow, BallColor.blue, BallColor.purple],
+      column: 1,
+    );
+    setState(() {
+      _tutorialPhase = _TutorialPhase.step2Move;
+    });
+  }
+
+  void _setupTutorialStep3Incoming() {
+    if (!mounted) {
+      return;
+    }
+    _playerGame.loadFixedBoard({
+      const HexCoordinate(3, 8): BallColor.purple,
+      const HexCoordinate(2, 9): BallColor.purple,
+      const HexCoordinate(4, 9): BallColor.purple,
+      const HexCoordinate(2, 10): BallColor.purple,
+      const HexCoordinate(3, 10): BallColor.purple,
+      const HexCoordinate(0, 11): BallColor.red,
+      const HexCoordinate(8, 11): BallColor.green,
+    });
+    _cpuGame?.loadFixedBoard({
+      const HexCoordinate(2, 10): BallColor.red,
+      const HexCoordinate(3, 10): BallColor.blue,
+      const HexCoordinate(4, 10): BallColor.green,
+      const HexCoordinate(5, 10): BallColor.yellow,
+      const HexCoordinate(2, 11): BallColor.red,
+      const HexCoordinate(3, 11): BallColor.blue,
+      const HexCoordinate(4, 11): BallColor.green,
+      const HexCoordinate(5, 11): BallColor.yellow,
+    });
+    setState(() {
+      _tutorialPhase = _TutorialPhase.step3Incoming;
+    });
+    _scheduleTutorial(const Duration(milliseconds: 950), () {
+      if (!mounted) {
+        return;
+      }
+      _playerGame.loadFixedBoard({
+        const HexCoordinate(0, 2): BallColor.purple,
+        const HexCoordinate(8, 2): BallColor.purple,
+        const HexCoordinate(1, 3): BallColor.purple,
+        const HexCoordinate(3, 8): BallColor.purple,
+        const HexCoordinate(2, 9): BallColor.purple,
+        const HexCoordinate(4, 9): BallColor.purple,
+        const HexCoordinate(2, 10): BallColor.purple,
+        const HexCoordinate(3, 10): BallColor.purple,
+        const HexCoordinate(0, 11): BallColor.red,
+        const HexCoordinate(8, 11): BallColor.green,
+      });
+      _playerGame.spawnFixedPiece(
+        colors: const [BallColor.purple, BallColor.red, BallColor.green],
+        column: 1,
+      );
+      setState(() {
+        _tutorialPhase = _TutorialPhase.step3Move;
+      });
+    });
+  }
+
+  Set<_TutorialAction> get _enabledTutorialActions {
+    return switch (_tutorialPhase) {
+      _TutorialPhase.step1Move => {_TutorialAction.moveRight},
+      _TutorialPhase.step1Drop => {_TutorialAction.hardDrop},
+      _TutorialPhase.step2Move => {_TutorialAction.moveRight},
+      _TutorialPhase.step2Rotate => {_TutorialAction.rotateRight},
+      _TutorialPhase.step2Drop => {_TutorialAction.hardDrop},
+      _TutorialPhase.step3Move => {_TutorialAction.moveRight},
+      _TutorialPhase.step3Rotate => {_TutorialAction.rotateRight},
+      _TutorialPhase.step3Drop => {_TutorialAction.hardDrop},
+      _ => const <_TutorialAction>{},
+    };
+  }
+
+  String get _tutorialMessage {
+    return switch (_tutorialPhase) {
+      _TutorialPhase.step1Move => '左右のボタンでボールを移動させよう！',
+      _TutorialPhase.step1Drop => 'ここでドロップボタンを押して落とそう！',
+      _TutorialPhase.step1Clear => 'いいね！同じ色がつながって消えました。',
+      _TutorialPhase.step2Move => '次は6個消し。まずは目標位置まで移動しよう。',
+      _TutorialPhase.step2Rotate => '回転ボタンでボールの向きを変えよう！',
+      _TutorialPhase.step2Drop => 'ドロップして、ボールを6個繋げよう！',
+      _TutorialPhase.step2Clear => 'ナイス！6個消し成功です。',
+      _TutorialPhase.step3Incoming => '相手からおじゃまが来る！',
+      _TutorialPhase.step3Move => 'ピンチ！大技を決めて反撃しよう！',
+      _TutorialPhase.step3Rotate => 'ワザの形に合わせて回転しよう！',
+      _TutorialPhase.step3Drop => 'ドロップしてヘキサゴンを完成させよう！',
+      _TutorialPhase.step3Skill => 'ヘキサゴン発動！相手へおじゃまを送り返した！',
+      _TutorialPhase.step3Win => 'WIN! チュートリアル完了です。',
+      null => 'チュートリアルを開始します。',
+    };
+  }
+
+  int get _tutorialStepNumber {
+    final phase = _tutorialPhase;
+    if (phase == null || phase.index <= _TutorialPhase.step1Clear.index) {
+      return 1;
+    }
+    if (phase.index <= _TutorialPhase.step2Clear.index) {
+      return 2;
+    }
+    return 3;
+  }
+
+  Future<void> _handleTutorialAction(_TutorialAction action) async {
+    if (!_enabledTutorialActions.contains(action)) {
+      return;
+    }
+    AppSfx.playUiTap();
+    switch (action) {
+      case _TutorialAction.moveLeft:
+        _playerGame.moveFixedPieceByColumns(-1);
+      case _TutorialAction.moveRight:
+        _playerGame.moveFixedPieceByColumns(1);
+      case _TutorialAction.rotateLeft:
+        _playerGame.rotateLeft();
+      case _TutorialAction.rotateRight:
+        _playerGame.rotateRight();
+      case _TutorialAction.hardDrop:
+        break;
+    }
+
+    switch (_tutorialPhase) {
+      case _TutorialPhase.step1Move:
+        if (_playerGame.activePieceColumn >= 3) {
+          setState(() => _tutorialPhase = _TutorialPhase.step1Drop);
+        }
+      case _TutorialPhase.step1Drop:
+        await _dropTutorialStep1();
+      case _TutorialPhase.step2Move:
+        if (_playerGame.activePieceColumn >= 2) {
+          setState(() => _tutorialPhase = _TutorialPhase.step2Rotate);
+        }
+      case _TutorialPhase.step2Rotate:
+        if (_playerGame.activePieceRotationIndex == 1) {
+          setState(() => _tutorialPhase = _TutorialPhase.step2Drop);
+        }
+      case _TutorialPhase.step2Drop:
+        await _dropTutorialStep2();
+      case _TutorialPhase.step3Move:
+        if (_playerGame.activePieceColumn >= 3) {
+          setState(() => _tutorialPhase = _TutorialPhase.step3Rotate);
+        }
+      case _TutorialPhase.step3Rotate:
+        if (_playerGame.activePieceRotationIndex == 1) {
+          setState(() => _tutorialPhase = _TutorialPhase.step3Drop);
+        }
+      case _TutorialPhase.step3Drop:
+        await _dropTutorialStep3();
+      case _:
+        break;
+    }
+  }
+
+  Future<void> _dropTutorialStep1() async {
+    setState(() => _tutorialPhase = _TutorialPhase.step1Clear);
+    await _playerGame.dropFixedPieceToHexes(const [
+      HexCoordinate(2, 9),
+      HexCoordinate(0, 10),
+      HexCoordinate(8, 10),
+    ]);
+    _scheduleTutorial(const Duration(milliseconds: 950), _setupTutorialStep2);
+  }
+
+  Future<void> _dropTutorialStep2() async {
+    setState(() => _tutorialPhase = _TutorialPhase.step2Clear);
+    await _playerGame.dropFixedPieceToHexes(const [
+      HexCoordinate(4, 10),
+      HexCoordinate(4, 8),
+      HexCoordinate(8, 10),
+    ]);
+    _scheduleTutorial(
+      const Duration(milliseconds: 1150),
+      _setupTutorialStep3Incoming,
+    );
+  }
+
+  Future<void> _dropTutorialStep3() async {
+    setState(() => _tutorialPhase = _TutorialPhase.step3Skill);
+    await _playerGame.dropFixedPieceToHexes(const [
+      HexCoordinate(2, 8),
+      HexCoordinate(0, 10),
+      HexCoordinate(8, 10),
+    ]);
+    _cpuGame?.loadFixedBoard({
+      for (var row = 4; row < 12; row++)
+        for (var col = 0; col < (row.isOdd ? 10 : 9); col++)
+          HexCoordinate(col, row): BallColor.purple,
+    });
+    _scheduleTutorial(const Duration(milliseconds: 1400), () {
+      if (!mounted) {
+        return;
+      }
+      AppSfx.playWin();
+      setState(() {
+        _tutorialPhase = _TutorialPhase.step3Win;
+        _tutorialCompleted = true;
+      });
+      unawaited(AppSettings.instance.setOnboardingSeen(true));
+    });
+  }
+
+  Future<void> _finishTutorial() async {
+    AppSfx.playUiTap();
+    await AppSettings.instance.setOnboardingSeen(true);
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
   Future<void> _startLocalBattleWithReadyGo(int seed) async {
     if (!mounted) {
       return;
@@ -2861,68 +3200,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         }
         break;
       case 'rotate_left':
-        opponentGame.rotateLeft();
-        if (x != null && y != null && rotation != null) {
-          opponentGame.syncRemoteActivePieceTransform(
-            x: x,
-            y: y,
-            rotation: rotation,
-            duration: 0.08,
-          );
-        }
-        break;
       case 'rotate_right':
-        opponentGame.rotateRight();
-        if (x != null && y != null && rotation != null) {
-          opponentGame.syncRemoteActivePieceTransform(
-            x: x,
-            y: y,
-            rotation: rotation,
-            duration: 0.08,
-          );
-        }
-        break;
       case 'start_left':
-        opponentGame.startMovingLeft();
-        if (x != null && y != null && rotation != null) {
-          opponentGame.syncRemoteActivePieceTransform(
-            x: x,
-            y: y,
-            rotation: rotation,
-            duration: 0.05,
-          );
-        }
-        break;
       case 'stop_left':
-        opponentGame.stopMovingLeft();
-        if (x != null && y != null && rotation != null) {
-          opponentGame.syncRemoteActivePieceTransform(
-            x: x,
-            y: y,
-            rotation: rotation,
-            duration: 0.05,
-          );
-        }
-        break;
       case 'start_right':
-        opponentGame.startMovingRight();
-        if (x != null && y != null && rotation != null) {
-          opponentGame.syncRemoteActivePieceTransform(
-            x: x,
-            y: y,
-            rotation: rotation,
-            duration: 0.05,
-          );
-        }
-        break;
       case 'stop_right':
-        opponentGame.stopMovingRight();
         if (x != null && y != null && rotation != null) {
           opponentGame.syncRemoteActivePieceTransform(
             x: x,
             y: y,
             rotation: rotation,
-            duration: 0.05,
+            duration: action.startsWith('rotate') ? 0.08 : 0.05,
           );
         }
         break;
@@ -3104,12 +3392,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _resultCoinApplied = true;
     final earnedCoins = _calculateBattleCoinReward(isWin: isWin);
-    await _playerDataManager.addCoins(earnedCoins);
+    final adsRemoved = AppSettings.instance.adsRemoved.value;
+    await _playerDataManager.addCoins(earnedCoins * (adsRemoved ? 3 : 1));
     if (!mounted) {
       return;
     }
     setState(() {
       _resultCoinBaseEarned = earnedCoins;
+      _resultCoinTripleClaimed = adsRemoved;
     });
   }
 
@@ -4028,6 +4318,270 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildTutorialControls() {
+    final actions = [
+      (
+        action: _TutorialAction.moveLeft,
+        icon: Icons.arrow_left,
+        label: '左',
+      ),
+      (
+        action: _TutorialAction.moveRight,
+        icon: Icons.arrow_right,
+        label: '右',
+      ),
+      (
+        action: _TutorialAction.rotateLeft,
+        icon: Icons.rotate_left,
+        label: '左回転',
+      ),
+      (
+        action: _TutorialAction.rotateRight,
+        icon: Icons.rotate_right,
+        label: '右回転',
+      ),
+      (
+        action: _TutorialAction.hardDrop,
+        icon: Icons.keyboard_double_arrow_down,
+        label: 'DROP',
+      ),
+    ];
+
+    return SizedBox(
+      height: 96,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final item in actions)
+            Expanded(
+              child: _buildTutorialAreaButton(
+                icon: item.icon,
+                label: item.label,
+                enabled: _enabledTutorialActions.contains(item.action),
+                onPressed: () => unawaited(_handleTutorialAction(item.action)),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTutorialAreaButton({
+    required IconData icon,
+    required String label,
+    required bool enabled,
+    required VoidCallback onPressed,
+  }) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      decoration: BoxDecoration(
+        color: enabled
+            ? Colors.cyanAccent.withValues(alpha: 0.16)
+            : Colors.white.withValues(alpha: 0.035),
+        border: Border(
+          top: BorderSide(
+            color: enabled ? Colors.cyanAccent : Colors.white24,
+            width: enabled ? 2.6 : 1.0,
+          ),
+          bottom: BorderSide(
+            color: enabled ? Colors.cyanAccent : Colors.white10,
+            width: enabled ? 2.6 : 1.0,
+          ),
+          right: BorderSide(
+            color: enabled
+                ? Colors.cyanAccent.withValues(alpha: 0.55)
+                : Colors.white10,
+            width: 1,
+          ),
+        ),
+        boxShadow: enabled
+            ? [
+                BoxShadow(
+                  color: Colors.cyanAccent.withValues(alpha: 0.24),
+                  blurRadius: 18,
+                ),
+              ]
+            : null,
+      ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onPressed : null,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            Opacity(
+              opacity: enabled ? 1 : 0.24,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    color: Colors.cyanAccent,
+                    size: 30,
+                    shadows: const [
+                      Shadow(color: Colors.cyan, blurRadius: 8),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (enabled)
+              Positioned(
+                top: -14,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 700),
+                  builder: (context, value, child) {
+                    return Transform.translate(
+                      offset: Offset(0, -sin(value * pi) * 7),
+                      child: child,
+                    );
+                  },
+                  onEnd: () {
+                    if (mounted) {
+                      setState(() {});
+                    }
+                  },
+                  child: const Icon(
+                    Icons.touch_app,
+                    color: Colors.white,
+                    size: 27,
+                    shadows: [
+                      Shadow(color: Colors.cyanAccent, blurRadius: 12),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTutorialOverlay() {
+    return Positioned(
+      left: 16,
+      right: 16,
+      top: MediaQuery.of(context).padding.top + 52,
+      child: IgnorePointer(
+        ignoring: _tutorialPhase != _TutorialPhase.step3Win,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xEE101827),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: Colors.cyanAccent.withValues(alpha: 0.72),
+                  width: 1.4,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.cyanAccent.withValues(alpha: 0.18),
+                    blurRadius: 20,
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'STEP $_tutorialStepNumber / 3',
+                    style: const TextStyle(
+                      color: Colors.cyanAccent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _tutorialMessage,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      height: 1.42,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (_tutorialPhase == _TutorialPhase.step3Skill) ...[
+              const SizedBox(height: 18),
+              const Text(
+                'HEXAGON!',
+                style: TextStyle(
+                  color: Colors.purpleAccent,
+                  fontSize: 36,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 4,
+                  shadows: [
+                    Shadow(color: Colors.purpleAccent, blurRadius: 18),
+                    Shadow(color: Colors.cyanAccent, blurRadius: 12),
+                  ],
+                ),
+              ),
+            ],
+            if (_tutorialPhase == _TutorialPhase.step3Win) ...[
+              const SizedBox(height: 18),
+              const Text(
+                'WIN!',
+                style: TextStyle(
+                  color: Colors.amberAccent,
+                  fontSize: 52,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 5,
+                  shadows: [
+                    Shadow(color: Colors.orangeAccent, blurRadius: 20),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: 220,
+                child: FilledButton(
+                  onPressed: _tutorialCompleted
+                      ? () => unawaited(_finishTutorial())
+                      : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.amberAccent,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    'ホームへ戻る',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
