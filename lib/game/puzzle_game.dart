@@ -472,6 +472,14 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   bool get hasPendingPreviewOjamaSpawns => _pendingPreviewOjamaSpawns > 0;
 
+  bool get isBoardProcessing =>
+      activePiece != null ||
+      _isProcessingGravity ||
+      _needsGravityRetry ||
+      _needsMatchResolutionRetry ||
+      pendingOjamaSpawns > 0 ||
+      activeOjamaBlocks.isNotEmpty;
+
   Future<void> animateDeathLineToRed({
     Duration duration = _deathLineTransitionDuration,
   }) async {
@@ -560,6 +568,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     grid.offset =
         Vector2((size.x - _boardWidth) / 2 + _ballRadius, top + virtualSpace);
     grid.updateBounds();
+    _snapLockedBallsToGrid();
+    _updateGhostPosition();
+    _updateHints();
+  }
+
+  void _snapLockedBallsToGrid() {
+    for (final entry in grid.lockedBalls.entries) {
+      entry.value.position = grid.hexToPixel(entry.key);
+      entry.value.hitOffsetX = 0;
+    }
   }
 
   Vector2 get _pieceSpawnPosition {
@@ -706,6 +724,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       action: delta < 0 ? 'start_left' : 'start_right',
     );
   }
+
+  double? get activePieceX => activePiece?.position.x;
 
   void setFixedPieceColumn(int column) {
     if (activePiece == null || activePiece!.isLocked) {
@@ -1827,6 +1847,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         pendingOjamaSpawns--;
       });
     }
+  }
+
+  void forceDropOjamaTask(OjamaTask task) {
+    if (gameStateWrapper.value != GameState.playing) {
+      return;
+    }
+    _dropOjamaTask(task);
   }
 
   List<BallColor> _colorsForOjamaSet(OjamaTask task) {

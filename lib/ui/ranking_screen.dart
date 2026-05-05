@@ -106,64 +106,44 @@ class _RankingScreenState extends State<RankingScreen> {
   }
 
   Widget _buildHeader(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: Colors.amberAccent.withValues(alpha: 0.55),
+    return SizedBox(
+      height: 48,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned(
+            left: 0,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: _buildBackButton(context),
             ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.amberAccent.withValues(alpha: 0.2),
-                blurRadius: 18,
-              ),
-            ],
           ),
-          child: const Row(
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              HexagonTrophyIcon(size: 20),
-              SizedBox(width: 8),
-              Text(
-                'ランキング',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.1,
-                ),
+              HexagonTrophyIcon(size: 22),
+              SizedBox(width: 10),
+              _RankingPageTitle(
+                title: 'ランキング',
+                subtitle: 'LEADERBOARD',
               ),
             ],
           ),
-        ),
-        const Spacer(),
-        _buildBackButton(context),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildBackButton(BuildContext context) {
-    return ElevatedButton.icon(
+    return IconButton(
       onPressed: () {
         _playUiTap();
         Navigator.of(context).pop();
       },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF1B1F2E),
-        foregroundColor: Colors.cyanAccent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        side: BorderSide(color: Colors.cyanAccent.withValues(alpha: 0.5)),
-      ),
-      icon: const Icon(Icons.arrow_back_ios_new, size: 16),
-      label: const Text(
-        '戻る',
-        style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
-      ),
+      icon: const Icon(Icons.arrow_back_ios_new),
+      tooltip: '戻る',
     );
   }
 
@@ -257,11 +237,18 @@ class _RankingScreenState extends State<RankingScreen> {
 
   Widget _buildModeTabs() {
     return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.black45,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
+        color: const Color(0xCC0B1020),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.28)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.cyanAccent.withValues(alpha: 0.12),
+            blurRadius: 18,
+          ),
+        ],
       ),
       child: Row(
         children: [
@@ -309,18 +296,26 @@ class _RankingScreenState extends State<RankingScreen> {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? Colors.cyanAccent.withValues(alpha: 0.14) : null,
-            borderRadius: BorderRadius.circular(10),
+            gradient: selected
+                ? LinearGradient(
+                    colors: [
+                      Colors.cyanAccent.withValues(alpha: 0.35),
+                      const Color(0xFF0B84FF).withValues(alpha: 0.28),
+                    ],
+                  )
+                : null,
+            borderRadius: BorderRadius.circular(14),
             border: selected
-                ? Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5))
+                ? Border.all(color: Colors.cyanAccent.withValues(alpha: 0.85))
                 : null,
           ),
           child: Text(
             label,
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: selected ? Colors.cyanAccent : Colors.white70,
+              color: selected ? Colors.white : Colors.white54,
               fontWeight: FontWeight.w900,
+              letterSpacing: 0.8,
             ),
           ),
         ),
@@ -402,6 +397,47 @@ class _RankingScreenState extends State<RankingScreen> {
                 ),
         ],
       ),
+    );
+  }
+}
+
+class _RankingPageTitle extends StatelessWidget {
+  const _RankingPageTitle({
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 3.5,
+          ),
+        ),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            shadows: [
+              Shadow(color: Colors.cyanAccent, blurRadius: 12),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

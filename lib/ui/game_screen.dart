@@ -75,16 +75,17 @@ enum _TutorialPhase {
   step1Move,
   step1Drop,
   step1Clear,
+  step2HintIntro,
   step2Move,
   step2Rotate,
   step2Drop,
   step2Clear,
   step3Incoming,
+  step3OpponentAttack,
   step3Move,
   step3Rotate,
   step3Drop,
   step3Skill,
-  step3Win,
 }
 
 enum _TutorialAction {
@@ -92,7 +93,6 @@ enum _TutorialAction {
   moveRight,
   rotateLeft,
   rotateRight,
-  hardDrop,
 }
 
 class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
@@ -107,6 +107,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   static const Duration _resultOpponentDisplayGrace =
       Duration(milliseconds: 450);
   static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
+  static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
 
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
@@ -161,24 +162,42 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _isStampCoolingDown = false;
   GameItem? _currentFloatingStamp;
   GameItem? _opponentFloatingStamp;
+  bool _tutorialRightMoveActive = false;
+  bool _tutorialLeftMoveActive = false;
   Timer? _myStampTimer;
   Timer? _opponentStampTimer;
   Timer? _stampCooldownTimer;
   Timer? _tutorialTimer;
   _TutorialPhase? _tutorialPhase;
-  bool _tutorialCompleted = false;
+  double? _tutorialStep1StartX;
+  double? _tutorialStep2StartX;
+  double? _tutorialStep3StartX;
+  int _tutorialStep2RotationTicks = 0;
+  int _tutorialStep3RotationTicks = 0;
+  bool _tutorialOpponentAttackQueued = false;
+  bool _tutorialOpponentDefeatQueued = false;
   DateTime? _ignoreEmptyOpponentBoardUntil;
   bool _resultAudioStarted = false;
   DateTime? _resultAudioStartedAt;
   final List<Timer> _pendingAttackTimers = [];
 
   bool get _isOnlineMode => widget.isOnlineMultiplayer;
+  bool get _isTutorialStep3 {
+    final phase = _tutorialPhase;
+    return widget.isTutorialMode &&
+        phase != null &&
+        phase.index >= _TutorialPhase.step3Incoming.index;
+  }
+
   bool get _showsOpponentBoard =>
-      widget.isCpuMode || _isOnlineMode || widget.isTutorialMode;
+      widget.isCpuMode || _isOnlineMode || _isTutorialStep3;
   bool get _blocksOnlineExit =>
       _isOnlineMode && _onlineGameStarted && _onlineResultMessage == null;
 
   String get _myDisplayName {
+    if (widget.isTutorialMode) {
+      return 'プレイヤー';
+    }
     if (_isOnlineMode) {
       final roleId = _multiplayerManager.myRoleId;
       return _displayNameForRole(roleId) ??
@@ -188,6 +207,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   String get _opponentDisplayName {
+    if (widget.isTutorialMode) {
+      return 'トレーナー';
+    }
     if (widget.isCpuMode) {
       if (widget.isRankedMode) {
         return widget.rankedBotName;
@@ -226,6 +248,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   int get _straightCount => _playerWazaCounts[WazaType.straight] ?? 0;
   int get _pyramidCount => _playerWazaCounts[WazaType.pyramid] ?? 0;
   int get _hexagonCount => _playerWazaCounts[WazaType.hexagon] ?? 0;
+  bool get _isTutorialBoardDropEnabled =>
+      widget.isTutorialMode &&
+      (_tutorialPhase == _TutorialPhase.step1Drop ||
+          _tutorialPhase == _TutorialPhase.step2Drop ||
+          _tutorialPhase == _TutorialPhase.step3Drop);
 
   int? get _totalResultCoinsEarned {
     final baseCoins = _resultCoinBaseEarned;
@@ -308,10 +335,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         isCpuMode: false,
         seed: gameSeed,
         autoStart: false,
-        isRemotePlayerMode: true,
         manualPieceSpawning: true,
         wallColor: Colors.redAccent,
       );
+      _cpuGame!.onGameOverTriggered = () {
+        unawaited(
+          _presentBattleResult(
+            playerWon: true,
+            opponentCrossedDeathLine: true,
+          ),
+        );
+      };
     }
 
     if (_isOnlineMode) {
@@ -446,6 +480,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         if (task != null) {
           unawaited(_applyAttackToOpponent(task));
         }
+      } else if (widget.isTutorialMode && _cpuGame != null) {
+        if (_tutorialPhase == _TutorialPhase.step3Drop ||
+            _tutorialPhase == _TutorialPhase.step3Skill) {
+          _sendTutorialOjamaWithDelay(_cpuGame!, waza, color);
+        }
       } else if (_cpuGame != null) {
         _sendOjamaWithDelay(_cpuGame!, waza, color);
       }
@@ -505,6 +544,128 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       }
     });
     _pendingAttackTimers.add(timer);
+  }
+
+  void _sendTutorialOjamaWithDelay(
+    PuzzleGame targetGame,
+    WazaType waza,
+    BallColor? color,
+  ) {
+    final task = _createOjamaTaskForAttack(waza, color);
+    if (task == null) {
+      return;
+    }
+    late Timer timer;
+    timer = Timer(const Duration(seconds: 2), () {
+      _pendingAttackTimers.remove(timer);
+      targetGame.resumeEngine();
+      targetGame.forceDropOjamaTask(task);
+      unawaited(_ensureTutorialOpponentDefeatAfterOjama(targetGame));
+    });
+    _pendingAttackTimers.add(timer);
+  }
+
+  Future<void> _ensureTutorialOpponentDefeatAfterOjama(
+    PuzzleGame opponentGame,
+  ) async {
+    if (_tutorialOpponentDefeatQueued) {
+      return;
+    }
+    _tutorialOpponentDefeatQueued = true;
+
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    while (mounted &&
+        widget.isTutorialMode &&
+        opponentGame.gameStateWrapper.value == GameState.playing &&
+        (_pendingAttackTimers.isNotEmpty ||
+            opponentGame.pendingOjamaSpawns > 0 ||
+            opponentGame.hasActiveOjamaAnimation ||
+            opponentGame.isBoardProcessing)) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+
+    if (!mounted ||
+        !widget.isTutorialMode ||
+        opponentGame.gameStateWrapper.value == GameState.gameover ||
+        _resultRevealPending) {
+      return;
+    }
+
+    if (opponentGame.hasOverflowedDeathLine) {
+      opponentGame.gameOver();
+    }
+  }
+
+  void _sendTutorialIncomingOjamaToPlayer() {
+    if (!widget.isTutorialMode ||
+        _tutorialPhase != _TutorialPhase.step3OpponentAttack ||
+        _tutorialOpponentAttackQueued) {
+      return;
+    }
+    _dropTutorialIncomingOjama(_tutorialIncomingStraightOjamaTask());
+  }
+
+  void _dropTutorialIncomingOjama(OjamaTask task) {
+    if (_tutorialOpponentAttackQueued) {
+      return;
+    }
+    _tutorialOpponentAttackQueued = true;
+    _playerGame.resumeEngine();
+    _playerGame.forceDropOjamaTask(task);
+    setState(() {
+      _tutorialPhase = _TutorialPhase.step3OpponentAttack;
+    });
+    unawaited(_unlockTutorialPlayerAfterIncomingOjama());
+  }
+
+  OjamaTask _tutorialIncomingStraightOjamaTask() {
+    return OjamaTask(
+      OjamaType.straightSet,
+      startColor: BallColor.purple,
+      presetColors: const [
+        BallColor.purple,
+        BallColor.red,
+        BallColor.green,
+        BallColor.green,
+        BallColor.yellow,
+        BallColor.blue,
+        BallColor.red,
+        BallColor.blue,
+        BallColor.red,
+        BallColor.red,
+        BallColor.blue,
+        BallColor.green,
+        BallColor.blue,
+        BallColor.blue,
+        BallColor.green,
+        BallColor.purple,
+        BallColor.red,
+        BallColor.green,
+        BallColor.red,
+      ],
+    );
+  }
+
+  Future<void> _unlockTutorialPlayerAfterIncomingOjama() async {
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    while (mounted &&
+        _tutorialPhase == _TutorialPhase.step3OpponentAttack &&
+        (_playerGame.pendingOjamaSpawns > 0 ||
+            _playerGame.hasActiveOjamaAnimation)) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+    if (!mounted || _tutorialPhase != _TutorialPhase.step3OpponentAttack) {
+      return;
+    }
+    _cpuGame?.pauseEngine();
+    _playerGame.spawnFixedPiece(
+      colors: const [BallColor.green, BallColor.green, BallColor.blue],
+      column: 4,
+    );
+    _tutorialStep3StartX = _playerGame.activePieceX;
+    setState(() {
+      _tutorialPhase = _TutorialPhase.step3Move;
+    });
   }
 
   void _clearAllPendingAttacks() {
@@ -692,12 +853,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     Expanded(child: _buildOpponentArea(_cpuGame!))
                   else
                     _buildGlobalHeader(),
-                  if (!widget.isCpuMode && !_isOnlineMode)
+                  if (_isTutorialStep3) _buildTutorialStep3Message(),
+                  if (!_showsOpponentBoard &&
+                      !widget.isCpuMode &&
+                      !_isOnlineMode)
                     _buildScoreWidget(_playerGame),
                   Expanded(child: _buildPlayerArea(_playerGame)),
-                  widget.isTutorialMode
-                      ? _buildTutorialControls()
-                      : _buildControls(_playerGame),
+                  _buildControls(_playerGame),
                   ValueListenableBuilder<bool>(
                     valueListenable: AppSettings.instance.adsRemoved,
                     builder: (context, adsRemoved, child) {
@@ -731,6 +893,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   left: 8,
                   child: _buildBattleSettingsButton(),
                 ),
+              if (widget.isTutorialMode) _buildTutorialSkipButton(),
               if (widget.isTutorialMode) _buildTutorialOverlay(),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
               if (_currentFloatingStamp != null)
@@ -1035,14 +1198,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Widget _buildResultScoreSummary() {
     return _buildResultInfoRow(
-      label: 'SCORE',
+      label: 'スコア',
       value: '$_currentPlayerScore',
       color: Colors.amberAccent,
     );
   }
 
   Widget _buildBattleResultProfiles() {
-    if (!widget.isCpuMode && !_isOnlineMode) {
+    if (!widget.isCpuMode && !widget.isTutorialMode && !_isOnlineMode) {
       return const SizedBox.shrink();
     }
 
@@ -1224,6 +1387,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   String _opponentResultName() {
+    if (widget.isTutorialMode) {
+      return _opponentDisplayName;
+    }
     if (widget.isCpuMode) {
       return _opponentDisplayName;
     }
@@ -1232,6 +1398,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   String _opponentResultIconId() {
+    if (widget.isTutorialMode) {
+      return 'icon_bolt';
+    }
     if (widget.isCpuMode) {
       return widget.isRankedMode ? 'default' : 'icon_bolt';
     }
@@ -1240,6 +1409,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   List<String> _opponentResultBadgeIds() {
+    if (widget.isTutorialMode) {
+      return const [];
+    }
     if (widget.isCpuMode) {
       return const [];
     }
@@ -1342,6 +1514,39 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildScoreWidget(PuzzleGame game) {
+    if (widget.isTutorialMode) {
+      return Container(
+        height: 80,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101827),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.55)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.cyanAccent.withValues(alpha: 0.16),
+              blurRadius: 16,
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            _tutorialMessage,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              height: 1.32,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Container(
       height: 80,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1360,7 +1565,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'SPEED LV',
+                      'レベル',
                       style: TextStyle(
                         color: Colors.white54,
                         fontSize: 14,
@@ -1382,7 +1587,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
-                      'SCORE',
+                      'スコア',
                       style: TextStyle(
                         color: Colors.white54,
                         fontSize: 14,
@@ -1412,7 +1617,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return LayoutBuilder(
       builder: (context, constraints) {
         final sidePanelWidth = constraints.maxWidth / 5;
-        final isSoloMode = !_isOnlineMode && !widget.isCpuMode;
+        final isSoloMode =
+            !_showsOpponentBoard && !_isOnlineMode && !widget.isCpuMode;
         final boardWidth = isSoloMode
             ? max(0.0, constraints.maxWidth - sidePanelWidth * 2)
             : constraints.maxWidth;
@@ -1432,7 +1638,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTapDown: (_) {
-                    if (widget.isTutorialMode) {
+                    if (_handleTutorialBoardTap(game)) {
                       return;
                     }
                     _playUiTap();
@@ -1445,7 +1651,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTapDown: (_) {
-                  if (widget.isTutorialMode) {
+                  if (_handleTutorialBoardTap(game)) {
                     return;
                   }
                   _playUiTap();
@@ -1472,7 +1678,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     child: GestureDetector(
                       behavior: HitTestBehavior.translucent,
                       onTapDown: (_) {
-                        if (widget.isTutorialMode) {
+                        if (_handleTutorialBoardTap(game)) {
                           return;
                         }
                         _playUiTap();
@@ -1539,6 +1745,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 ],
               ),
             ),
+            if (_isTutorialBoardDropEnabled) _buildTutorialDropTargetOverlay(),
           ],
         );
       },
@@ -1865,59 +2072,63 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           }
 
           final gameOver = pState == GameState.gameover ||
-              (cState == GameState.gameover && widget.isCpuMode);
+              (cState == GameState.gameover &&
+                  (widget.isCpuMode || widget.isTutorialMode));
           if (!gameOver || _resultRevealPending) {
             return const SizedBox.shrink();
           }
 
           final cpuPlayerWon =
               _cpuBattlePlayerWon ?? (pState != GameState.gameover);
+          final isBattleResult = widget.isCpuMode || widget.isTutorialMode;
           final title =
-              widget.isCpuMode ? (cpuPlayerWon ? '勝ち' : '負け') : 'GAME OVER';
-          final titleColor = widget.isCpuMode
+              isBattleResult ? (cpuPlayerWon ? '勝ち' : '負け') : 'GAME OVER';
+          final titleColor = isBattleResult
               ? (cpuPlayerWon ? Colors.cyanAccent : Colors.pinkAccent)
               : Colors.orangeAccent;
 
           return _buildUnifiedResultSheet(
             title: title,
             titleColor: titleColor,
-            children: [
-              _buildBattleResultProfiles(),
-              if (!widget.isCpuMode) ...[
-                const SizedBox(height: 12),
-                _buildResultScoreSummary(),
-              ],
-              const SizedBox(height: 18),
-              _buildResultCoinSummary(),
-              const SizedBox(height: 12),
-              _buildResultExpSummary(),
-              const SizedBox(height: 12),
-              if (!widget.isCpuMode) ...[
-                _buildCyberResultButton(
-                  label: 'RESTART',
-                  baseColor: Colors.cyanAccent,
-                  isWaiting: false,
-                  onPressed: () {
-                    _clearAllPendingAttacks();
-                    unawaited(
-                      _startLocalBattleWithReadyGo(
-                        DateTime.now().millisecondsSinceEpoch,
+            children: widget.isTutorialMode
+                ? _buildTutorialResultChildren()
+                : [
+                    _buildBattleResultProfiles(),
+                    if (!isBattleResult) ...[
+                      const SizedBox(height: 12),
+                      _buildResultScoreSummary(),
+                    ],
+                    const SizedBox(height: 18),
+                    _buildResultCoinSummary(),
+                    const SizedBox(height: 12),
+                    _buildResultExpSummary(),
+                    const SizedBox(height: 12),
+                    if (!isBattleResult) ...[
+                      _buildCyberResultButton(
+                        label: 'RESTART',
+                        baseColor: Colors.cyanAccent,
+                        isWaiting: false,
+                        onPressed: () {
+                          _clearAllPendingAttacks();
+                          unawaited(
+                            _startLocalBattleWithReadyGo(
+                              DateTime.now().millisecondsSinceEpoch,
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
-              _buildCyberResultButton(
-                label: 'ホームへ戻る',
-                baseColor: Colors.white54,
-                isWaiting: false,
-                onPressed: () {
-                  _clearAllPendingAttacks();
-                  unawaited(_returnHomeAfterMatch());
-                },
-              ),
-            ],
+                      const SizedBox(height: 12),
+                    ],
+                    _buildCyberResultButton(
+                      label: 'ホームへ戻る',
+                      baseColor: Colors.white54,
+                      isWaiting: false,
+                      onPressed: () {
+                        _clearAllPendingAttacks();
+                        unawaited(_returnHomeAfterMatch());
+                      },
+                    ),
+                  ],
           );
         },
       ),
@@ -1976,6 +2187,56 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  List<Widget> _buildTutorialResultChildren() {
+    return [
+      const SizedBox(height: 4),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.cyanAccent.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.32)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.cyanAccent.withValues(alpha: 0.12),
+              blurRadius: 18,
+            ),
+          ],
+        ),
+        child: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _TutorialResultLine(
+              title: 'ワザごとのおじゃまボール',
+              body: 'ヘキサゴン 36個 / ピラミッド 24個 / ストレート 19個',
+            ),
+            SizedBox(height: 12),
+            _TutorialResultLine(
+              title: 'チュートリアル',
+              body: '設定画面からいつでも見返せます。',
+            ),
+            SizedBox(height: 12),
+            _TutorialResultLine(
+              title: '無料ガチャ',
+              body: '1日3回まで無料で回せます。',
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 18),
+      _buildCyberResultButton(
+        label: 'ホームへ戻る',
+        baseColor: Colors.white54,
+        isWaiting: false,
+        onPressed: () {
+          _clearAllPendingAttacks();
+          unawaited(_returnHomeAfterMatch());
+        },
+      ),
+    ];
   }
 
   Widget _buildUnifiedResultSheet({
@@ -2734,6 +2995,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _cpuGame?.resumeEngine();
     _playerGame.startGame(newSeed: 20260503, spawnInitialPiece: false);
     _cpuGame?.startGame(newSeed: 20260503, spawnInitialPiece: false);
+    unawaited(_startTutorialBgm());
     _setupTutorialStep1();
   }
 
@@ -2748,20 +3010,43 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     _playerGame.loadFixedBoard({
       const HexCoordinate(0, 11): BallColor.red,
-      const HexCoordinate(0, 10): BallColor.blue,
-      const HexCoordinate(1, 11): BallColor.purple,
-      const HexCoordinate(8, 11): BallColor.green,
-      const HexCoordinate(9, 11): BallColor.yellow,
-      const HexCoordinate(8, 10): BallColor.red,
+      const HexCoordinate(1, 11): BallColor.red,
+      const HexCoordinate(2, 11): BallColor.blue,
+      const HexCoordinate(3, 11): BallColor.red,
+      const HexCoordinate(4, 11): BallColor.green,
+      const HexCoordinate(5, 11): BallColor.green,
+      const HexCoordinate(7, 11): BallColor.red,
+      const HexCoordinate(8, 11): BallColor.yellow,
+      const HexCoordinate(9, 11): BallColor.purple,
+      const HexCoordinate(1, 10): BallColor.red,
+      const HexCoordinate(3, 10): BallColor.yellow,
+      const HexCoordinate(4, 10): BallColor.blue,
+      const HexCoordinate(5, 10): BallColor.purple,
+      const HexCoordinate(6, 10): BallColor.red,
+      const HexCoordinate(7, 10): BallColor.red,
+      const HexCoordinate(8, 10): BallColor.blue,
+      const HexCoordinate(2, 9): BallColor.yellow,
+      const HexCoordinate(3, 9): BallColor.red,
+      const HexCoordinate(4, 9): BallColor.purple,
+      const HexCoordinate(6, 9): BallColor.red,
+      const HexCoordinate(7, 9): BallColor.blue,
+      const HexCoordinate(8, 9): BallColor.blue,
+      const HexCoordinate(9, 9): BallColor.blue,
+      const HexCoordinate(8, 8): BallColor.green,
     });
     _cpuGame?.loadFixedBoard(const {});
+    _playerGame.nextPieceColors.value = const [
+      BallColor.red,
+      BallColor.green,
+      BallColor.purple,
+    ];
     _playerGame.spawnFixedPiece(
-      colors: const [BallColor.red, BallColor.red, BallColor.green],
-      column: 1,
+      colors: const [BallColor.red, BallColor.blue, BallColor.blue],
+      column: 4,
     );
+    _tutorialStep1StartX = _playerGame.activePieceX;
     setState(() {
       _tutorialPhase = _TutorialPhase.step1Move;
-      _tutorialCompleted = false;
     });
   }
 
@@ -2769,21 +3054,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (!mounted) {
       return;
     }
-    _playerGame.loadFixedBoard({
-      const HexCoordinate(2, 9): BallColor.blue,
-      const HexCoordinate(3, 9): BallColor.blue,
-      const HexCoordinate(4, 9): BallColor.blue,
-      const HexCoordinate(2, 10): BallColor.blue,
-      const HexCoordinate(3, 10): BallColor.blue,
-      const HexCoordinate(0, 11): BallColor.yellow,
-      const HexCoordinate(7, 11): BallColor.green,
-    });
     _playerGame.spawnFixedPiece(
-      colors: const [BallColor.yellow, BallColor.blue, BallColor.purple],
-      column: 1,
+      colors: const [BallColor.red, BallColor.green, BallColor.purple],
+      column: 4,
     );
+    _tutorialStep2StartX = _playerGame.activePieceX;
+    _tutorialStep2RotationTicks = 0;
     setState(() {
-      _tutorialPhase = _TutorialPhase.step2Move;
+      _tutorialPhase = _TutorialPhase.step2HintIntro;
     });
   }
 
@@ -2791,96 +3069,246 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (!mounted) {
       return;
     }
-    _playerGame.loadFixedBoard({
-      const HexCoordinate(3, 8): BallColor.purple,
-      const HexCoordinate(2, 9): BallColor.purple,
-      const HexCoordinate(4, 9): BallColor.purple,
-      const HexCoordinate(2, 10): BallColor.purple,
-      const HexCoordinate(3, 10): BallColor.purple,
-      const HexCoordinate(0, 11): BallColor.red,
-      const HexCoordinate(8, 11): BallColor.green,
-    });
-    _cpuGame?.loadFixedBoard({
-      const HexCoordinate(2, 10): BallColor.red,
-      const HexCoordinate(3, 10): BallColor.blue,
-      const HexCoordinate(4, 10): BallColor.green,
-      const HexCoordinate(5, 10): BallColor.yellow,
-      const HexCoordinate(2, 11): BallColor.red,
-      const HexCoordinate(3, 11): BallColor.blue,
-      const HexCoordinate(4, 11): BallColor.green,
-      const HexCoordinate(5, 11): BallColor.yellow,
-    });
+    _tutorialTimer?.cancel();
+    _tutorialOpponentAttackQueued = false;
+    _tutorialOpponentDefeatQueued = false;
     setState(() {
       _tutorialPhase = _TutorialPhase.step3Incoming;
     });
-    _scheduleTutorial(const Duration(milliseconds: 950), () {
-      if (!mounted) {
-        return;
-      }
-      _playerGame.loadFixedBoard({
-        const HexCoordinate(0, 2): BallColor.purple,
-        const HexCoordinate(8, 2): BallColor.purple,
-        const HexCoordinate(1, 3): BallColor.purple,
-        const HexCoordinate(3, 8): BallColor.purple,
-        const HexCoordinate(2, 9): BallColor.purple,
-        const HexCoordinate(4, 9): BallColor.purple,
-        const HexCoordinate(2, 10): BallColor.purple,
-        const HexCoordinate(3, 10): BallColor.purple,
-        const HexCoordinate(0, 11): BallColor.red,
-        const HexCoordinate(8, 11): BallColor.green,
-      });
-      _playerGame.spawnFixedPiece(
-        colors: const [BallColor.purple, BallColor.red, BallColor.green],
-        column: 1,
-      );
-      setState(() {
-        _tutorialPhase = _TutorialPhase.step3Move;
-      });
+    _loadTutorialStep3BoardsAfterLayout();
+  }
+
+  void _loadTutorialStep3BoardsAfterLayout() {
+    if (!mounted || _tutorialPhase != _TutorialPhase.step3Incoming) {
+      return;
+    }
+    _playerGame.resumeEngine();
+    _playerGame.loadFixedBoard(_tutorialPlayerStep3Board());
+    _cpuGame?.loadFixedBoard(_tutorialOpponentStep3Board());
+    _playerGame.nextPieceColors.value = const [
+      BallColor.purple,
+      BallColor.yellow,
+      BallColor.red,
+    ];
+    _cpuGame?.nextPieceColors.value = const [
+      BallColor.purple,
+      BallColor.yellow,
+      BallColor.red,
+    ];
+    _cpuGame?.spawnFixedPiece(
+      colors: const [BallColor.green, BallColor.green, BallColor.blue],
+      column: 4,
+    );
+    _tutorialStep3RotationTicks = 0;
+    _scheduleTutorial(
+      const Duration(milliseconds: 1400),
+      _playTutorialOpponentOpeningMove,
+    );
+  }
+
+  Map<HexCoordinate, BallColor> _tutorialPlayerStep3Board() {
+    return {
+      const HexCoordinate(2, 4): BallColor.green,
+      const HexCoordinate(3, 4): BallColor.red,
+      const HexCoordinate(4, 4): BallColor.blue,
+      const HexCoordinate(5, 4): BallColor.yellow,
+      const HexCoordinate(6, 4): BallColor.purple,
+      const HexCoordinate(7, 4): BallColor.purple,
+      const HexCoordinate(8, 4): BallColor.green,
+      const HexCoordinate(2, 5): BallColor.yellow,
+      const HexCoordinate(3, 5): BallColor.blue,
+      const HexCoordinate(4, 5): BallColor.red,
+      const HexCoordinate(5, 5): BallColor.green,
+      const HexCoordinate(6, 5): BallColor.blue,
+      const HexCoordinate(7, 5): BallColor.red,
+      const HexCoordinate(9, 5): BallColor.red,
+      const HexCoordinate(0, 6): BallColor.blue,
+      const HexCoordinate(1, 6): BallColor.red,
+      const HexCoordinate(2, 6): BallColor.green,
+      const HexCoordinate(3, 6): BallColor.purple,
+      const HexCoordinate(4, 6): BallColor.yellow,
+      const HexCoordinate(5, 6): BallColor.red,
+      const HexCoordinate(6, 6): BallColor.purple,
+      const HexCoordinate(7, 6): BallColor.green,
+      const HexCoordinate(8, 6): BallColor.red,
+      const HexCoordinate(0, 7): BallColor.red,
+      const HexCoordinate(1, 7): BallColor.yellow,
+      const HexCoordinate(2, 7): BallColor.purple,
+      const HexCoordinate(3, 7): BallColor.blue,
+      const HexCoordinate(4, 7): BallColor.blue,
+      const HexCoordinate(5, 7): BallColor.yellow,
+      const HexCoordinate(6, 7): BallColor.purple,
+      const HexCoordinate(7, 7): BallColor.green,
+      const HexCoordinate(8, 7): BallColor.purple,
+      const HexCoordinate(9, 7): BallColor.red,
+      const HexCoordinate(0, 8): BallColor.blue,
+      const HexCoordinate(1, 8): BallColor.green,
+      const HexCoordinate(2, 8): BallColor.blue,
+      const HexCoordinate(3, 8): BallColor.purple,
+      const HexCoordinate(4, 8): BallColor.green,
+      const HexCoordinate(5, 8): BallColor.blue,
+      const HexCoordinate(6, 8): BallColor.green,
+      const HexCoordinate(7, 8): BallColor.purple,
+      const HexCoordinate(8, 8): BallColor.purple,
+      const HexCoordinate(0, 9): BallColor.red,
+      const HexCoordinate(1, 9): BallColor.yellow,
+      const HexCoordinate(2, 9): BallColor.red,
+      const HexCoordinate(3, 9): BallColor.purple,
+      const HexCoordinate(4, 9): BallColor.blue,
+      const HexCoordinate(5, 9): BallColor.purple,
+      const HexCoordinate(6, 9): BallColor.red,
+      const HexCoordinate(7, 9): BallColor.yellow,
+      const HexCoordinate(8, 9): BallColor.red,
+      const HexCoordinate(9, 9): BallColor.yellow,
+      const HexCoordinate(0, 10): BallColor.red,
+      const HexCoordinate(1, 10): BallColor.purple,
+      const HexCoordinate(2, 10): BallColor.yellow,
+      const HexCoordinate(3, 10): BallColor.yellow,
+      const HexCoordinate(4, 10): BallColor.blue,
+      const HexCoordinate(5, 10): BallColor.purple,
+      const HexCoordinate(6, 10): BallColor.yellow,
+      const HexCoordinate(7, 10): BallColor.blue,
+      const HexCoordinate(8, 10): BallColor.blue,
+      const HexCoordinate(0, 11): BallColor.blue,
+      const HexCoordinate(1, 11): BallColor.green,
+      const HexCoordinate(2, 11): BallColor.purple,
+      const HexCoordinate(3, 11): BallColor.yellow,
+      const HexCoordinate(4, 11): BallColor.blue,
+      const HexCoordinate(5, 11): BallColor.yellow,
+      const HexCoordinate(6, 11): BallColor.green,
+      const HexCoordinate(7, 11): BallColor.yellow,
+      const HexCoordinate(9, 11): BallColor.red,
+    };
+  }
+
+  Map<HexCoordinate, BallColor> _tutorialOpponentStep3Board() {
+    return {
+      const HexCoordinate(0, 8): BallColor.red,
+      const HexCoordinate(1, 8): BallColor.blue,
+      const HexCoordinate(2, 8): BallColor.yellow,
+      const HexCoordinate(3, 8): BallColor.green,
+      const HexCoordinate(4, 8): BallColor.yellow,
+      const HexCoordinate(5, 8): BallColor.red,
+      const HexCoordinate(6, 8): BallColor.red,
+      const HexCoordinate(7, 8): BallColor.green,
+      const HexCoordinate(8, 8): BallColor.yellow,
+      const HexCoordinate(0, 9): BallColor.blue,
+      const HexCoordinate(1, 9): BallColor.yellow,
+      const HexCoordinate(2, 9): BallColor.red,
+      const HexCoordinate(3, 9): BallColor.green,
+      const HexCoordinate(4, 9): BallColor.purple,
+      const HexCoordinate(5, 9): BallColor.blue,
+      const HexCoordinate(6, 9): BallColor.purple,
+      const HexCoordinate(7, 9): BallColor.red,
+      const HexCoordinate(8, 9): BallColor.blue,
+      const HexCoordinate(9, 9): BallColor.red,
+      const HexCoordinate(0, 10): BallColor.green,
+      const HexCoordinate(1, 10): BallColor.purple,
+      const HexCoordinate(2, 10): BallColor.green,
+      const HexCoordinate(3, 10): BallColor.blue,
+      const HexCoordinate(4, 10): BallColor.yellow,
+      const HexCoordinate(5, 10): BallColor.blue,
+      const HexCoordinate(6, 10): BallColor.green,
+      const HexCoordinate(7, 10): BallColor.yellow,
+      const HexCoordinate(8, 10): BallColor.red,
+      const HexCoordinate(0, 11): BallColor.yellow,
+      const HexCoordinate(1, 11): BallColor.blue,
+      const HexCoordinate(2, 11): BallColor.green,
+      const HexCoordinate(3, 11): BallColor.yellow,
+      const HexCoordinate(4, 11): BallColor.red,
+      const HexCoordinate(5, 11): BallColor.red,
+      const HexCoordinate(6, 11): BallColor.yellow,
+      const HexCoordinate(7, 11): BallColor.blue,
+      const HexCoordinate(8, 11): BallColor.purple,
+      const HexCoordinate(9, 11): BallColor.yellow,
+    };
+  }
+
+  Future<void> _playTutorialOpponentOpeningMove() async {
+    final opponentGame = _cpuGame;
+    if (!mounted ||
+        opponentGame == null ||
+        _tutorialPhase != _TutorialPhase.step3Incoming) {
+      return;
+    }
+    opponentGame.resumeEngine();
+    opponentGame.startMovingRight();
+    await Future<void>.delayed(const Duration(milliseconds: 75));
+    opponentGame.stopMovingRight();
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    if (!mounted ||
+        opponentGame.gameStateWrapper.value != GameState.playing ||
+        _tutorialPhase != _TutorialPhase.step3Incoming) {
+      return;
+    }
+    setState(() {
+      _tutorialPhase = _TutorialPhase.step3OpponentAttack;
     });
+    opponentGame.triggerHardDrop();
+    unawaited(_finishTutorialOpponentOpeningAttack(opponentGame));
+  }
+
+  Future<void> _finishTutorialOpponentOpeningAttack(
+    PuzzleGame opponentGame,
+  ) async {
+    await Future<void>.delayed(const Duration(milliseconds: 260));
+    while (mounted &&
+        _tutorialPhase == _TutorialPhase.step3OpponentAttack &&
+        opponentGame.isBoardProcessing) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+    if (!mounted ||
+        _tutorialPhase != _TutorialPhase.step3OpponentAttack ||
+        _tutorialOpponentAttackQueued) {
+      return;
+    }
+    opponentGame.stopMovingLeft();
+    opponentGame.stopMovingRight();
+    opponentGame.pauseEngine();
+    _sendTutorialIncomingOjamaToPlayer();
   }
 
   Set<_TutorialAction> get _enabledTutorialActions {
     return switch (_tutorialPhase) {
       _TutorialPhase.step1Move => {_TutorialAction.moveRight},
-      _TutorialPhase.step1Drop => {_TutorialAction.hardDrop},
+      _TutorialPhase.step1Drop => const <_TutorialAction>{},
+      _TutorialPhase.step2HintIntro => {_TutorialAction.moveRight},
       _TutorialPhase.step2Move => {_TutorialAction.moveRight},
-      _TutorialPhase.step2Rotate => {_TutorialAction.rotateRight},
-      _TutorialPhase.step2Drop => {_TutorialAction.hardDrop},
-      _TutorialPhase.step3Move => {_TutorialAction.moveRight},
-      _TutorialPhase.step3Rotate => {_TutorialAction.rotateRight},
-      _TutorialPhase.step3Drop => {_TutorialAction.hardDrop},
+      _TutorialPhase.step2Rotate => {
+          _TutorialAction.rotateLeft,
+          _TutorialAction.rotateRight,
+        },
+      _TutorialPhase.step2Drop => const <_TutorialAction>{},
+      _TutorialPhase.step3Incoming => const <_TutorialAction>{},
+      _TutorialPhase.step3OpponentAttack => const <_TutorialAction>{},
+      _TutorialPhase.step3Move => {_TutorialAction.moveLeft},
+      _TutorialPhase.step3Rotate => {
+          _TutorialAction.rotateLeft,
+          _TutorialAction.rotateRight,
+        },
+      _TutorialPhase.step3Drop => const <_TutorialAction>{},
       _ => const <_TutorialAction>{},
     };
   }
 
   String get _tutorialMessage {
     return switch (_tutorialPhase) {
-      _TutorialPhase.step1Move => '左右のボタンでボールを移動させよう！',
-      _TutorialPhase.step1Drop => 'ここでドロップボタンを押して落とそう！',
-      _TutorialPhase.step1Clear => 'いいね！同じ色がつながって消えました。',
-      _TutorialPhase.step2Move => '次は6個消し。まずは目標位置まで移動しよう。',
-      _TutorialPhase.step2Rotate => '回転ボタンでボールの向きを変えよう！',
-      _TutorialPhase.step2Drop => 'ドロップして、ボールを6個繋げよう！',
-      _TutorialPhase.step2Clear => 'ナイス！6個消し成功です。',
-      _TutorialPhase.step3Incoming => '相手からおじゃまが来る！',
-      _TutorialPhase.step3Move => 'ピンチ！大技を決めて反撃しよう！',
-      _TutorialPhase.step3Rotate => 'ワザの形に合わせて回転しよう！',
-      _TutorialPhase.step3Drop => 'ドロップしてヘキサゴンを完成させよう！',
-      _TutorialPhase.step3Skill => 'ヘキサゴン発動！相手へおじゃまを送り返した！',
-      _TutorialPhase.step3Win => 'WIN! チュートリアル完了です。',
+      _TutorialPhase.step1Move => '6つ以上ボールを繋げよう！',
+      _TutorialPhase.step1Drop => '盤面をタップしてドロップさせよう！',
+      _TutorialPhase.step1Clear => 'ナイス！同じ色が繋がって消えたよ！',
+      _TutorialPhase.step2HintIntro => '次はワザを決めてみよう！\n点線でヒントが表示されているよ',
+      _TutorialPhase.step2Move => '次はワザを決めてみよう！\n点線でヒントが表示されているよ',
+      _TutorialPhase.step2Rotate => 'ヒントに赤色ボールを合わせよう！',
+      _TutorialPhase.step2Drop => '盤面をタップしてドロップしてみよう！',
+      _TutorialPhase.step2Clear => 'ピラミッド！ワザで同じ色が全て消えました！',
+      _TutorialPhase.step3Incoming => '対戦相手が現れた！',
+      _TutorialPhase.step3OpponentAttack => '相手がおじゃまボールを送ってきた！',
+      _TutorialPhase.step3Move => 'ワザを決めて、相手に反撃しよう！',
+      _TutorialPhase.step3Rotate => 'ワザを決めて、相手に反撃しよう！',
+      _TutorialPhase.step3Drop => '盤面をタップしてドロップしよう！',
+      _TutorialPhase.step3Skill => 'ナイス！おじゃまボールを相手に送ったよ！',
       null => 'チュートリアルを開始します。',
     };
-  }
-
-  int get _tutorialStepNumber {
-    final phase = _tutorialPhase;
-    if (phase == null || phase.index <= _TutorialPhase.step1Clear.index) {
-      return 1;
-    }
-    if (phase.index <= _TutorialPhase.step2Clear.index) {
-      return 2;
-    }
-    return 3;
   }
 
   Future<void> _handleTutorialAction(_TutorialAction action) async {
@@ -2897,50 +3325,188 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _playerGame.rotateLeft();
       case _TutorialAction.rotateRight:
         _playerGame.rotateRight();
-      case _TutorialAction.hardDrop:
-        break;
     }
 
     switch (_tutorialPhase) {
       case _TutorialPhase.step1Move:
-        if (_playerGame.activePieceColumn >= 3) {
-          setState(() => _tutorialPhase = _TutorialPhase.step1Drop);
-        }
+        break;
       case _TutorialPhase.step1Drop:
         await _dropTutorialStep1();
+      case _TutorialPhase.step2HintIntro:
       case _TutorialPhase.step2Move:
-        if (_playerGame.activePieceColumn >= 2) {
+        final startX = _tutorialStep2StartX;
+        final currentX = _playerGame.activePieceX;
+        const targetDistance = _gridBallDiameter * 3.5;
+        if (startX != null &&
+            currentX != null &&
+            currentX - startX >= targetDistance) {
+          _tutorialRightMoveActive = false;
+          _playerGame.stopMovingRight();
           setState(() => _tutorialPhase = _TutorialPhase.step2Rotate);
         }
       case _TutorialPhase.step2Rotate:
-        if (_playerGame.activePieceRotationIndex == 1) {
+        _tutorialStep2RotationTicks +=
+            action == _TutorialAction.rotateRight ? 1 : -1;
+        if (_tutorialStep2RotationTicks.abs() >= 3) {
           setState(() => _tutorialPhase = _TutorialPhase.step2Drop);
         }
       case _TutorialPhase.step2Drop:
         await _dropTutorialStep2();
       case _TutorialPhase.step3Move:
-        if (_playerGame.activePieceColumn >= 3) {
-          setState(() => _tutorialPhase = _TutorialPhase.step3Rotate);
-        }
+        break;
       case _TutorialPhase.step3Rotate:
-        if (_playerGame.activePieceRotationIndex == 1) {
+        _tutorialStep3RotationTicks +=
+            action == _TutorialAction.rotateRight ? 1 : -1;
+        if (_tutorialStep3RotationTicks >= 4 ||
+            _tutorialStep3RotationTicks <= -2) {
           setState(() => _tutorialPhase = _TutorialPhase.step3Drop);
         }
       case _TutorialPhase.step3Drop:
-        await _dropTutorialStep3();
+        break;
       case _:
         break;
     }
   }
 
+  void _handleTutorialControlDown(_TutorialAction action) {
+    if (!_enabledTutorialActions.contains(action)) {
+      return;
+    }
+    if (action == _TutorialAction.moveRight &&
+        (_tutorialPhase == _TutorialPhase.step1Move ||
+            _tutorialPhase == _TutorialPhase.step2HintIntro ||
+            _tutorialPhase == _TutorialPhase.step2Move)) {
+      _tutorialRightMoveActive = true;
+      _playerGame.startMovingRight();
+      if (_tutorialPhase == _TutorialPhase.step1Move) {
+        _monitorTutorialStep1Move();
+      } else {
+        _monitorTutorialStep2Move();
+      }
+      return;
+    }
+    if (action == _TutorialAction.moveLeft &&
+        _tutorialPhase == _TutorialPhase.step3Move) {
+      _tutorialLeftMoveActive = true;
+      _playerGame.startMovingLeft();
+      _monitorTutorialStep3Move();
+      return;
+    }
+    unawaited(_handleTutorialAction(action));
+  }
+
+  void _handleTutorialControlUp(_TutorialAction action) {
+    if (action == _TutorialAction.moveRight) {
+      _tutorialRightMoveActive = false;
+      _playerGame.stopMovingRight();
+    }
+    if (action == _TutorialAction.moveLeft) {
+      _tutorialLeftMoveActive = false;
+      _playerGame.stopMovingLeft();
+    }
+  }
+
+  Future<void> _monitorTutorialStep1Move() async {
+    final startX = _tutorialStep1StartX;
+    if (startX == null) {
+      return;
+    }
+    const targetDistance = _gridBallDiameter * 2.5;
+    while (mounted &&
+        _tutorialRightMoveActive &&
+        _tutorialPhase == _TutorialPhase.step1Move) {
+      final currentX = _playerGame.activePieceX;
+      if (currentX != null && currentX - startX >= targetDistance) {
+        _tutorialRightMoveActive = false;
+        _playerGame.stopMovingRight();
+        setState(() => _tutorialPhase = _TutorialPhase.step1Drop);
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+  }
+
+  Future<void> _monitorTutorialStep2Move() async {
+    final startX = _tutorialStep2StartX;
+    if (startX == null) {
+      return;
+    }
+    const targetDistance = _gridBallDiameter * 3.5;
+    while (mounted &&
+        _tutorialRightMoveActive &&
+        (_tutorialPhase == _TutorialPhase.step2HintIntro ||
+            _tutorialPhase == _TutorialPhase.step2Move)) {
+      final currentX = _playerGame.activePieceX;
+      if (currentX != null && currentX - startX >= targetDistance) {
+        _tutorialRightMoveActive = false;
+        _playerGame.stopMovingRight();
+        setState(() => _tutorialPhase = _TutorialPhase.step2Rotate);
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+  }
+
+  Future<void> _monitorTutorialStep3Move() async {
+    final startX = _tutorialStep3StartX;
+    if (startX == null) {
+      return;
+    }
+    const targetDistance = _gridBallDiameter * 2.5;
+    while (mounted &&
+        _tutorialLeftMoveActive &&
+        _tutorialPhase == _TutorialPhase.step3Move) {
+      final currentX = _playerGame.activePieceX;
+      if (currentX != null && startX - currentX >= targetDistance) {
+        _tutorialLeftMoveActive = false;
+        _playerGame.stopMovingLeft();
+        setState(() => _tutorialPhase = _TutorialPhase.step3Rotate);
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+  }
+
+  bool _handleTutorialBoardTap(PuzzleGame game) {
+    if (!widget.isTutorialMode) {
+      return false;
+    }
+    if (!_isTutorialBoardDropEnabled) {
+      return true;
+    }
+    _playUiTap();
+    game.triggerHardDrop();
+    if (_tutorialPhase == _TutorialPhase.step1Drop) {
+      setState(() => _tutorialPhase = _TutorialPhase.step1Clear);
+      _scheduleTutorial(
+        const Duration(milliseconds: 950),
+        _setupTutorialStep2,
+      );
+    } else if (_tutorialPhase == _TutorialPhase.step2Drop) {
+      setState(() => _tutorialPhase = _TutorialPhase.step2Clear);
+      _scheduleTutorial(
+        const Duration(milliseconds: 1800),
+        _setupTutorialStep3Incoming,
+      );
+    } else if (_tutorialPhase == _TutorialPhase.step3Drop) {
+      setState(() => _tutorialPhase = _TutorialPhase.step3Skill);
+    }
+    return true;
+  }
+
   Future<void> _dropTutorialStep1() async {
     setState(() => _tutorialPhase = _TutorialPhase.step1Clear);
     await _playerGame.dropFixedPieceToHexes(const [
-      HexCoordinate(2, 9),
-      HexCoordinate(0, 10),
-      HexCoordinate(8, 10),
+      HexCoordinate(5, 8),
+      HexCoordinate(7, 8),
+      HexCoordinate(8, 8),
     ]);
-    _scheduleTutorial(const Duration(milliseconds: 950), _setupTutorialStep2);
+    _scheduleTutorial(const Duration(milliseconds: 950), () {
+      if (!mounted) {
+        return;
+      }
+      _setupTutorialStep2();
+    });
   }
 
   Future<void> _dropTutorialStep2() async {
@@ -2954,31 +3520,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       const Duration(milliseconds: 1150),
       _setupTutorialStep3Incoming,
     );
-  }
-
-  Future<void> _dropTutorialStep3() async {
-    setState(() => _tutorialPhase = _TutorialPhase.step3Skill);
-    await _playerGame.dropFixedPieceToHexes(const [
-      HexCoordinate(2, 8),
-      HexCoordinate(0, 10),
-      HexCoordinate(8, 10),
-    ]);
-    _cpuGame?.loadFixedBoard({
-      for (var row = 4; row < 12; row++)
-        for (var col = 0; col < (row.isOdd ? 10 : 9); col++)
-          HexCoordinate(col, row): BallColor.purple,
-    });
-    _scheduleTutorial(const Duration(milliseconds: 1400), () {
-      if (!mounted) {
-        return;
-      }
-      AppSfx.playWin();
-      setState(() {
-        _tutorialPhase = _TutorialPhase.step3Win;
-        _tutorialCompleted = true;
-      });
-      unawaited(AppSettings.instance.setOnboardingSeen(true));
-    });
   }
 
   Future<void> _finishTutorial() async {
@@ -3362,6 +3903,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _arenaMatchResult = null;
     _onlineResultWasForfeit = false;
     _autoReadyRequested = false;
+    _tutorialOpponentDefeatQueued = false;
     _resultRevealPending = false;
     _resultAudioStarted = false;
     _resultAudioStartedAt = null;
@@ -3719,6 +4261,25 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _startTutorialBgm() async {
+    if (_isBattleBgmPlaying) {
+      return;
+    }
+    _isBattleBgmPlaying = true;
+    try {
+      await SeamlessBgm.instance.setMasterVolume(
+        AppSettings.instance.musicVolume.value,
+      );
+      await SeamlessBgm.instance.play(
+        assetPath: 'audio/home_screen_bgm01.wav',
+        duration: _homeBgmDuration,
+        volume: 0.576,
+      );
+    } catch (_) {
+      _isBattleBgmPlaying = false;
+    }
+  }
+
   void _freezeBattleBoards() {
     _applyBattleFinishEffect(_playerGame);
     _playerGame.gameStateWrapper.value = GameState.gameover;
@@ -3824,6 +4385,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _stopBattleBgm() async {
+    if (widget.isTutorialMode) {
+      _isBattleBgmPlaying = false;
+      return;
+    }
     if (!_isBattleBgmPlaying && !SeamlessBgm.instance.isPlaying) {
       return;
     }
@@ -3996,9 +4561,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     Navigator.of(dialogContext).pop();
                   },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.cyanAccent,
+                    foregroundColor: Colors.white70,
                     side: BorderSide(
-                      color: Colors.cyanAccent.withValues(alpha: 0.42),
+                      color: Colors.white.withValues(alpha: 0.36),
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(
@@ -4145,6 +4710,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     await Future<void>.delayed(_resultBoardSettleDelay);
     await _waitForResultAudioLead(playerWon: playerWon);
     if (!mounted) {
+      return;
+    }
+
+    if (widget.isTutorialMode) {
+      _cpuBattlePlayerWon = playerWon;
+      await AppSettings.instance.setOnboardingSeen(true);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _resultCoinBaseEarned = 0;
+        _matchExpEarned = 0;
+        _resultRevealPending = false;
+      });
       return;
     }
 
@@ -4309,7 +4888,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return ValueListenableBuilder<ControlLayoutPreset>(
       valueListenable: AppSettings.instance.controlLayout,
       builder: (context, preset, child) {
-        final actions = _controlActionsFor(game, preset);
+        final actions = _controlActionsFor(
+          game,
+          widget.isTutorialMode
+              ? ControlLayoutPreset.rotateRotateMoveMove
+              : preset,
+        );
         return SizedBox(
           height: 90,
           child: Row(
@@ -4318,9 +4902,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               for (final action in actions)
                 Expanded(
                   child: _buildAreaButton(
+                    action: action.tutorialAction,
                     icon: action.icon,
-                    onDown: action.onDown,
-                    onUp: action.onUp,
+                    onDown: widget.isTutorialMode
+                        ? () => _handleTutorialControlDown(
+                              action.tutorialAction,
+                            )
+                        : action.onDown,
+                    onUp: widget.isTutorialMode
+                        ? () => _handleTutorialControlUp(action.tutorialAction)
+                        : action.onUp,
                   ),
                 ),
             ],
@@ -4330,265 +4921,136 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildTutorialControls() {
-    final actions = [
-      (
-        action: _TutorialAction.moveLeft,
-        icon: Icons.arrow_left,
-        label: '左',
-      ),
-      (
-        action: _TutorialAction.moveRight,
-        icon: Icons.arrow_right,
-        label: '右',
-      ),
-      (
-        action: _TutorialAction.rotateLeft,
-        icon: Icons.rotate_left,
-        label: '左回転',
-      ),
-      (
-        action: _TutorialAction.rotateRight,
-        icon: Icons.rotate_right,
-        label: '右回転',
-      ),
-      (
-        action: _TutorialAction.hardDrop,
-        icon: Icons.keyboard_double_arrow_down,
-        label: 'DROP',
-      ),
-    ];
-
-    return SizedBox(
-      height: 96,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final item in actions)
-            Expanded(
-              child: _buildTutorialAreaButton(
-                icon: item.icon,
-                label: item.label,
-                enabled: _enabledTutorialActions.contains(item.action),
-                onPressed: () => unawaited(_handleTutorialAction(item.action)),
-              ),
+  Widget _buildTutorialStep3Message() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xDD101827),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.cyanAccent.withValues(alpha: 0.64),
+            width: 1.3,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.cyanAccent.withValues(alpha: 0.14),
+              blurRadius: 16,
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTutorialAreaButton({
-    required IconData icon,
-    required String label,
-    required bool enabled,
-    required VoidCallback onPressed,
-  }) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      decoration: BoxDecoration(
-        color: enabled
-            ? Colors.cyanAccent.withValues(alpha: 0.16)
-            : Colors.white.withValues(alpha: 0.035),
-        border: Border(
-          top: BorderSide(
-            color: enabled ? Colors.cyanAccent : Colors.white24,
-            width: enabled ? 2.6 : 1.0,
-          ),
-          bottom: BorderSide(
-            color: enabled ? Colors.cyanAccent : Colors.white10,
-            width: enabled ? 2.6 : 1.0,
-          ),
-          right: BorderSide(
-            color: enabled
-                ? Colors.cyanAccent.withValues(alpha: 0.55)
-                : Colors.white10,
-            width: 1,
-          ),
-        ),
-        boxShadow: enabled
-            ? [
-                BoxShadow(
-                  color: Colors.cyanAccent.withValues(alpha: 0.24),
-                  blurRadius: 18,
-                ),
-              ]
-            : null,
-      ),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: enabled ? onPressed : null,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            Opacity(
-              opacity: enabled ? 1 : 0.24,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    icon,
-                    color: Colors.cyanAccent,
-                    size: 30,
-                    shadows: const [
-                      Shadow(color: Colors.cyan, blurRadius: 8),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (enabled)
-              Positioned(
-                top: -14,
-                child: TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: const Duration(milliseconds: 700),
-                  builder: (context, value, child) {
-                    return Transform.translate(
-                      offset: Offset(0, -sin(value * pi) * 7),
-                      child: child,
-                    );
-                  },
-                  onEnd: () {
-                    if (mounted) {
-                      setState(() {});
-                    }
-                  },
-                  child: const Icon(
-                    Icons.touch_app,
-                    color: Colors.white,
-                    size: 27,
-                    shadows: [
-                      Shadow(color: Colors.cyanAccent, blurRadius: 12),
-                    ],
-                  ),
-                ),
-              ),
           ],
+        ),
+        child: Text(
+          _tutorialMessage,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            height: 1.32,
+            fontWeight: FontWeight.w900,
+          ),
         ),
       ),
     );
   }
 
   Widget _buildTutorialOverlay() {
-    return Positioned(
-      left: 16,
-      right: 16,
-      top: MediaQuery.of(context).padding.top + 52,
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildTutorialDropTargetOverlay() {
+    return Positioned.fill(
       child: IgnorePointer(
-        ignoring: _tutorialPhase != _TutorialPhase.step3Win,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xEE101827),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: Colors.cyanAccent.withValues(alpha: 0.72),
-                  width: 1.4,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.cyanAccent.withValues(alpha: 0.18),
-                    blurRadius: 20,
-                  ),
-                ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.cyanAccent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.cyanAccent.withValues(alpha: 0.82),
+                width: 2.4,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'STEP $_tutorialStepNumber / 3',
-                    style: const TextStyle(
-                      color: Colors.cyanAccent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.4,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.cyanAccent.withValues(alpha: 0.28),
+                  blurRadius: 22,
+                ),
+              ],
+            ),
+            child: Center(
+              child: TweenAnimationBuilder<double>(
+                key: ValueKey(
+                  'tutorial-board-drop-${DateTime.now().millisecondsSinceEpoch ~/ 760}',
+                ),
+                tween: Tween(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 760),
+                builder: (context, value, child) {
+                  final pulse = sin(value * pi);
+                  return Transform.translate(
+                    offset: Offset(0, -pulse * 12),
+                    child: Transform.scale(
+                      scale: 0.94 + pulse * 0.12,
+                      child: child,
+                    ),
+                  );
+                },
+                onEnd: () {
+                  if (mounted && _isTutorialBoardDropEnabled) {
+                    setState(() {});
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.48),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.8),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _tutorialMessage,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      height: 1.42,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  child: const Icon(
+                    Icons.touch_app,
+                    color: Colors.white,
+                    size: 34,
+                    shadows: [
+                      Shadow(color: Colors.cyanAccent, blurRadius: 14),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-            if (_tutorialPhase == _TutorialPhase.step3Skill) ...[
-              const SizedBox(height: 18),
-              const Text(
-                'HEXAGON!',
-                style: TextStyle(
-                  color: Colors.purpleAccent,
-                  fontSize: 36,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 4,
-                  shadows: [
-                    Shadow(color: Colors.purpleAccent, blurRadius: 18),
-                    Shadow(color: Colors.cyanAccent, blurRadius: 12),
-                  ],
-                ),
-              ),
-            ],
-            if (_tutorialPhase == _TutorialPhase.step3Win) ...[
-              const SizedBox(height: 18),
-              const Text(
-                'WIN!',
-                style: TextStyle(
-                  color: Colors.amberAccent,
-                  fontSize: 52,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 5,
-                  shadows: [
-                    Shadow(color: Colors.orangeAccent, blurRadius: 20),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: 220,
-                child: FilledButton(
-                  onPressed: _tutorialCompleted
-                      ? () => unawaited(_finishTutorial())
-                      : null,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.amberAccent,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: const Text(
-                    'ホームへ戻る',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTutorialSkipButton() {
+    return Positioned(
+      top: 8,
+      right: 8,
+      child: SafeArea(
+        child: TextButton(
+          onPressed: () => unawaited(_finishTutorial()),
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.white70,
+            backgroundColor: Colors.black.withValues(alpha: 0.52),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.22)),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+          child: const Text(
+            'SKIP',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.2,
+            ),
+          ),
         ),
       ),
     );
@@ -4600,20 +5062,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   ) {
     final rotateLeft = _ControlAction(
       icon: Icons.rotate_left,
+      tutorialAction: _TutorialAction.rotateLeft,
       onDown: game.rotateLeft,
     );
     final moveLeft = _ControlAction(
       icon: Icons.arrow_left,
+      tutorialAction: _TutorialAction.moveLeft,
       onDown: game.startMovingLeft,
       onUp: game.stopMovingLeft,
     );
     final moveRight = _ControlAction(
       icon: Icons.arrow_right,
+      tutorialAction: _TutorialAction.moveRight,
       onDown: game.startMovingRight,
       onUp: game.stopMovingRight,
     );
     final rotateRight = _ControlAction(
       icon: Icons.rotate_right,
+      tutorialAction: _TutorialAction.rotateRight,
       onDown: game.rotateRight,
     );
 
@@ -4646,34 +5112,109 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildAreaButton({
+    required _TutorialAction action,
     required IconData icon,
     required VoidCallback onDown,
     VoidCallback? onUp,
   }) {
+    final enabled =
+        !widget.isTutorialMode || _enabledTutorialActions.contains(action);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTapDown: (_) {
+        if (!enabled) {
+          return;
+        }
         _playUiTap();
         onDown();
       },
-      onTapUp: onUp != null ? (_) => onUp() : null,
-      onTapCancel: onUp,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0x1100FFFF), // faint cyan highlight
+      onTapUp: (_) {
+        if (enabled && onUp != null) {
+          onUp();
+        }
+      },
+      onTapCancel: () {
+        if (enabled && onUp != null) {
+          onUp();
+        }
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        decoration: BoxDecoration(
+          color: enabled
+              ? const Color(0x1100FFFF)
+              : Colors.white.withValues(alpha: 0.035),
           border: Border(
-            top: BorderSide(color: Colors.cyanAccent, width: 2),
-            bottom: BorderSide(color: Colors.cyanAccent, width: 2),
-            right: BorderSide(color: Color(0x3300FFFF), width: 1),
+            top: BorderSide(
+              color: enabled ? Colors.cyanAccent : Colors.white24,
+              width: enabled ? 2 : 1,
+            ),
+            bottom: BorderSide(
+              color: enabled ? Colors.cyanAccent : Colors.white10,
+              width: enabled ? 2 : 1,
+            ),
+            right: BorderSide(
+              color: enabled
+                  ? const Color(0x3300FFFF)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: 1,
+            ),
           ),
+          boxShadow: widget.isTutorialMode && enabled
+              ? [
+                  BoxShadow(
+                    color: Colors.cyanAccent.withValues(alpha: 0.24),
+                    blurRadius: 18,
+                  ),
+                ]
+              : null,
         ),
-        child: Center(
-          child: Icon(
-            icon,
-            color: Colors.cyanAccent,
-            size: 32,
-            shadows: const [Shadow(color: Colors.cyan, blurRadius: 8)],
-          ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            Opacity(
+              opacity: enabled ? 1 : 0.24,
+              child: Icon(
+                icon,
+                color: Colors.cyanAccent,
+                size: 32,
+                shadows: const [Shadow(color: Colors.cyan, blurRadius: 8)],
+              ),
+            ),
+            if (widget.isTutorialMode && enabled)
+              Positioned(
+                top: -18,
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey(
+                      'tutorial-finger-${action.name}-${DateTime.now().millisecondsSinceEpoch ~/ 700}'),
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 700),
+                  builder: (context, value, child) {
+                    return Transform.translate(
+                      offset: Offset(0, -sin(value * pi) * 8),
+                      child: Transform.scale(
+                        scale: 0.94 + sin(value * pi) * 0.1,
+                        child: child,
+                      ),
+                    );
+                  },
+                  onEnd: () {
+                    if (mounted && widget.isTutorialMode) {
+                      setState(() {});
+                    }
+                  },
+                  child: const Icon(
+                    Icons.touch_app,
+                    color: Colors.white,
+                    size: 28,
+                    shadows: [
+                      Shadow(color: Colors.cyanAccent, blurRadius: 13),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -4683,11 +5224,51 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 class _ControlAction {
   const _ControlAction({
     required this.icon,
+    required this.tutorialAction,
     required this.onDown,
     this.onUp,
   });
 
   final IconData icon;
+  final _TutorialAction tutorialAction;
   final VoidCallback onDown;
   final VoidCallback? onUp;
+}
+
+class _TutorialResultLine extends StatelessWidget {
+  const _TutorialResultLine({
+    required this.title,
+    required this.body,
+  });
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          body,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            height: 1.35,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
 }

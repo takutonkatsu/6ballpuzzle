@@ -401,13 +401,16 @@ class _RecordScreenState extends State<RecordScreen> {
           Container(
             width: 58,
             alignment: Alignment.center,
-            child: Text(
-              _resultLabel(entry),
-              style: TextStyle(
-                color: entry.isWin ? Colors.cyanAccent : Colors.pinkAccent,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
+            child: entry.mode == 'SOLO'
+                ? const SizedBox.shrink()
+                : Text(
+                    _resultLabel(entry),
+                    style: TextStyle(
+                      color:
+                          entry.isWin ? Colors.cyanAccent : Colors.pinkAccent,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -445,7 +448,7 @@ class _RecordScreenState extends State<RecordScreen> {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         const Text(
-          'SCORE',
+          'スコア',
           style: TextStyle(
             color: Colors.white54,
             fontSize: 11,

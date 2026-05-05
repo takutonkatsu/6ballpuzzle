@@ -29,7 +29,7 @@ class AppSettings {
   final ValueNotifier<bool> adsRemoved = ValueNotifier(false);
   final ValueNotifier<bool> onboardingSeen = ValueNotifier(false);
   final ValueNotifier<ControlLayoutPreset> controlLayout =
-      ValueNotifier(ControlLayoutPreset.rotateMoveMoveRotate);
+      ValueNotifier(ControlLayoutPreset.rotateRotateMoveMove);
 
   bool _loaded = false;
 
@@ -44,7 +44,8 @@ class AppSettings {
     sfxVolume.value = (prefs.getDouble(_sfxVolumeKey) ?? 1.0).clamp(0.0, 1.0);
     adsRemoved.value = prefs.getBool(_adsRemovedKey) ?? false;
     onboardingSeen.value = prefs.getBool(_onboardingSeenKey) ?? false;
-    final rawLayout = prefs.getInt(_controlLayoutKey) ?? 0;
+    final defaultLayout = ControlLayoutPreset.rotateRotateMoveMove.index;
+    final rawLayout = prefs.getInt(_controlLayoutKey) ?? defaultLayout;
     controlLayout.value = ControlLayoutPreset
         .values[rawLayout.clamp(0, ControlLayoutPreset.values.length - 1)];
     _loaded = true;

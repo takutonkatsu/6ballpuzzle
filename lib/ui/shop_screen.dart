@@ -21,6 +21,10 @@ class ShopScreen extends StatefulWidget {
 }
 
 class _ShopScreenState extends State<ShopScreen> {
+  static const Color _shopPanelColor = Color(0xFF102033);
+  static const Color _shopPanelAccent = Color(0xFF7FE7FF);
+  static const Color _shopPanelAccentStrong = Color(0xFFBEEFFF);
+
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final GachaManager _gachaManager = GachaManager.instance;
   final MissionManager _missionManager = MissionManager.instance;
@@ -440,17 +444,24 @@ class _ShopScreenState extends State<ShopScreen> {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF1A1C29),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFF14314A),
+                              _shopPanelColor,
+                            ],
+                          ),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: Colors.amberAccent.withValues(alpha: 0.6),
+                            color: _shopPanelAccent.withValues(alpha: 0.75),
                             width: 1.5,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.amberAccent.withValues(alpha: 0.15),
-                              blurRadius: 12,
-                              spreadRadius: 2,
+                              color: _shopPanelAccent.withValues(alpha: 0.15),
+                              blurRadius: 18,
+                              spreadRadius: 1,
                             ),
                           ],
                         ),
@@ -462,7 +473,7 @@ class _ShopScreenState extends State<ShopScreen> {
                             Text(
                               '$_coins',
                               style: const TextStyle(
-                                color: Color(0xFFEAF6FF),
+                                color: _shopPanelAccentStrong,
                                 fontWeight: FontWeight.w900,
                                 fontSize: 22,
                                 letterSpacing: 0.5,
@@ -485,12 +496,12 @@ class _ShopScreenState extends State<ShopScreen> {
                         child: Text(
                           'ガチャ',
                           style: TextStyle(
-                            color: Colors.purpleAccent,
+                            color: Colors.cyanAccent,
                             fontWeight: FontWeight.w900,
                             fontSize: 16,
                             letterSpacing: 1,
                             shadows: [
-                              Shadow(color: Colors.purpleAccent, blurRadius: 8)
+                              Shadow(color: Colors.cyanAccent, blurRadius: 8)
                             ],
                           ),
                         ),
@@ -498,17 +509,24 @@ class _ShopScreenState extends State<ShopScreen> {
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF151723),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFF143049),
+                              _shopPanelColor,
+                            ],
+                          ),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: Colors.purpleAccent.withValues(alpha: 0.5),
+                            color: _shopPanelAccent.withValues(alpha: 0.68),
                             width: 2,
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.purpleAccent.withValues(alpha: 0.1),
-                              blurRadius: 20,
-                              spreadRadius: -5,
+                              color: _shopPanelAccent.withValues(alpha: 0.12),
+                              blurRadius: 24,
+                              spreadRadius: -4,
                             ),
                           ],
                         ),
@@ -517,7 +535,7 @@ class _ShopScreenState extends State<ShopScreen> {
                           children: [
                             const Row(
                               children: [
-                                Icon(Icons.hub, color: Colors.purpleAccent),
+                                Icon(Icons.hub, color: Colors.cyanAccent),
                                 SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
@@ -541,15 +559,17 @@ class _ShopScreenState extends State<ShopScreen> {
                                     },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor:
-                                    Colors.purpleAccent.withValues(alpha: 0.2),
+                                    _shopPanelAccent.withValues(alpha: 0.22),
                                 foregroundColor: Colors.white,
                                 shadowColor:
-                                    Colors.purpleAccent.withValues(alpha: 0.5),
+                                    _shopPanelAccent.withValues(alpha: 0.42),
                                 elevation: 8,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(8),
                                   side: const BorderSide(
-                                      color: Colors.purpleAccent, width: 1.5),
+                                    color: _shopPanelAccent,
+                                    width: 1.5,
+                                  ),
                                 ),
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 16),
@@ -603,10 +623,11 @@ class _ShopScreenState extends State<ShopScreen> {
                                           unawaited(_rollFreeAdGacha());
                                         },
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.amberAccent,
+                                foregroundColor: _shopPanelAccentStrong,
                                 side: BorderSide(
-                                  color:
-                                      Colors.amberAccent.withValues(alpha: 0.5),
+                                  color: _shopPanelAccentStrong.withValues(
+                                    alpha: 0.58,
+                                  ),
                                   width: 1.5,
                                 ),
                                 shape: RoundedRectangleBorder(
@@ -670,7 +691,14 @@ class _ShopScreenState extends State<ShopScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF11131F),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF12273C),
+            _shopPanelColor,
+          ],
+        ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: accent.withValues(alpha: 0.4),
@@ -694,8 +722,8 @@ class _ShopScreenState extends State<ShopScreen> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  accent.withValues(alpha: 0.3),
-                  accent.withValues(alpha: 0.05),
+                  accent.withValues(alpha: 0.24),
+                  _shopPanelAccentStrong.withValues(alpha: 0.08),
                 ],
               ),
               borderRadius: BorderRadius.circular(10),
@@ -774,7 +802,7 @@ class _ShopScreenState extends State<ShopScreen> {
               child: canBuy
                   ? HexagonCoinAmount(
                       _priceFor(item),
-                      color: const Color(0xFFEAF6FF),
+                      color: _shopPanelAccentStrong,
                       iconSize: 16,
                       fontSize: 14,
                     )

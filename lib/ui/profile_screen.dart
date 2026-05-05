@@ -58,7 +58,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Navigator.of(context).pop();
           },
         ),
-        title: const Text('プロフィール'),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0x3325F4FF),
+                Color(0x00000000),
+              ],
+            ),
+          ),
+        ),
+        title: const _ProfilePageTitle(
+          title: 'プロフィール',
+          subtitle: 'PLAYER PROFILE',
+        ),
+        centerTitle: true,
       ),
       body: Stack(
         children: [
@@ -492,6 +508,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'icon_gamepad' => Icons.sports_esports,
       _ => Icons.person,
     };
+  }
+}
+
+class _ProfilePageTitle extends StatelessWidget {
+  const _ProfilePageTitle({
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 3.5,
+          ),
+        ),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            shadows: [
+              Shadow(color: Colors.cyanAccent, blurRadius: 12),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 

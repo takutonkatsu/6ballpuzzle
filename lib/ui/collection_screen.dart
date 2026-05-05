@@ -78,7 +78,7 @@ class _CollectionScreenState extends State<CollectionScreen>
             child: _NeonTabBar(
               tabs: [
                 'スタンプ',
-                '実績バッジ',
+                'バッジ',
                 'ボール',
                 'アイコン',
               ],

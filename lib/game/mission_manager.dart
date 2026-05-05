@@ -170,9 +170,6 @@ class MissionManager {
 
     final missions = currentMissions;
     for (final mission in missions) {
-      if (!(mission['claimed'] as bool? ?? false)) {
-        mission['claimed'] = true;
-      }
       mission['allClearBonusClaimed'] = true;
     }
 
@@ -203,10 +200,11 @@ class MissionManager {
     final target = _intValue(mission['target']) ?? 1;
     mission['progress'] = target;
     await _persistMissionChanges(missions);
-    return claimMissionReward(index);
+    return 0;
   }
 
   Future<void> markRewardedAdMissionWatched(int index) async {
+    await load();
     final missions = currentMissions;
     if (index < 0 || index >= missions.length) {
       throw StateError('ミッションが見つかりません。');
@@ -248,7 +246,8 @@ class MissionManager {
 
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
 
-  Future<void> _persistMissionChanges(List<Map<String, dynamic>> missions) async {
+  Future<void> _persistMissionChanges(
+      List<Map<String, dynamic>> missions) async {
     _sortMissionsInPlace(missions);
     await _playerData.saveCurrentMissions(missions);
   }

@@ -15,7 +15,10 @@ class InterstitialAdManager {
 
   InterstitialAd? _cachedAd;
   bool _isLoading = false;
+  bool _isShowing = false;
   Timer? _retryTimer;
+
+  bool get isShowing => _isShowing;
 
   Future<void> warmUp() async {
     if (!AppAdService.instance.canRequestAds) {
@@ -42,10 +45,12 @@ class InterstitialAdManager {
       return;
     }
     _cachedAd = null;
+    _isShowing = true;
 
     final completer = Completer<void>();
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
+        _isShowing = false;
         ad.dispose();
         if (!completer.isCompleted) {
           completer.complete();
@@ -53,6 +58,7 @@ class InterstitialAdManager {
         unawaited(warmUp());
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
+        _isShowing = false;
         ad.dispose();
         if (!completer.isCompleted) {
           completer.complete();
@@ -70,6 +76,7 @@ class InterstitialAdManager {
     } catch (error, stackTrace) {
       debugPrint('Interstitial ad show threw: $error');
       debugPrintStack(stackTrace: stackTrace);
+      _isShowing = false;
       ad.dispose();
       if (!completer.isCompleted) {
         completer.complete();
@@ -80,7 +87,7 @@ class InterstitialAdManager {
   }
 
   Future<void> settleAfterGame() async {
-    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await Future<void>.delayed(const Duration(milliseconds: 650));
   }
 
   Future<void> _ensureLoaded() async {

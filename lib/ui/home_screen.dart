@@ -23,6 +23,7 @@ import '../game/components/ball_component.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/interstitial_ad_manager.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
 import 'collection_screen.dart';
@@ -309,6 +310,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isHomeBgmPlaying = false;
   bool _isInitialNamePromptVisible = false;
 
+  // ignore: unused_element
+  bool get _isArenaComingSoon => true;
+
   void _playUiTap() {
     AppSfx.playUiTap();
   }
@@ -342,6 +346,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ignore: unused_element
   Widget _buildArenaInfoLine({
     required String label,
     required int amount,
@@ -425,6 +430,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _startHomeBgm({bool forceRestart = false}) async {
+    if (InterstitialAdManager.instance.isShowing) {
+      return;
+    }
     if (_isHomeBgmPlaying && !forceRestart) {
       return;
     }
@@ -1474,8 +1482,8 @@ class _HomeScreenState extends State<HomeScreen>
                             alignment: Alignment.bottomLeft)),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: _buildArenaGridButton(Colors.lightBlueAccent,
-                            _isBusy ? null : () => _startArenaMatch(context),
+                        child: _buildArenaGridButton(
+                            Colors.lightBlueAccent, null,
                             alignment: Alignment.bottomRight)),
                   ],
                 ),
@@ -1689,25 +1697,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildArenaGridButton(Color accentColor, VoidCallback? onTap,
       {Alignment alignment = Alignment.center}) {
-    final isActive = _arenaManager.isArenaActive;
-    final hasFinishedRun = !isActive &&
-        (_arenaManager.currentWins > 0 || _arenaManager.currentLosses > 0);
-    final losses = _arenaManager.currentLosses.clamp(0, 3).toInt();
-    final lossMarks =
-        List.generate(3, (index) => index < losses ? '×' : '·').join(' ');
-    final crossAxisAlignment = alignment.x > 0
-        ? CrossAxisAlignment.end
-        : alignment.x < 0
-            ? CrossAxisAlignment.start
-            : CrossAxisAlignment.center;
-    final currentReward =
-        _arenaManager.previewRewardForWins(_arenaManager.currentWins);
-    final maxReward = _arenaManager.previewRewardForWins(ArenaManager.maxWins);
-    final badgeLabel = isActive
-        ? '${_arenaManager.currentWins}勝  $lossMarks'
-        : hasFinishedRun
-            ? '${_arenaManager.currentWins}勝  $lossMarks'
-            : '未入場';
+    const disabledArenaColor = Color(0xFF8B96A3);
 
     return InkWell(
       onTap: onTap == null
@@ -1719,178 +1709,47 @@ class _HomeScreenState extends State<HomeScreen>
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: accentColor.withValues(alpha: 0.1),
+          color: disabledArenaColor.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(16),
-          border:
-              Border.all(color: accentColor.withValues(alpha: 0.58), width: 2),
+          border: Border.all(
+            color: disabledArenaColor.withValues(alpha: 0.72),
+            width: 2,
+          ),
           boxShadow: [
             BoxShadow(
-              color: accentColor.withValues(alpha: 0.18),
+              color: Colors.black.withValues(alpha: 0.18),
               blurRadius: 12,
               spreadRadius: 1,
             ),
             BoxShadow(
-              color: accentColor.withValues(alpha: 0.08),
+              color: disabledArenaColor.withValues(alpha: 0.08),
               blurRadius: 22,
             ),
           ],
         ),
-        child: Stack(
-          children: [
-            Positioned(
-              top: 8,
-              right: 8,
-              child: InkWell(
-                onTap: () {
-                  _playUiTap();
-                  unawaited(_showArenaEntryRewardsDialog(context));
-                },
-                borderRadius: BorderRadius.circular(999),
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.black45,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.lightBlueAccent.withValues(alpha: 0.48),
-                    ),
-                  ),
-                  child: const Icon(
-                    Icons.receipt_long,
-                    color: Colors.lightBlueAccent,
-                    size: 14,
-                  ),
-                ),
-              ),
-            ),
-            Align(
+        child: Align(
+          alignment: alignment,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
               alignment: alignment,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: alignment,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: crossAxisAlignment,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isActive
-                              ? Colors.black.withValues(alpha: 0.72)
-                              : Colors.white.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: isActive
-                                ? Colors.lightBlueAccent
-                                : Colors.lightBlueAccent.withValues(
-                                    alpha: 0.46,
-                                  ),
-                            width: 1.2,
-                          ),
-                          boxShadow: isActive
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.lightBlueAccent.withValues(
-                                      alpha: 0.22,
-                                    ),
-                                    blurRadius: 6,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: isActive
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '${_arenaManager.currentWins}勝',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    lossMarks,
-                                    style: TextStyle(
-                                      color: losses == 0
-                                          ? Colors.white38
-                                          : Colors.redAccent,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Text(
-                                badgeLabel,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: hasFinishedRun
-                                      ? Colors.amberAccent
-                                      : Colors.white70,
-                                  fontSize: hasFinishedRun ? 12 : 11,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.4,
-                                ),
-                              ),
-                      ),
-                      const SizedBox(height: 3),
-                      if (isActive)
-                        _buildArenaInfoLine(
-                          label: '現在報酬',
-                          amount: currentReward.coins,
-                          alignment: alignment,
-                          color: Colors.white,
-                        )
-                      else if (hasFinishedRun)
-                        _buildArenaInfoLine(
-                          label: '再入場',
-                          amount: ArenaManager.entryCost,
-                          alignment: alignment,
-                          color: Colors.amberAccent,
-                        )
-                      else
-                        _buildArenaInfoLine(
-                          label: '12勝で',
-                          amount: maxReward.coins,
-                          alignment: alignment,
-                          color: Colors.white,
-                        ),
-                      const SizedBox(height: 1),
-                      Text(
-                        'アリーナ',
-                        textAlign:
-                            alignment.x > 0 ? TextAlign.right : TextAlign.left,
-                        style: TextStyle(
-                          color: accentColor,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 18,
-                          letterSpacing: 1.6,
-                          shadows: [
-                            Shadow(color: accentColor, blurRadius: 8),
-                            Shadow(
-                              color: Colors.black.withValues(alpha: 0.45),
-                              blurRadius: 2,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+              child: Text(
+                'Coming Soon...',
+                textAlign: alignment.x > 0 ? TextAlign.right : TextAlign.left,
+                style: const TextStyle(
+                  color: Color(0xFFE1E6EC),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  letterSpacing: 1.6,
+                  shadows: [
+                    Shadow(color: Color(0x668B96A3), blurRadius: 8),
+                    Shadow(color: Colors.black54, blurRadius: 2),
+                  ],
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -2246,7 +2105,7 @@ class _HomeScreenState extends State<HomeScreen>
         context: context,
         builder: (dialogContext) {
           return _buildCyberDialog(
-            accentColor: Colors.amberAccent,
+            accentColor: Colors.cyanAccent,
             title: '広告削除',
             child: ValueListenableBuilder<bool>(
               valueListenable: AppSettings.instance.adsRemoved,
@@ -2272,7 +2131,7 @@ class _HomeScreenState extends State<HomeScreen>
                       if (_debugControlsEnabled) ...[
                         _buildCyberDialogButton(
                           label: '広告を再度つける',
-                          accentColor: Colors.orangeAccent,
+                          accentColor: Colors.lightBlueAccent,
                           onPressed: () async {
                             await AppSettings.instance.setAdsRemoved(false);
                             if (dialogContext.mounted) {
@@ -2306,7 +2165,7 @@ class _HomeScreenState extends State<HomeScreen>
                       priceLabel == null ? '価格を取得中...' : '価格 $priceLabel',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
-                        color: Colors.amberAccent,
+                        color: Colors.cyanAccent,
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
                       ),
@@ -2331,7 +2190,7 @@ class _HomeScreenState extends State<HomeScreen>
                         label: priceLabel == null
                             ? '広告削除を購入する'
                             : '広告削除を購入する $priceLabel',
-                        accentColor: Colors.amberAccent,
+                        accentColor: Colors.cyanAccent,
                         onPressed: () async {
                           final started =
                               await AdRemovalPurchaseManager.instance.buy();
@@ -2376,11 +2235,11 @@ class _HomeScreenState extends State<HomeScreen>
                           labelStyle: const TextStyle(color: Colors.white70),
                           enabledBorder: OutlineInputBorder(
                             borderSide: BorderSide(
-                              color: Colors.amberAccent.withValues(alpha: 0.42),
+                              color: Colors.cyanAccent.withValues(alpha: 0.42),
                             ),
                           ),
                           focusedBorder: const OutlineInputBorder(
-                            borderSide: BorderSide(color: Colors.amberAccent),
+                            borderSide: BorderSide(color: Colors.cyanAccent),
                           ),
                         ),
                       ),
@@ -2435,7 +2294,7 @@ class _HomeScreenState extends State<HomeScreen>
             padding: EdgeInsets.only(top: 1),
             child: Icon(
               Icons.check_circle_rounded,
-              color: Colors.amberAccent,
+              color: Colors.cyanAccent,
               size: 18,
             ),
           ),
@@ -2661,13 +2520,24 @@ class _HomeScreenState extends State<HomeScreen>
           builder: (context, setDialogState) {
             Future<void> refreshDialogState() async {
               await _refreshPlayerEconomy();
+              await _missionManager.load();
+              if (!mounted) {
+                return;
+              }
               setDialogState(() {});
             }
 
             final dialogMissions = _playerDataManager.currentMissions;
+            final adsRemoved = AppSettings.instance.adsRemoved.value;
+            final showAllClearBonus = !adsRemoved &&
+                (_missionManager.allMissionsComplete ||
+                    _missionManager.isAllClearBonusClaimed);
+            final canClaimAllClearBonus = showAllClearBonus &&
+                _missionManager.allMissionsComplete &&
+                !_missionManager.isAllClearBonusClaimed;
 
             return _buildCyberDialog(
-              accentColor: Colors.amberAccent,
+              accentColor: Colors.cyanAccent,
               title: 'デイリーミッション',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -2675,10 +2545,10 @@ class _HomeScreenState extends State<HomeScreen>
                   Text(
                     '$_completedMissionCount / ${dialogMissions.length} 達成',
                     style: const TextStyle(
-                      color: Colors.amberAccent,
+                      color: Colors.cyanAccent,
                       fontWeight: FontWeight.bold,
                       shadows: [
-                        Shadow(color: Colors.amberAccent, blurRadius: 8)
+                        Shadow(color: Colors.cyanAccent, blurRadius: 8)
                       ],
                     ),
                   ),
@@ -2701,6 +2571,24 @@ class _HomeScreenState extends State<HomeScreen>
                     if (i != dialogMissions.length - 1)
                       const SizedBox(height: 10),
                   ],
+                  if (showAllClearBonus) ...[
+                    const SizedBox(height: 14),
+                    _buildDailyAllClearBonusCard(
+                      canClaim: canClaimAllClearBonus,
+                      alreadyClaimed: _missionManager.isAllClearBonusClaimed,
+                      onClaimed: () async {
+                        await refreshDialogState();
+                        if (!context.mounted) {
+                          return;
+                        }
+                        await _showCoinRewardAlert(
+                          context,
+                          '全達成ボーナス',
+                          _missionManager.allClearClaimAmount,
+                        );
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 20),
                   Container(
                     width: double.infinity,
@@ -2713,10 +2601,10 @@ class _HomeScreenState extends State<HomeScreen>
                     child: Text(
                       '連続ログイン',
                       style: TextStyle(
-                        color: Colors.amberAccent,
+                        color: Colors.cyanAccent,
                         fontWeight: FontWeight.bold,
                         shadows: [
-                          Shadow(color: Colors.amberAccent, blurRadius: 8),
+                          Shadow(color: Colors.cyanAccent, blurRadius: 8),
                         ],
                       ),
                     ),
@@ -2820,6 +2708,7 @@ class _HomeScreenState extends State<HomeScreen>
                   }
                   return;
                 }
+                await _missionManager.load();
                 await _missionManager.markRewardedAdMissionWatched(index);
                 await onClaimed(0);
                 return;
@@ -2839,8 +2728,8 @@ class _HomeScreenState extends State<HomeScreen>
                   : isRewardedAdMission && !claimed
                       ? Colors.cyanAccent.withValues(alpha: 0.12)
                       : isDone
-                          ? Colors.amberAccent.withValues(alpha: 0.15)
-                          : Colors.amberAccent.withValues(alpha: 0.05),
+                          ? Colors.lightBlueAccent.withValues(alpha: 0.15)
+                          : Colors.cyanAccent.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: canClaim
@@ -2848,8 +2737,8 @@ class _HomeScreenState extends State<HomeScreen>
                     : isRewardedAdMission && !claimed
                         ? Colors.cyanAccent.withValues(alpha: 0.75)
                         : isDone
-                            ? Colors.amberAccent
-                            : Colors.amberAccent.withValues(alpha: 0.3),
+                            ? Colors.lightBlueAccent
+                            : Colors.cyanAccent.withValues(alpha: 0.3),
                 width: canClaim ? 2 : 1,
               ),
               boxShadow: canClaim
@@ -2883,7 +2772,7 @@ class _HomeScreenState extends State<HomeScreen>
                               ? Colors.greenAccent
                               : isRewardedAdMission && !claimed
                                   ? Colors.cyanAccent
-                                  : Colors.amberAccent,
+                                  : Colors.lightBlueAccent,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -2904,26 +2793,11 @@ class _HomeScreenState extends State<HomeScreen>
                               : Colors.white.withValues(alpha: 0.2),
                         ),
                       ),
-                      child: Text(
-                        claimed
-                            ? '受取済み'
-                            : isRewardedAdMission
-                                ? canClaim
-                                    ? '受け取る +$reward'
-                                    : '動画を見る'
-                                : canClaim
-                                    ? '受け取る +$reward'
-                                    : '+$reward',
-                        style: TextStyle(
-                          color: claimed
-                              ? Colors.grey
-                              : canClaim
-                                  ? Colors.greenAccent
-                                  : Colors.white70,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.8,
-                        ),
+                      child: _buildMissionRewardBadgeContent(
+                        reward: reward,
+                        claimed: claimed,
+                        canClaim: canClaim,
+                        isRewardedAdMission: isRewardedAdMission,
                       ),
                     ),
                     if (canReroll) ...[
@@ -3012,14 +2886,15 @@ class _HomeScreenState extends State<HomeScreen>
                                             .withValues(alpha: 0.72),
                                         shape: BoxShape.circle,
                                         border: Border.all(
-                                          color: Colors.amberAccent.withValues(
+                                          color:
+                                              Colors.lightBlueAccent.withValues(
                                             alpha: 0.72,
                                           ),
                                         ),
                                       ),
                                       child: const Icon(
                                         Icons.play_arrow_rounded,
-                                        color: Colors.amberAccent,
+                                        color: Colors.lightBlueAccent,
                                         size: 12,
                                       ),
                                     ),
@@ -3040,8 +2915,8 @@ class _HomeScreenState extends State<HomeScreen>
                         value:
                             target == 0 ? 0 : (progress / target).clamp(0, 1),
                         color: isDone
-                            ? Colors.amberAccent
-                            : Colors.amberAccent.withValues(alpha: 0.5),
+                            ? Colors.lightBlueAccent
+                            : Colors.cyanAccent.withValues(alpha: 0.5),
                         backgroundColor: Colors.white12,
                       ),
                     ),
@@ -3061,6 +2936,162 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildDailyAllClearBonusCard({
+    required bool canClaim,
+    required bool alreadyClaimed,
+    required Future<void> Function() onClaimed,
+  }) {
+    return InkWell(
+      onTap: !canClaim
+          ? null
+          : () async {
+              _playUiTap();
+              final rewarded =
+                  await RewardedAdManager.instance.showDoubleRewardAd();
+              if (!rewarded) {
+                if (mounted) {
+                  await _showAlert(
+                    context,
+                    '広告エラー',
+                    '動画の視聴が完了しませんでした。',
+                  );
+                }
+                return;
+              }
+              final amount = await _missionManager.claimAllClearBonus();
+              if (amount > 0) {
+                await onClaimed();
+              }
+            },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: canClaim
+              ? Colors.cyanAccent.withValues(alpha: 0.14)
+              : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: canClaim
+                ? Colors.cyanAccent.withValues(alpha: 0.72)
+                : Colors.white.withValues(alpha: 0.2),
+            width: canClaim ? 1.5 : 1,
+          ),
+          boxShadow: canClaim
+              ? [
+                  BoxShadow(
+                    color: Colors.cyanAccent.withValues(alpha: 0.16),
+                    blurRadius: 14,
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            Icon(
+              alreadyClaimed
+                  ? Icons.check_circle_rounded
+                  : Icons.ondemand_video_rounded,
+              color: canClaim ? Colors.cyanAccent : Colors.white54,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    alreadyClaimed ? '全達成ボーナス受取済み' : '全達成ボーナス',
+                    style: TextStyle(
+                      color: canClaim ? Colors.cyanAccent : Colors.white70,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    alreadyClaimed
+                        ? '本日の受け取りは完了しています'
+                        : canClaim
+                            ? '動画広告を見ると今日の追加報酬を受け取れます'
+                            : '4つすべて達成すると動画広告で受け取れます',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            _buildCoinAmount(
+              _missionManager.allClearClaimAmount,
+              color: canClaim ? const Color(0xFFEAF6FF) : Colors.white54,
+              iconSize: 16,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMissionRewardBadgeContent({
+    required int reward,
+    required bool claimed,
+    required bool canClaim,
+    required bool isRewardedAdMission,
+  }) {
+    if (claimed) {
+      return const Text(
+        '受取済み',
+        style: TextStyle(
+          color: Colors.grey,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.8,
+        ),
+      );
+    }
+    if (isRewardedAdMission && !canClaim) {
+      return const Text(
+        '動画を見る',
+        style: TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.8,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (canClaim)
+          const Text(
+            '受け取る',
+            style: TextStyle(
+              color: Colors.greenAccent,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.8,
+            ),
+          ),
+        if (canClaim) const SizedBox(width: 5),
+        _buildCoinAmount(
+          reward,
+          color: canClaim ? Colors.greenAccent : Colors.white70,
+          iconSize: 13,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ],
+    );
+  }
+
+  // ignore: unused_element
   Future<void> _startArenaMatch(BuildContext context) async {
     if (_isBusy) {
       return;
@@ -3857,13 +3888,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 10),
                   _buildCyberDialogButton(
-                    label: '遊び方',
-                    accentColor: Colors.cyanAccent,
-                    onPressed: () => unawaited(_showHowToPlayDialog()),
-                  ),
-                  const SizedBox(height: 10),
-                  _buildCyberDialogButton(
-                    label: 'デモプレイ',
+                    label: 'チュートリアル',
                     accentColor: Colors.cyanAccent,
                     onPressed: () => unawaited(
                       _openOnboardingFromSettings(dialogContext),
@@ -4006,6 +4031,7 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // ignore: unused_element
   Future<void> _showHowToPlayDialog() async {
     await showDialog<void>(
       context: context,
