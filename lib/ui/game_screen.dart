@@ -39,6 +39,7 @@ class GameScreen extends StatefulWidget {
   final int? rankedBotRating;
   final String rankedBotName;
   final bool isTutorialMode;
+  final bool returnToCallerOnExit;
 
   const GameScreen({
     super.key,
@@ -52,6 +53,7 @@ class GameScreen extends StatefulWidget {
     this.rankedBotRating,
     this.rankedBotName = 'Player',
     this.isTutorialMode = false,
+    this.returnToCallerOnExit = false,
   });
 
   const GameScreen.online({
@@ -64,6 +66,7 @@ class GameScreen extends StatefulWidget {
         rankedBotRating = null,
         rankedBotName = 'Player',
         isTutorialMode = false,
+        returnToCallerOnExit = false,
         isCpuMode = false,
         isOnlineMultiplayer = true;
 
@@ -4162,6 +4165,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       await _multiplayerManager.clearSavedSession();
     }
     await SfxPlayer.resetTransientAudio();
+    if (widget.returnToCallerOnExit) {
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop();
+      return;
+    }
     final bootstrapFuture = prepareHomeBootstrapData();
     if (!_resultCoinTripleClaimed) {
       await InterstitialAdManager.instance.showIfNeeded();

@@ -247,7 +247,10 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         PageRouteBuilder<void>(
           pageBuilder: (_, animation, __) => FadeTransition(
             opacity: animation,
-            child: const GameScreen(isTutorialMode: true),
+            child: const GameScreen(
+              isTutorialMode: true,
+              returnToCallerOnExit: true,
+            ),
           ),
         ),
       );
