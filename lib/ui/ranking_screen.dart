@@ -361,37 +361,14 @@ class _RankingScreenState extends State<RankingScreen> {
         children: [
           SizedBox(
             width: 54,
-            child: Row(
-              children: [
-                if (rank <= 3)
-                  Icon(
-                    switch (rank) {
-                      1 => Icons.workspace_premium,
-                      2 => Icons.military_tech,
-                      _ => Icons.stars,
-                    },
-                    color: accent,
-                    size: 20,
-                  )
-                else
-                  Text(
-                    '$rank',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.76),
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                if (rank <= 3) const SizedBox(width: 6),
-                if (rank <= 3)
-                  Text(
-                    '$rank',
-                    style: TextStyle(
-                      color: accent,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-              ],
+            child: Text(
+              '$rank',
+              style: TextStyle(
+                color:
+                    rank <= 3 ? accent : Colors.white.withValues(alpha: 0.76),
+                fontSize: rank <= 3 ? 16 : null,
+                fontWeight: rank <= 3 ? FontWeight.w900 : FontWeight.bold,
+              ),
             ),
           ),
           const SizedBox(width: 10),

@@ -58,38 +58,31 @@ class _CollectionScreenState extends State<CollectionScreen>
             },
           ),
           flexibleSpace: Container(
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.purpleAccent.withValues(alpha: 0.2),
-                  Colors.transparent,
+                  Color(0x3325F4FF),
+                  Color(0x00000000),
                 ],
               ),
             ),
           ),
-          title: const Text(
-            'コレクション',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.0,
-              shadows: [
-                Shadow(color: Colors.purpleAccent, blurRadius: 10),
+          title: const _PageTitle(
+            title: 'コレクション',
+            subtitle: 'COLLECTION',
+          ),
+          bottom: const PreferredSize(
+            preferredSize: Size.fromHeight(62),
+            child: _NeonTabBar(
+              tabs: [
+                'スタンプ',
+                '実績バッジ',
+                'ボール',
+                'アイコン',
               ],
             ),
-          ),
-          bottom: const TabBar(
-            indicatorColor: Colors.cyanAccent,
-            labelColor: Colors.cyanAccent,
-            unselectedLabelColor: Colors.white60,
-            tabs: [
-              Tab(text: 'スタンプ'),
-              Tab(text: '実績バッジ'),
-              Tab(text: 'ボール'),
-              Tab(text: 'アイコン'),
-            ],
           ),
         ),
         body: Stack(
@@ -196,7 +189,7 @@ class _CollectionScreenState extends State<CollectionScreen>
       children: [
         for (final skin in [
           const (id: 'default', label: 'デフォルト'),
-          ...GameItemCatalog.epicSkins
+          ...GameItemCatalog.ballSkins
               .map((item) => (id: item.id, label: item.name)),
         ])
           _simpleCard(
@@ -439,5 +432,97 @@ class _CollectionScreenState extends State<CollectionScreen>
       default:
         return Icons.person;
     }
+  }
+}
+
+class _PageTitle extends StatelessWidget {
+  const _PageTitle({
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 3.5,
+          ),
+        ),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            shadows: [
+              Shadow(color: Colors.cyanAccent, blurRadius: 12),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NeonTabBar extends StatelessWidget {
+  const _NeonTabBar({required this.tabs});
+
+  final List<String> tabs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xCC0B1020),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.28)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.cyanAccent.withValues(alpha: 0.12),
+            blurRadius: 18,
+          ),
+        ],
+      ),
+      child: TabBar(
+        dividerColor: Colors.transparent,
+        indicatorSize: TabBarIndicatorSize.tab,
+        indicator: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.cyanAccent.withValues(alpha: 0.35),
+              const Color(0xFF0B84FF).withValues(alpha: 0.28),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.85)),
+        ),
+        labelColor: Colors.white,
+        unselectedLabelColor: Colors.white54,
+        labelStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.6,
+        ),
+        unselectedLabelStyle: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+        tabs: [
+          for (final tab in tabs) Tab(text: tab),
+        ],
+      ),
+    );
   }
 }

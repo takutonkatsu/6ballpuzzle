@@ -47,6 +47,10 @@ class AuthManager {
       return true;
     }
 
+    if (kReleaseMode && (Platform.isAndroid || Platform.isIOS)) {
+      return false;
+    }
+
     final message = (error.message ?? '').toUpperCase();
     return error.code == 'unknown' &&
             (message.contains('CONFIGURATION_NOT_FOUND') ||

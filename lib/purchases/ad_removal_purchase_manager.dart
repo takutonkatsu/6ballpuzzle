@@ -1,6 +1,9 @@
 import 'dart:async';
-import 'package:in_app_purchase/in_app_purchase.dart';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 
 import '../app_review_config.dart';
 import '../app_settings.dart';
@@ -10,11 +13,10 @@ class AdRemovalPurchaseManager {
 
   static final AdRemovalPurchaseManager instance = AdRemovalPurchaseManager._();
 
-  final InAppPurchase _iap = InAppPurchase.instance;
-
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   ProductDetails? _product;
   bool _isInitialized = false;
+  bool _storeKitConfigured = false;
   String? _lastInitializationError;
 
   ProductDetails? get product => _product;
@@ -32,6 +34,7 @@ class AdRemovalPurchaseManager {
 
     try {
       _lastInitializationError = null;
+      await _configureStoreKitIfNeeded();
       _purchaseSubscription ??= _iap.purchaseStream.listen(_handlePurchases);
       final available = await _iap.isAvailable();
       if (!available) {
@@ -40,15 +43,14 @@ class AdRemovalPurchaseManager {
         return false;
       }
 
-      final response = await _iap.queryProductDetails({
-        AppReviewConfig.adRemovalProductId,
-      });
+      final response = await _queryProductDetailsWithRetry();
       if (response.error != null) {
         _lastInitializationError =
             'Product query failed: ${response.error!.message}';
       }
-      _product =
-          response.productDetails.isEmpty ? null : response.productDetails.first;
+      _product = response.productDetails.isEmpty
+          ? null
+          : response.productDetails.first;
       _isInitialized = true;
       if (_product == null && _lastInitializationError == null) {
         _lastInitializationError =
@@ -56,7 +58,7 @@ class AdRemovalPurchaseManager {
       }
       return _product != null;
     } catch (error) {
-      _isInitialized = true;
+      _isInitialized = false;
       _product = null;
       _lastInitializationError = '$error';
       return false;
@@ -112,5 +114,40 @@ class AdRemovalPurchaseManager {
         await _iap.completePurchase(purchase);
       }
     }
+  }
+
+  InAppPurchase get _iap => InAppPurchase.instance;
+
+  Future<void> _configureStoreKitIfNeeded() async {
+    if (!Platform.isIOS || _storeKitConfigured) {
+      return;
+    }
+    try {
+      // StoreKit 2 occasionally fails product queries on real devices in this
+      // app, so iOS release builds use the older, stable StoreKit 1 bridge.
+      // ignore: deprecated_member_use
+      await InAppPurchaseStoreKitPlatform.enableStoreKit1();
+      InAppPurchaseStoreKitPlatform.registerPlatform();
+      _storeKitConfigured = true;
+    } catch (error, stackTrace) {
+      debugPrint('StoreKit1 fallback configuration failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  Future<ProductDetailsResponse> _queryProductDetailsWithRetry() async {
+    ProductDetailsResponse? latest;
+    for (var attempt = 0; attempt < 3; attempt += 1) {
+      latest = await _iap.queryProductDetails({
+        AppReviewConfig.adRemovalProductId,
+      });
+      if (latest.error == null && latest.productDetails.isNotEmpty) {
+        return latest;
+      }
+      if (attempt < 2) {
+        await Future<void>.delayed(const Duration(milliseconds: 700));
+      }
+    }
+    return latest!;
   }
 }

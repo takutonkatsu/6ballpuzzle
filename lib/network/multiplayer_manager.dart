@@ -1783,6 +1783,24 @@ class MultiplayerManager {
     await prefs.setString(_savedSessionPrefsKey, jsonEncode(session.toJson()));
   }
 
+  Future<void> saveRankedBotActiveSession({
+    required int opponentRating,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final session = SavedOnlineSession(
+      roomId: rankedBotRoomId,
+      roleId: 'host',
+      isRankedMode: true,
+      isArenaMode: false,
+      savedAt: DateTime.now().millisecondsSinceEpoch,
+      snapshot: {
+        'opponentRating': opponentRating,
+        'opponentName': 'Player',
+      },
+    );
+    await prefs.setString(_savedSessionPrefsKey, jsonEncode(session.toJson()));
+  }
+
   Future<SavedOnlineSession?> loadSavedSession() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1823,6 +1841,10 @@ class MultiplayerManager {
     final session = await loadSavedSession();
     if (session == null) {
       return null;
+    }
+
+    if (session.roomId == rankedBotRoomId && session.isRankedMode) {
+      return _resolveAbandonedRankedBotSession(session);
     }
 
     try {
@@ -1917,6 +1939,49 @@ class MultiplayerManager {
     } catch (_) {
       return SavedSessionResolution(session: session, isResolved: true);
     }
+  }
+
+  Future<SavedSessionResolution> _resolveAbandonedRankedBotSession(
+    SavedOnlineSession session,
+  ) async {
+    final opponentRating =
+        _intValue(session.snapshot?['opponentRating']) ?? rankedBotRatingCap;
+    final opponentName =
+        session.snapshot?['opponentName']?.toString().trim().isNotEmpty == true
+            ? session.snapshot!['opponentName'].toString().trim()
+            : 'Player';
+    final uid = myUid ?? await _loadAuthenticatedUid();
+    myUid = uid;
+
+    final oldRating = await _loadLatestUserRating();
+    final newRating = calculateNewRating(oldRating, opponentRating, false);
+    final delta = newRating - oldRating;
+    currentRating = newRating;
+
+    try {
+      final badgeIds = await _currentEquippedBadgeIds();
+      final playerIconId = await _currentEquippedPlayerIconId();
+      await _db.child('users/$uid').update({
+        'name': displayPlayerName,
+        'rating': newRating,
+        'badgeIds': badgeIds,
+        'playerIconId': playerIconId,
+        'updatedAt': ServerValue.timestamp,
+      });
+    } on FirebaseException {
+      // 次回の通常ユーザー更新で同期されるため、起動は止めない。
+    }
+
+    return SavedSessionResolution(
+      session: session,
+      isResolved: true,
+      isWin: false,
+      oldRating: oldRating,
+      newRating: newRating,
+      ratingDelta: delta,
+      opponentName: opponentName,
+      wasAbandoned: true,
+    );
   }
 
   Future<Map<dynamic, dynamic>?> _ensureRankedResultRecorded({

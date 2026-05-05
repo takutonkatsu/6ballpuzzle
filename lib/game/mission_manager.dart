@@ -206,6 +206,23 @@ class MissionManager {
     return claimMissionReward(index);
   }
 
+  Future<void> markRewardedAdMissionWatched(int index) async {
+    final missions = currentMissions;
+    if (index < 0 || index >= missions.length) {
+      throw StateError('ミッションが見つかりません。');
+    }
+    final mission = missions[index];
+    final missionId = mission['id']?.toString() ?? '';
+    if (!MissionCatalog.isRewardedAdMissionId(missionId)) {
+      throw StateError('動画広告ミッションではありません。');
+    }
+    if (mission['claimed'] as bool? ?? false) {
+      return;
+    }
+    mission['progress'] = mission['target'] ?? 1;
+    await _persistMissionChanges(missions);
+  }
+
   int rewardCoinsFor(Map<String, dynamic> mission) {
     final baseReward = _intValue(mission['rewardCoins']) ?? 0;
     if (!adsRemovedBenefitsEnabled) {

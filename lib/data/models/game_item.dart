@@ -194,47 +194,21 @@ class GameItemCatalog {
       id: 'icon_star',
       name: 'スター',
       type: ItemType.icon,
-      rarity: ItemRarity.rare,
+      rarity: ItemRarity.common,
       iconName: 'star',
     ),
     GameItem(
       id: 'icon_gamepad',
       name: 'ゲームパッド',
       type: ItemType.icon,
-      rarity: ItemRarity.epic,
+      rarity: ItemRarity.common,
       iconName: 'gamepad',
     ),
   ];
 
-  static const List<GameItem> epicSkins = [
-    GameItem(
-      id: 'skin_neon_chrome',
-      name: 'ネオンクローム',
-      type: ItemType.skin,
-      rarity: ItemRarity.rare,
-    ),
-    GameItem(
-      id: 'skin_black_ice',
-      name: 'ブラックアイス',
-      type: ItemType.skin,
-      rarity: ItemRarity.epic,
-    ),
-  ];
+  static const List<GameItem> ballSkins = [];
 
-  static const List<GameItem> legacyVfxItems = [
-    GameItem(
-      id: 'vfx_low_bit_glitch',
-      name: 'ロービットグリッチ',
-      type: ItemType.vfx,
-      rarity: ItemRarity.rare,
-    ),
-    GameItem(
-      id: 'vfx_overdrive_hex',
-      name: 'オーバードライブヘックス',
-      type: ItemType.vfx,
-      rarity: ItemRarity.legendary,
-    ),
-  ];
+  static const List<GameItem> legacyVfxItems = [];
 
   static const List<GameItem> gachaCommonPool = [
     ...commonStamps,
@@ -253,14 +227,8 @@ class GameItemCatalog {
       id: 'icon_star',
       name: 'スター',
       type: ItemType.icon,
-      rarity: ItemRarity.rare,
+      rarity: ItemRarity.common,
       iconName: 'star',
-    ),
-    GameItem(
-      id: 'skin_neon_chrome',
-      name: 'ネオンクローム',
-      type: ItemType.skin,
-      rarity: ItemRarity.rare,
     ),
   ];
 
@@ -269,14 +237,8 @@ class GameItemCatalog {
       id: 'icon_gamepad',
       name: 'ゲームパッド',
       type: ItemType.icon,
-      rarity: ItemRarity.epic,
+      rarity: ItemRarity.common,
       iconName: 'gamepad',
-    ),
-    GameItem(
-      id: 'skin_black_ice',
-      name: 'ブラックアイス',
-      type: ItemType.skin,
-      rarity: ItemRarity.epic,
     ),
   ];
 
@@ -284,7 +246,7 @@ class GameItemCatalog {
     ...commonStamps,
     ...rareStamps,
     ...playerIcons,
-    ...epicSkins,
+    ...ballSkins,
   ];
 
   static const List<GameItem> allItems = [
@@ -295,7 +257,7 @@ class GameItemCatalog {
   static const List<GameItem> shopDirectPurchasePool = [
     ...rareStamps,
     ...playerIcons,
-    ...epicSkins,
+    ...ballSkins,
   ];
 
   static GameItem? byId(String id) {

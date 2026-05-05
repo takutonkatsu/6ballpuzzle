@@ -84,16 +84,7 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
   }
 
   Color _colorFor(GameItem item) {
-    switch (item.rarity) {
-      case ItemRarity.common:
-        return Colors.cyanAccent;
-      case ItemRarity.rare:
-        return Colors.greenAccent;
-      case ItemRarity.epic:
-        return Colors.orangeAccent;
-      case ItemRarity.legendary:
-        return Colors.pinkAccent;
-    }
+    return Colors.cyanAccent;
   }
 
   String _grantResultMessage(ItemGrantResult grantResult) {
@@ -105,19 +96,6 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
       return 'Lv.${item.level}に強化';
     }
     return 'すでに所持済み';
-  }
-
-  String _rarityLabel(ItemRarity rarity) {
-    switch (rarity) {
-      case ItemRarity.common:
-        return 'ノーマル';
-      case ItemRarity.rare:
-        return 'レア';
-      case ItemRarity.epic:
-        return 'エピック';
-      case ItemRarity.legendary:
-        return 'レジェンド';
-    }
   }
 
   String _itemTypeLabel(GameItem item) {
@@ -285,16 +263,6 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
                               shadows: [
                                 Shadow(color: accent, blurRadius: 10),
                               ],
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _rarityLabel(item.rarity),
-                            style: TextStyle(
-                              color: accent,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 2,
                             ),
                           ),
                           const SizedBox(height: 16),

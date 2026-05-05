@@ -1,7 +1,7 @@
 name: six_ball_puzzle
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.0+7
+version: 1.0.0+13
 
 environment:
   sdk: ^3.0.0
@@ -19,6 +19,7 @@ dependencies:
   google_mobile_ads: ^8.0.0
   firebase_app_check: ^0.4.3
   in_app_purchase: ^3.2.3
+  in_app_purchase_storekit: ^0.4.8+1
   url_launcher: ^6.3.1
 
 dev_dependencies:

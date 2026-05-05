@@ -3,39 +3,53 @@
     ".read": false,
     ".write": false,
     "users": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
     },
     "matchmaking": {
-      ".read": true,
-      ".write": true,
-      ".indexOn": ["rating", "timestamp", "joinedAt"]
+      ".read": "auth != null",
+      ".indexOn": ["rating", "timestamp", "joinedAt"],
+      "$uid": {
+        ".write": "auth != null && (auth.uid === $uid || (data.exists() && (data.child('status').val() === 'waiting' || data.child('hostUid').val() === auth.uid) && (newData.child('hostUid').val() === auth.uid || !newData.child('hostUid').exists())))"
+      }
     },
     "arena_matchmaking": {
-      ".read": true,
-      ".write": true,
-      ".indexOn": ["wins", "timestamp", "joinedAt"]
+      ".read": "auth != null",
+      ".indexOn": ["wins", "timestamp", "joinedAt"],
+      "$uid": {
+        ".write": "auth != null && (auth.uid === $uid || (data.exists() && (data.child('status').val() === 'waiting' || data.child('hostUid').val() === auth.uid) && (newData.child('hostUid').val() === auth.uid || !newData.child('hostUid').exists())))"
+      }
     },
     "rooms": {
-      ".read": true,
-      ".write": true
+      ".read": "auth != null",
+      "$roomId": {
+        ".write": "auth != null && ((!data.exists() && (newData.child('matchmaking/hostUid').val() === auth.uid || newData.child('players/host/uid').val() === auth.uid)) || (data.exists() && (data.child('matchmaking/hostUid').val() === auth.uid || data.child('matchmaking/guestUid').val() === auth.uid || data.child('players/host/uid').val() === auth.uid || data.child('players/guest/uid').val() === auth.uid || (data.child('status').val() === 'waiting' && !data.child('players/guest').exists() && newData.child('players/guest/uid').val() === auth.uid))))"
+      }
     },
     "rankings": {
       "global": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["rating", "updatedAt"]
+        ".read": "auth != null",
+        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate"],
+        "$uid": {
+          ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('publicId').exists() && data.child('publicId').val() === root.child('rankings/global/' + auth.uid + '/publicId').val()))"
+        }
       }
     },
     "reports": {
       ".read": false,
-      ".write": true,
-      ".indexOn": ["reportedUid", "createdAt"]
+      ".indexOn": ["reportedUid", "createdAt"],
+      "$reportId": {
+        ".write": "auth != null && !data.exists() && newData.child('reporterUid').val() === auth.uid"
+      }
     },
     "giftCodes": {
       "adRemoval": {
-        ".read": true,
-        ".write": true
+        ".read": false,
+        "$code": {
+          ".write": false
+        }
       }
     }
   }

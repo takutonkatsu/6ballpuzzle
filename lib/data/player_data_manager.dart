@@ -118,6 +118,7 @@ class PlayerDataManager {
   static const String _totalNormalClearedBallsKey =
       'player_total_normal_cleared_balls';
   static const String _maxChainKey = 'player_max_chain';
+  static const String _totalChainKey = 'player_total_chain';
   static const String _highestEndlessScoreKey = 'player_highest_endless_score';
   static const String _rankedWinsKey = 'player_ranked_wins';
   static const String _rankedCurrentWinStreakKey =
@@ -169,6 +170,7 @@ class PlayerDataManager {
   int _totalClearedBalls = 0;
   int _totalNormalClearedBalls = 0;
   int _maxChain = 0;
+  int _totalChain = 0;
   int _highestEndlessScore = 0;
   int _rankedWins = 0;
   int _rankedCurrentWinStreak = 0;
@@ -226,6 +228,8 @@ class PlayerDataManager {
   int get totalClearedBalls => _totalClearedBalls;
   int get totalNormalClearedBalls => _totalNormalClearedBalls;
   int get maxChain => _maxChain;
+  double get averageChain =>
+      _totalMatches <= 0 ? 0 : _totalChain / _totalMatches;
   int get highestEndlessScore => _highestEndlessScore;
   int get rankedWins => _rankedWins;
   int get rankedCurrentWinStreak => _rankedCurrentWinStreak;
@@ -313,7 +317,11 @@ class PlayerDataManager {
 
     var shouldSaveProfile = false;
     var shouldSaveStats = false;
-    _playerName = prefs.getString(_playerNameKey) ?? '';
+    _playerName = prefs.getString(_playerNameKey) ?? 'プレイヤー';
+    if (_playerName.trim().isEmpty) {
+      _playerName = 'プレイヤー';
+      shouldSaveProfile = true;
+    }
     final savedPlayerId = prefs.getString(_playerIdKey) ?? '';
     if (savedPlayerId.trim().isEmpty || savedPlayerId.length > 10) {
       _playerId = _generatePublicPlayerId();
@@ -352,6 +360,7 @@ class PlayerDataManager {
     _totalClearedBalls = prefs.getInt(_totalClearedBallsKey) ?? 0;
     _totalNormalClearedBalls = prefs.getInt(_totalNormalClearedBallsKey) ?? 0;
     _maxChain = prefs.getInt(_maxChainKey) ?? 0;
+    _totalChain = prefs.getInt(_totalChainKey) ?? _maxChain;
     _highestEndlessScore = prefs.getInt(_highestEndlessScoreKey) ?? 0;
     _rankedWins = prefs.getInt(_rankedWinsKey) ?? 0;
     _rankedCurrentWinStreak = prefs.getInt(_rankedCurrentWinStreakKey) ?? 0;
@@ -676,6 +685,7 @@ class PlayerDataManager {
     _totalClearedBalls = 0;
     _totalNormalClearedBalls = 0;
     _maxChain = 0;
+    _totalChain = 0;
     _highestEndlessScore = 0;
     _rankedWins = 0;
     _rankedCurrentWinStreak = 0;
@@ -720,6 +730,7 @@ class PlayerDataManager {
     _totalClearedBalls += max(0, clearedBalls);
     _totalNormalClearedBalls += max(0, normalClearedBalls);
     _maxChain = max(_maxChain, maxChain);
+    _totalChain += max(0, maxChain);
     if (mode == 'SOLO' && score != null) {
       _highestEndlessScore = max(_highestEndlessScore, score);
     }
@@ -833,6 +844,7 @@ class PlayerDataManager {
     await prefs.setInt(_totalClearedBallsKey, _totalClearedBalls);
     await prefs.setInt(_totalNormalClearedBallsKey, _totalNormalClearedBalls);
     await prefs.setInt(_maxChainKey, _maxChain);
+    await prefs.setInt(_totalChainKey, _totalChain);
     await prefs.setInt(_highestEndlessScoreKey, _highestEndlessScore);
     await prefs.setInt(_rankedWinsKey, _rankedWins);
     await prefs.setInt(_rankedCurrentWinStreakKey, _rankedCurrentWinStreak);
@@ -936,6 +948,13 @@ class PlayerDataManager {
         _ownedItems = filteredItems;
         changed = true;
       }
+    }
+    final allowedItemIds = GameItemCatalog.allItems.map((item) => item.id).toSet();
+    final filteredItems =
+        _ownedItems.where((item) => allowedItemIds.contains(item.id)).toList();
+    if (filteredItems.length != _ownedItems.length) {
+      _ownedItems = filteredItems;
+      changed = true;
     }
     return changed;
   }

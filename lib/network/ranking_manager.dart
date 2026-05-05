@@ -78,7 +78,7 @@ class RankingManager {
   static const Duration _rankingCacheTtl = Duration(seconds: 45);
   static const Duration _summaryCacheTtl = Duration(seconds: 30);
   static const Duration _sameRatingPushInterval = Duration(minutes: 10);
-  static const Duration _duplicateCleanupInterval = Duration(hours: 24);
+  static const Duration _duplicateCleanupInterval = Duration.zero;
   static const String _lastPushPrefix = 'ranking_last_push_v2_';
   static const String _lastDuplicateCleanupPrefix =
       'ranking_last_duplicate_cleanup_v1_';
@@ -376,7 +376,7 @@ class RankingManager {
     if (raw is! Map) {
       return;
     }
-    final updates = <String, Object?>{};
+    final duplicateKeys = <String>[];
     for (final entry in raw.entries) {
       final key = '${entry.key}';
       final value = entry.value;
@@ -384,11 +384,11 @@ class RankingManager {
         continue;
       }
       if (value['uid'] == resolvedUid || value['publicId'] == publicId) {
-        updates[key] = null;
+        duplicateKeys.add(key);
       }
     }
-    if (updates.isNotEmpty) {
-      await _db.child('rankings/global').update(updates);
+    for (final key in duplicateKeys) {
+      await _db.child('rankings/global/$key').remove();
     }
     await prefs.setInt(cleanupKey, now);
   }

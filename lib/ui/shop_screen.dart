@@ -347,29 +347,19 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   int _priceFor(GameItem item) {
-    switch (item.rarity) {
-      case ItemRarity.common:
+    switch (item.type) {
+      case ItemType.stamp:
         return 8000;
-      case ItemRarity.rare:
+      case ItemType.icon:
+        return 12000;
+      case ItemType.skin:
+      case ItemType.vfx:
         return 15000;
-      case ItemRarity.epic:
-        return 40000;
-      case ItemRarity.legendary:
-        return 100000;
     }
   }
 
   Color _colorFor(GameItem item) {
-    switch (item.rarity) {
-      case ItemRarity.common:
-        return Colors.cyanAccent;
-      case ItemRarity.rare:
-        return Colors.greenAccent;
-      case ItemRarity.epic:
-        return Colors.orangeAccent;
-      case ItemRarity.legendary:
-        return Colors.pinkAccent;
-    }
+    return Colors.cyanAccent;
   }
 
   String _subtitleFor(GameItem item) {
@@ -412,27 +402,20 @@ class _ShopScreenState extends State<ShopScreen> {
           },
         ),
         flexibleSpace: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Colors.purpleAccent.withValues(alpha: 0.2),
-                Colors.transparent,
+                Color(0x3325F4FF),
+                Color(0x00000000),
               ],
             ),
           ),
         ),
-        title: const Text(
-          'ショップ',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.0,
-            shadows: [
-              Shadow(color: Colors.purpleAccent, blurRadius: 10),
-            ],
-          ),
+        title: const _ShopPageTitle(
+          title: 'ショップ',
+          subtitle: 'HEXAGON STORE',
         ),
         centerTitle: true,
       ),
@@ -753,9 +736,9 @@ class _ShopScreenState extends State<ShopScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _rarityLabel(item.rarity),
-                  style: TextStyle(
-                    color: accent,
+                  item.isStamp ? '重複時は強化' : 'コレクションアイテム',
+                  style: const TextStyle(
+                    color: Colors.white54,
                     fontSize: 10,
                     letterSpacing: 1,
                   ),
@@ -836,17 +819,43 @@ class _ShopScreenState extends State<ShopScreen> {
         };
     }
   }
+}
 
-  String _rarityLabel(ItemRarity rarity) {
-    switch (rarity) {
-      case ItemRarity.common:
-        return 'ノーマル';
-      case ItemRarity.rare:
-        return 'レア';
-      case ItemRarity.epic:
-        return 'エピック';
-      case ItemRarity.legendary:
-        return 'レジェンド';
-    }
+class _ShopPageTitle extends StatelessWidget {
+  const _ShopPageTitle({
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 3.5,
+          ),
+        ),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            shadows: [
+              Shadow(color: Colors.cyanAccent, blurRadius: 12),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }

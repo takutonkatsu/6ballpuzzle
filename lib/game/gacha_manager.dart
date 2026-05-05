@@ -89,14 +89,11 @@ class GachaManager {
   }
 
   GameItem _drawItem() {
-    final roll = _random.nextDouble();
-    if (roll < 0.60) {
-      return _randomFrom(GameItemCatalog.gachaCommonPool);
-    }
-    if (roll < 0.92) {
-      return _randomFrom(GameItemCatalog.gachaRarePool);
-    }
-    return _randomFrom(GameItemCatalog.gachaEpicPool);
+    return _randomFrom([
+      ...GameItemCatalog.gachaCommonPool,
+      ...GameItemCatalog.gachaRarePool,
+      ...GameItemCatalog.gachaEpicPool,
+    ]);
   }
 
   GameItem _randomFrom(List<GameItem> items) {

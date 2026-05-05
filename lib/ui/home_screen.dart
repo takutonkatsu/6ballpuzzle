@@ -718,10 +718,8 @@ class _HomeScreenState extends State<HomeScreen>
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           labelText: 'プレイヤー名',
-                          counterStyle:
-                              const TextStyle(color: Colors.white38),
-                          labelStyle:
-                              const TextStyle(color: Colors.white70),
+                          counterStyle: const TextStyle(color: Colors.white38),
+                          labelStyle: const TextStyle(color: Colors.white70),
                           errorText: errorText,
                           enabledBorder: OutlineInputBorder(
                             borderSide: BorderSide(
@@ -927,16 +925,17 @@ class _HomeScreenState extends State<HomeScreen>
                     ],
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize: MainAxisSize.max,
                     children: [
                       HexagonCoinIcon(size: compact ? 14 : 16),
                       SizedBox(width: compact ? 3 : 4),
                       Expanded(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
+                          alignment: Alignment.centerRight,
                           child: Text(
                             '$_coins',
+                            textAlign: TextAlign.right,
                             maxLines: 1,
                             style: const TextStyle(
                               color: Color(0xFFEAF6FF),
@@ -2798,7 +2797,8 @@ class _HomeScreenState extends State<HomeScreen>
     final adsRemoved = AppSettings.instance.adsRemoved.value;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
-    final isLoginRewardMission = MissionCatalog.isLoginRewardMissionId(missionId);
+    final isLoginRewardMission =
+        MissionCatalog.isLoginRewardMissionId(missionId);
     final canReroll =
         !claimed && !canClaim && !isRewardedAdMission && !isLoginRewardMission;
 
@@ -2807,7 +2807,7 @@ class _HomeScreenState extends State<HomeScreen>
           ? null
           : () async {
               _playUiTap();
-              if (isRewardedAdMission) {
+              if (isRewardedAdMission && !canClaim) {
                 final rewarded =
                     await RewardedAdManager.instance.showDoubleRewardAd();
                 if (!rewarded) {
@@ -2820,10 +2820,11 @@ class _HomeScreenState extends State<HomeScreen>
                   }
                   return;
                 }
+                await _missionManager.markRewardedAdMissionWatched(index);
+                await onClaimed(0);
+                return;
               }
-              final amount = isRewardedAdMission
-                  ? await _missionManager.completeRewardedAdMission(index)
-                  : await _missionManager.claimMissionReward(index);
+              final amount = await _missionManager.claimMissionReward(index);
               await onClaimed(amount);
             },
       borderRadius: BorderRadius.circular(10),
@@ -2837,18 +2838,18 @@ class _HomeScreenState extends State<HomeScreen>
                   ? Colors.greenAccent.withValues(alpha: 0.14)
                   : isRewardedAdMission && !claimed
                       ? Colors.cyanAccent.withValues(alpha: 0.12)
-                  : isDone
-                      ? Colors.amberAccent.withValues(alpha: 0.15)
-                      : Colors.amberAccent.withValues(alpha: 0.05),
+                      : isDone
+                          ? Colors.amberAccent.withValues(alpha: 0.15)
+                          : Colors.amberAccent.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: canClaim
                     ? Colors.greenAccent
                     : isRewardedAdMission && !claimed
                         ? Colors.cyanAccent.withValues(alpha: 0.75)
-                    : isDone
-                        ? Colors.amberAccent
-                        : Colors.amberAccent.withValues(alpha: 0.3),
+                        : isDone
+                            ? Colors.amberAccent
+                            : Colors.amberAccent.withValues(alpha: 0.3),
                 width: canClaim ? 2 : 1,
               ),
               boxShadow: canClaim
@@ -2882,7 +2883,7 @@ class _HomeScreenState extends State<HomeScreen>
                               ? Colors.greenAccent
                               : isRewardedAdMission && !claimed
                                   ? Colors.cyanAccent
-                              : Colors.amberAccent,
+                                  : Colors.amberAccent,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -2907,10 +2908,12 @@ class _HomeScreenState extends State<HomeScreen>
                         claimed
                             ? '受取済み'
                             : isRewardedAdMission
-                                ? '動画を見る +$reward'
-                            : canClaim
-                                ? '受け取る +$reward'
-                                : '+$reward',
+                                ? canClaim
+                                    ? '受け取る +$reward'
+                                    : '動画を見る'
+                                : canClaim
+                                    ? '受け取る +$reward'
+                                    : '+$reward',
                         style: TextStyle(
                           color: claimed
                               ? Colors.grey
@@ -3005,8 +3008,8 @@ class _HomeScreenState extends State<HomeScreen>
                                       width: 16,
                                       height: 16,
                                       decoration: BoxDecoration(
-                                        color:
-                                            Colors.black.withValues(alpha: 0.72),
+                                        color: Colors.black
+                                            .withValues(alpha: 0.72),
                                         shape: BoxShape.circle,
                                         border: Border.all(
                                           color: Colors.amberAccent.withValues(

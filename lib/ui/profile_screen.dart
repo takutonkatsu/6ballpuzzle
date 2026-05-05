@@ -482,11 +482,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String _skinLabel(String skinId) {
-    return switch (skinId) {
-      'skin_neon_chrome' => 'ネオンクローム',
-      'skin_black_ice' => 'ブラックアイス',
-      _ => 'デフォルト',
-    };
+    return 'デフォルト';
   }
 
   IconData _playerIconData(String iconId) {
@@ -543,11 +539,7 @@ class _BallSkinPreviewPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = math.min(size.width, size.height) / 2;
-    final colors = switch (skinId) {
-      'skin_black_ice' => [Colors.white, Colors.lightBlueAccent, Colors.black],
-      'skin_neon_chrome' => [Colors.white, Colors.purpleAccent, Colors.cyan],
-      _ => [Colors.white, Colors.cyanAccent, Colors.blueAccent],
-    };
+    final colors = [Colors.white, Colors.cyanAccent, Colors.blueAccent];
     final paint = Paint()
       ..shader = RadialGradient(colors: colors).createShader(
         Rect.fromCircle(center: center, radius: radius),

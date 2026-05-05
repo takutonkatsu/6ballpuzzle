@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show runZonedGuarded, unawaited;
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -6,7 +6,6 @@ import 'package:flame_audio/flame_audio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'app_settings.dart';
 import 'auth/auth_manager.dart';
@@ -14,11 +13,38 @@ import 'firebase_database_provider.dart';
 import 'firebase_options_dev.dart' as firebase_dev;
 import 'firebase_options_prod.dart' as firebase_prod;
 import 'purchases/ad_removal_purchase_manager.dart';
-import 'ui/components/interstitial_ad_manager.dart';
-import 'ui/components/rewarded_ad_manager.dart';
 import 'ui/home_screen.dart';
 
-Future<void> main() async {
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('Flutter error during app runtime: ${details.exception}');
+    if (details.stack != null) {
+      debugPrintStack(stackTrace: details.stack);
+    }
+  };
+
+  runZonedGuarded(
+    () {
+      unawaited(
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+        ]).catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Orientation setup failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }),
+      );
+      runApp(const MyApp());
+    },
+    (error, stackTrace) {
+      debugPrint('Uncaught app error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    },
+  );
+}
+
+Future<void> _initializeEssentialServices() async {
   const isReleaseBuild = bool.fromEnvironment('dart.vm.product');
   const flavor = String.fromEnvironment(
     'FLAVOR',
@@ -27,53 +53,66 @@ Future<void> main() async {
   const requestedProdFlavor = flavor == 'prod';
   const enableAppCheck =
       bool.fromEnvironment('ENABLE_APP_CHECK', defaultValue: false);
-  WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
-  await _initializeMobileAds();
-  final firebaseOptions = requestedProdFlavor
-      ? firebase_prod.DefaultFirebaseOptions.currentPlatform
-      : firebase_dev.DefaultFirebaseOptions.currentPlatform;
-  if (firebaseOptions.databaseURL == null ||
-      firebaseOptions.databaseURL!.isEmpty) {
-    throw StateError('Firebase Realtime Database URL is not configured.');
-  }
-  final activeApp = await _initializeFirebaseApp(firebaseOptions);
-  final runtimeIsProd = activeApp.options.projectId ==
-      firebase_prod.DefaultFirebaseOptions.currentPlatform.projectId;
-  if (activeApp.options.projectId != firebaseOptions.projectId) {
-    debugPrint(
-      'Firebase project mismatch detected. '
-      'FLAVOR=$flavor requested ${firebaseOptions.projectId}, '
-      'but runtime is using ${activeApp.options.projectId}. '
-      'Continuing with the native-configured app.',
-    );
-  }
-  _configureRealtimeDatabaseCache(activeApp);
-
-  if (enableAppCheck) {
-    try {
-      await FirebaseAppCheck.instance.activate(
-        providerAndroid: runtimeIsProd
-            ? const AndroidPlayIntegrityProvider()
-            : const AndroidDebugProvider(),
-        providerApple: runtimeIsProd
-            ? const AppleAppAttestProvider()
-            : const AppleDebugProvider(),
-      );
-    } catch (error, stackTrace) {
-      debugPrint('Firebase App Check activation failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+  try {
+    final firebaseOptions = requestedProdFlavor
+        ? firebase_prod.DefaultFirebaseOptions.currentPlatform
+        : firebase_dev.DefaultFirebaseOptions.currentPlatform;
+    if (firebaseOptions.databaseURL == null ||
+        firebaseOptions.databaseURL!.isEmpty) {
+      throw StateError('Firebase Realtime Database URL is not configured.');
     }
+    final activeApp = await _initializeFirebaseApp(firebaseOptions);
+    final runtimeIsProd = activeApp.options.projectId ==
+        firebase_prod.DefaultFirebaseOptions.currentPlatform.projectId;
+    if (activeApp.options.projectId != firebaseOptions.projectId) {
+      debugPrint(
+        'Firebase project mismatch detected. '
+        'FLAVOR=$flavor requested ${firebaseOptions.projectId}, '
+        'but runtime is using ${activeApp.options.projectId}. '
+        'Continuing with the native-configured app.',
+      );
+    }
+    _configureRealtimeDatabaseCache(activeApp);
+
+    if (enableAppCheck) {
+      try {
+        await FirebaseAppCheck.instance.activate(
+          providerAndroid: runtimeIsProd
+              ? const AndroidPlayIntegrityProvider()
+              : const AndroidDebugProvider(),
+          providerApple: runtimeIsProd
+              ? const AppleAppAttestProvider()
+              : const AppleDebugProvider(),
+        );
+      } catch (error, stackTrace) {
+        debugPrint('Firebase App Check activation failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    }
+
+    await AuthManager.instance.ensureSignedIn();
+  } catch (error, stackTrace) {
+    debugPrint('Startup Firebase/Auth initialization failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
   }
 
-  await AuthManager.instance.ensureSignedIn();
-  await AppSettings.instance.load();
+  try {
+    await AppSettings.instance.load();
+  } catch (error, stackTrace) {
+    debugPrint('App settings load failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+}
+
+Future<void> _initializePostLaunchServices() async {
   unawaited(AdRemovalPurchaseManager.instance.initialize());
   await _configureExclusiveGameAudio();
-  await FlameAudio.bgm.initialize();
-  runApp(const MyApp());
+  try {
+    await FlameAudio.bgm.initialize();
+  } catch (error, stackTrace) {
+    debugPrint('BGM initialization failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
 }
 
 Future<void> _configureExclusiveGameAudio() async {
@@ -125,20 +164,6 @@ Future<FirebaseApp> _initializeFirebaseApp(FirebaseOptions options) async {
   }
 }
 
-Future<void> _initializeMobileAds() async {
-  if (!Platform.isAndroid && !Platform.isIOS) {
-    return;
-  }
-
-  try {
-    await MobileAds.instance.initialize();
-    unawaited(InterstitialAdManager.instance.warmUp());
-    unawaited(RewardedAdManager.instance.warmUp());
-  } on MissingPluginException {
-    // プラグイン未登録の古いビルドや開発中の起動でアプリ全体を止めない。
-  }
-}
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -178,7 +203,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   }
 
   Future<void> _boot() async {
-    final bootstrapFuture = prepareHomeBootstrapData().timeout(
+    final bootstrapFuture = _prepareHome().timeout(
       _bootstrapTimeout,
       onTimeout: () {
         debugPrint('Home bootstrap timed out; continuing with local defaults.');
@@ -218,6 +243,15 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         ),
       ),
     );
+  }
+
+  Future<HomeBootstrapData> _prepareHome() async {
+    await _initializeEssentialServices();
+    final bootstrapData = await prepareHomeBootstrapData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_initializePostLaunchServices());
+    });
+    return bootstrapData;
   }
 
   @override

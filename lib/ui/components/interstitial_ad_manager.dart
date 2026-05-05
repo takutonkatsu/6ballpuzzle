@@ -1,12 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-import '../../app_review_config.dart';
-import '../../app_settings.dart';
+import '../../ads/app_ad_service.dart';
 
 class InterstitialAdManager {
   InterstitialAdManager._internal();
@@ -14,45 +11,29 @@ class InterstitialAdManager {
   static final InterstitialAdManager instance =
       InterstitialAdManager._internal();
   static const Duration _showTimeout = Duration(seconds: 8);
-  static const Duration _androidCooldownDuration = Duration(seconds: 30);
-  static const Duration _androidWarmUpDelay = Duration(seconds: 5);
   static const Duration _retryDelay = Duration(seconds: 10);
 
   InterstitialAd? _cachedAd;
   bool _isLoading = false;
-  Timer? _cooldownTimer;
-  Timer? _warmUpTimer;
   Timer? _retryTimer;
-  final ValueNotifier<bool> isCoolingDown = ValueNotifier(false);
-
-  String? get _adUnitId {
-    if (Platform.isIOS) {
-      return AppReviewConfig.iosInterstitialAdUnitId.isEmpty
-          ? null
-          : AppReviewConfig.iosInterstitialAdUnitId;
-    }
-    if (Platform.isAndroid) {
-      return AppReviewConfig.androidInterstitialAdUnitId.isEmpty
-          ? null
-          : AppReviewConfig.androidInterstitialAdUnitId;
-    }
-    return null;
-  }
 
   Future<void> warmUp() async {
-    if (AppSettings.instance.adsRemoved.value) {
+    if (!AppAdService.instance.canRequestAds) {
       _retryTimer?.cancel();
       _disposeCachedAd();
       return;
     }
-    if (Platform.isAndroid && isCoolingDown.value) {
-      return;
+    try {
+      await _ensureLoaded();
+    } catch (error, stackTrace) {
+      debugPrint('Interstitial warm up failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _scheduleRetry();
     }
-    await _ensureLoaded();
   }
 
   Future<void> showIfNeeded() async {
-    if (AppSettings.instance.adsRemoved.value) {
+    if (!AppAdService.instance.canRequestAds) {
       return;
     }
     final ad = _cachedAd;
@@ -69,16 +50,14 @@ class InterstitialAdManager {
         if (!completer.isCompleted) {
           completer.complete();
         }
-        _beginCooldown();
-        _scheduleWarmUp();
+        unawaited(warmUp());
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
         ad.dispose();
         if (!completer.isCompleted) {
           completer.complete();
         }
-        _beginCooldown();
-        _scheduleWarmUp();
+        unawaited(warmUp());
       },
     );
     try {
@@ -88,22 +67,20 @@ class InterstitialAdManager {
           completer.complete();
         }
       });
-    } on MissingPluginException {
+    } catch (error, stackTrace) {
+      debugPrint('Interstitial ad show threw: $error');
+      debugPrintStack(stackTrace: stackTrace);
       ad.dispose();
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
     } finally {
-      _scheduleWarmUp();
+      unawaited(warmUp());
     }
   }
 
   Future<void> settleAfterGame() async {
-    if (!Platform.isAndroid) {
-      return;
-    }
-    _warmUpTimer?.cancel();
-    _warmUpTimer = null;
-    _disposeCachedAd();
-    _beginCooldown();
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+    await Future<void>.delayed(const Duration(milliseconds: 80));
   }
 
   Future<void> _ensureLoaded() async {
@@ -113,8 +90,14 @@ class InterstitialAdManager {
       }
       return;
     }
-    final adUnitId = _adUnitId;
+    final adUnitId = AppAdService.instance.interstitialAdUnitId;
     if (adUnitId == null) {
+      return;
+    }
+
+    final initialized = await AppAdService.instance.ensureInitialized();
+    if (!initialized || !AppAdService.instance.canRequestAds) {
+      _scheduleRetry();
       return;
     }
 
@@ -145,8 +128,10 @@ class InterstitialAdManager {
         ),
       );
       await completer.future;
-    } on MissingPluginException {
-      rethrow;
+    } catch (error, stackTrace) {
+      debugPrint('Interstitial ad load threw: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      _scheduleRetry();
     } finally {
       _isLoading = false;
     }
@@ -158,36 +143,11 @@ class InterstitialAdManager {
   }
 
   void _scheduleRetry() {
-    if (AppSettings.instance.adsRemoved.value) {
+    if (!AppAdService.instance.canRequestAds) {
       return;
     }
     _retryTimer?.cancel();
     _retryTimer = Timer(_retryDelay, () {
-      if (!isCoolingDown.value) {
-        unawaited(warmUp());
-      }
-    });
-  }
-
-  void _beginCooldown() {
-    if (!Platform.isAndroid) {
-      return;
-    }
-    isCoolingDown.value = true;
-    _cooldownTimer?.cancel();
-    _cooldownTimer = Timer(_androidCooldownDuration, () {
-      isCoolingDown.value = false;
-    });
-  }
-
-  void _scheduleWarmUp() {
-    if (Platform.isAndroid && isCoolingDown.value) {
-      return;
-    }
-    _retryTimer?.cancel();
-    _warmUpTimer?.cancel();
-    final delay = Platform.isAndroid ? _androidWarmUpDelay : Duration.zero;
-    _warmUpTimer = Timer(delay, () {
       unawaited(warmUp());
     });
   }

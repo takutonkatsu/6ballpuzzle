@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-import '../../app_review_config.dart';
+import '../../ads/app_ad_service.dart';
 import '../../app_settings.dart';
 
 class BannerAdWidget extends StatefulWidget {
@@ -19,22 +17,9 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   static const Duration _retryDelay = Duration(seconds: 8);
 
   BannerAd? _bannerAd;
+  bool _isLoading = false;
   bool _isLoaded = false;
   Timer? _retryTimer;
-
-  static String? get _adUnitId {
-    if (Platform.isAndroid) {
-      return AppReviewConfig.androidBannerAdUnitId.isEmpty
-          ? null
-          : AppReviewConfig.androidBannerAdUnitId;
-    }
-    if (Platform.isIOS) {
-      return AppReviewConfig.iosBannerAdUnitId.isEmpty
-          ? null
-          : AppReviewConfig.iosBannerAdUnitId;
-    }
-    return null;
-  }
 
   @override
   void initState() {
@@ -59,48 +44,69 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   }
 
   void _loadBannerAd() {
-    if (AppSettings.instance.adsRemoved.value || _bannerAd != null) {
+    if (!AppAdService.instance.canRequestAds ||
+        _bannerAd != null ||
+        _isLoading) {
       return;
     }
     _retryTimer?.cancel();
-    final adUnitId = _adUnitId;
+    final adUnitId = AppAdService.instance.bannerAdUnitId;
     if (adUnitId == null) {
       return;
     }
+    _isLoading = true;
 
-    final ad = BannerAd(
-      adUnitId: adUnitId,
-      size: AdSize.banner,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (ad) {
-          if (!mounted) {
-            ad.dispose();
-            return;
-          }
-          setState(() {
-            _bannerAd = ad as BannerAd;
-            _isLoaded = true;
-          });
-        },
-        onAdFailedToLoad: (ad, error) {
-          debugPrint(
-            'Banner ad failed to load '
-            '(code=${error.code}, domain=${error.domain}): ${error.message}',
-          );
-          ad.dispose();
-          _bannerAd = null;
-          _isLoaded = false;
+    unawaited(() async {
+      final initialized = await AppAdService.instance.ensureInitialized();
+      if (!mounted || !initialized || !AppAdService.instance.canRequestAds) {
+        _isLoading = false;
+        if (mounted) {
           _scheduleRetry();
-        },
-      ),
-    );
+        }
+        return;
+      }
 
-    try {
-      ad.load();
-    } on MissingPluginException {
-      ad.dispose();
-    }
+      late final BannerAd ad;
+      ad = BannerAd(
+        adUnitId: adUnitId,
+        size: AdSize.banner,
+        request: const AdRequest(),
+        listener: BannerAdListener(
+          onAdLoaded: (loadedAd) {
+            _isLoading = false;
+            if (!mounted || !AppAdService.instance.canRequestAds) {
+              loadedAd.dispose();
+              return;
+            }
+            setState(() {
+              _bannerAd = loadedAd as BannerAd;
+              _isLoaded = true;
+            });
+          },
+          onAdFailedToLoad: (failedAd, error) {
+            _isLoading = false;
+            debugPrint(
+              'Banner ad failed to load '
+              '(code=${error.code}, domain=${error.domain}): ${error.message}',
+            );
+            failedAd.dispose();
+            _bannerAd = null;
+            _isLoaded = false;
+            _scheduleRetry();
+          },
+        ),
+      );
+
+      try {
+        await ad.load();
+      } catch (error, stackTrace) {
+        _isLoading = false;
+        debugPrint('Banner ad load threw: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        ad.dispose();
+        _scheduleRetry();
+      }
+    }());
   }
 
   void _scheduleRetry() {

@@ -258,6 +258,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         playerState == GameState.gameover ||
         opponentState == GameState.gameover;
     return !_rankedBotMatchOverlayVisible &&
+        !_isRankedBotMode &&
         !_battleIntroLocked &&
         _readyGoOverlayText == null &&
         !_resultRevealPending &&
@@ -603,13 +604,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final ownedStamps = PlayerDataManager.instance.ownedItems
         .where((item) => item.isStamp)
         .toList()
-      ..sort((a, b) {
-        final rarityDiff = a.rarity.index.compareTo(b.rarity.index);
-        if (rarityDiff != 0) {
-          return rarityDiff;
-        }
-        return a.name.compareTo(b.name);
-      });
+      ..sort((a, b) => a.name.compareTo(b.name));
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -730,7 +725,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 _buildGlobalOverlay(),
               if (_rankedBotMatchOverlayVisible) _buildRankedBotMatchOverlay(),
               if (widget.isArenaMode) _buildArenaRecordBadge(),
-              if (!_isOnlineMode && !widget.isTutorialMode)
+              if (!_isOnlineMode && !widget.isTutorialMode && !_isRankedBotMode)
                 Positioned(
                   top: 8,
                   left: 8,
@@ -2236,24 +2231,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  Text(
-                    showAutoStart && canShowReady
-                        ? 'マッチ成立です。まもなく自動で開始します。'
-                        : canShowReady && opponentName != null
-                            ? '$opponentName が参加しました。READYで開始準備をしてください。'
-                            : canShowReady
-                                ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
-                                : widget.isRankedMode
-                                    ? '対戦相手の接続を待っています...'
-                                    : '相手の入室を待っています…',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 16,
-                      height: 1.5,
+                  if (!showAutoStart || !canShowReady) ...[
+                    Text(
+                      canShowReady && opponentName != null
+                          ? '$opponentName が参加しました。READYで開始準備をしてください。'
+                          : canShowReady
+                              ? '両プレイヤーがそろいました。READYで開始準備をしてください。'
+                              : widget.isRankedMode
+                                  ? '対戦相手の接続を待っています...'
+                                  : '相手の入室を待っています…',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 16,
+                        height: 1.5,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
+                  ],
                   _buildLobbyStatusRow(
                     _displayNameForRole('host') ?? 'プレイヤー',
                     hostReady,
@@ -2473,7 +2468,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }) {
     final accentColor = isOccupied ? Colors.cyanAccent : Colors.white38;
     final nameColor = isOccupied ? Colors.white : Colors.white54;
-    final statusText = isOccupied ? (isReady ? 'READY' : '') : '未参加';
+    final statusText = isOccupied ? '' : '未参加';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2518,14 +2513,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 4),
                 _buildLobbySubLabelText(!isOccupied ? '-' : (subLabel ?? '-')),
-                if (isOccupied && badgeIds.isNotEmpty) ...[
+                if (isOccupied && badgeIds.isNotEmpty && !isReady) ...[
                   const SizedBox(height: 6),
                   _buildBadgeIconRow(badgeIds),
                 ],
               ],
             ),
           ),
-          if (statusText.isNotEmpty) ...[
+          if (isOccupied && isReady && badgeIds.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            _buildBadgeIconRow(badgeIds),
+          ] else if (statusText.isNotEmpty) ...[
             const SizedBox(width: 12),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -3063,6 +3061,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     setState(() {
       _rankedBotMatchOverlayVisible = true;
     });
+    final opponentRating = _rankedBotRating;
+    if (opponentRating != null) {
+      try {
+        await _multiplayerManager.saveRankedBotActiveSession(
+          opponentRating: opponentRating,
+        );
+      } catch (_) {
+        // セッション保存に失敗しても、試合開始自体は止めない。
+      }
+    }
     _playMatchedSfxOnce();
 
     await Future<void>.delayed(const Duration(milliseconds: 1400));
@@ -3309,6 +3317,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         isWin: isWin,
         opponentRating: opponentRating,
       );
+      await _multiplayerManager.clearSavedSession();
       unawaited(_playerDataManager.setCurrentRating(change.newRating));
       unawaited(
         _playerDataManager.updateLatestRankedHistory(

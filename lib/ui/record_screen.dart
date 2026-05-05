@@ -51,7 +51,8 @@ class _RecordScreenState extends State<RecordScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFF080A12),
         appBar: AppBar(
-          backgroundColor: const Color(0xFF101423),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_ios_new),
             onPressed: () {
@@ -59,12 +60,31 @@ class _RecordScreenState extends State<RecordScreen> {
               Navigator.of(context).pop();
             },
           ),
-          title: const Text('レコード'),
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: '総合'),
-              Tab(text: '対戦履歴'),
-            ],
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x3325F4FF),
+                  Color(0x00000000),
+                ],
+              ),
+            ),
+          ),
+          title: const _RecordPageTitle(
+            title: 'レコード',
+            subtitle: 'PLAYER DATA',
+          ),
+          centerTitle: true,
+          bottom: const PreferredSize(
+            preferredSize: Size.fromHeight(62),
+            child: _RecordNeonTabBar(
+              tabs: [
+                '総合',
+                '対戦履歴',
+              ],
+            ),
           ),
         ),
         body: Stack(
@@ -101,7 +121,7 @@ class _RecordScreenState extends State<RecordScreen> {
           _StatItem('総プレイ回数', '${_playerData.totalMatches}'),
           _StatItem('勝利数', '${_playerData.totalWins}'),
           _StatItem('累計消去ボール数', '${_playerData.totalClearedBalls}'),
-          _StatItem('最大連鎖数', '${_playerData.maxChain}'),
+          _StatItem('平均連鎖数', _playerData.averageChain.toStringAsFixed(1)),
           _StatItem('総ログイン日数', '${_playerData.totalLoginDays}日'),
           _StatItem('初めてプレイした日', _formatDate(_playerData.accountCreatedAt)),
         ]),
@@ -153,12 +173,13 @@ class _RecordScreenState extends State<RecordScreen> {
     final straightAvg = (counts['straight'] ?? 0) / matches;
     final normalClearAvg = _playerData.totalNormalClearedBalls / matches;
     final dailyPlayAvg = _playerData.totalMatches / days;
+    final averageChain = _playerData.averageChain;
     final values = [
       _score(hexAvg, 5),
       _score(pyramidAvg, 5),
       _score(straightAvg, 5),
       _score(normalClearAvg, 500),
-      _score(_playerData.maxChain.toDouble(), 10),
+      _score(averageChain, 10),
       _score(dailyPlayAvg, 20),
     ];
     const labels = [
@@ -166,7 +187,7 @@ class _RecordScreenState extends State<RecordScreen> {
       'ピラミッド',
       'ストレート',
       '通常消し',
-      '最大連鎖',
+      '連鎖',
       'プレイ頻度',
     ];
     final details = [
@@ -174,7 +195,7 @@ class _RecordScreenState extends State<RecordScreen> {
       '${pyramidAvg.toStringAsFixed(1)} / 5.0',
       '${straightAvg.toStringAsFixed(1)} / 5.0',
       '${normalClearAvg.toStringAsFixed(0)} / 500',
-      '${_playerData.maxChain} / 10',
+      '${averageChain.toStringAsFixed(1)} / 10',
       '${dailyPlayAvg.toStringAsFixed(1)} / 20',
     ];
 
@@ -549,6 +570,98 @@ class _RecordScreenState extends State<RecordScreen> {
       'FRIEND' => 'フレンド対戦',
       _ => mode,
     };
+  }
+}
+
+class _RecordPageTitle extends StatelessWidget {
+  const _RecordPageTitle({
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          subtitle,
+          style: const TextStyle(
+            color: Colors.cyanAccent,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 3.5,
+          ),
+        ),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.2,
+            shadows: [
+              Shadow(color: Colors.cyanAccent, blurRadius: 12),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RecordNeonTabBar extends StatelessWidget {
+  const _RecordNeonTabBar({required this.tabs});
+
+  final List<String> tabs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(18, 8, 18, 10),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xCC0B1020),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.28)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.cyanAccent.withValues(alpha: 0.12),
+            blurRadius: 18,
+          ),
+        ],
+      ),
+      child: TabBar(
+        dividerColor: Colors.transparent,
+        indicatorSize: TabBarIndicatorSize.tab,
+        indicator: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Colors.cyanAccent.withValues(alpha: 0.35),
+              const Color(0xFF0B84FF).withValues(alpha: 0.28),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.85)),
+        ),
+        labelColor: Colors.white,
+        unselectedLabelColor: Colors.white54,
+        labelStyle: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.8,
+        ),
+        unselectedLabelStyle: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+        tabs: [
+          for (final tab in tabs) Tab(text: tab),
+        ],
+      ),
+    );
   }
 }
 
