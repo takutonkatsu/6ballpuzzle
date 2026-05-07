@@ -430,9 +430,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _startHomeBgm({bool forceRestart = false}) async {
-    if (InterstitialAdManager.instance.isShowing) {
-      return;
-    }
     if (_isHomeBgmPlaying && !forceRestart) {
       return;
     }
@@ -2090,6 +2087,25 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _enableAdsFromAdRemovalDialog(
+    BuildContext dialogContext,
+  ) async {
+    await AppSettings.instance.setAdsRemoved(false);
+    unawaited(RewardedAdManager.instance.warmUp());
+    unawaited(InterstitialAdManager.instance.warmUp());
+    if (dialogContext.mounted) {
+      Navigator.of(dialogContext).pop();
+    }
+    if (!mounted) {
+      return;
+    }
+    await _showAlert(
+      context,
+      '広告設定',
+      '広告表示を再度有効にしました。',
+    );
+  }
+
   Future<void> _showAdRemovalDialog(BuildContext context) async {
     await _playerDataManager.load();
     await AdRemovalPurchaseManager.instance.initialize();
@@ -2128,26 +2144,15 @@ class _HomeScreenState extends State<HomeScreen>
                       _buildAdRemovalBenefitLine('対戦後のコイン報酬が毎回3倍に'),
                       _buildAdRemovalBenefitLine('デイリーミッションのコイン獲得量が2倍に'),
                       const SizedBox(height: 16),
-                      if (_debugControlsEnabled) ...[
-                        _buildCyberDialogButton(
-                          label: '広告を再度つける',
-                          accentColor: Colors.lightBlueAccent,
-                          onPressed: () async {
-                            await AppSettings.instance.setAdsRemoved(false);
-                            if (dialogContext.mounted) {
-                              Navigator.of(dialogContext).pop();
-                            }
-                            if (mounted) {
-                              await _showAlert(
-                                this.context,
-                                '広告設定',
-                                '広告表示を再度有効にしました。',
-                              );
-                            }
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                      ],
+                      _buildCyberDialogButton(
+                        label: '広告を再度つける',
+                        accentColor: Colors.lightBlueAccent,
+                        onPressed: () =>
+                            unawaited(_enableAdsFromAdRemovalDialog(
+                          dialogContext,
+                        )),
+                      ),
+                      const SizedBox(height: 12),
                       _buildCyberDialogButton(
                         label: '閉じる',
                         accentColor: Colors.white54,

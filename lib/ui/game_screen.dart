@@ -2213,18 +2213,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _TutorialResultLine(
-              title: 'ワザごとのおじゃまボール',
-              body: 'ヘキサゴン 36個 / ピラミッド 24個 / ストレート 19個',
+              title: 'ワザのおじゃまボール数',
+              body: 'ヘキサゴン 36個\nピラミッド 24個\nストレート 19個',
             ),
             SizedBox(height: 12),
             _TutorialResultLine(
               title: 'チュートリアル',
-              body: '設定画面からいつでも見返せます。',
+              body: '設定画面から何度でも見れます',
             ),
             SizedBox(height: 12),
             _TutorialResultLine(
               title: '無料ガチャ',
-              body: '1日3回まで無料で回せます。',
+              body: '1日3回まで無料',
             ),
           ],
         ),
