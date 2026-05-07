@@ -2713,8 +2713,14 @@ class _HomeScreenState extends State<HomeScreen>
                   }
                   return;
                 }
-                await _missionManager.load();
-                await _missionManager.markRewardedAdMissionWatched(index);
+                if (mounted && context.mounted) {
+                  await _showCoinRewardAlert(
+                    context,
+                    'ミッション報酬',
+                    reward,
+                  );
+                }
+                await _missionManager.completeRewardedAdMission(index);
                 await onClaimed(0);
                 return;
               }
@@ -3730,6 +3736,7 @@ class _HomeScreenState extends State<HomeScreen>
   ) {
     return showDialog<void>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) {
         return _buildCyberDialog(
           accentColor: Colors.cyanAccent,

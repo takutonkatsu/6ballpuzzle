@@ -66,7 +66,11 @@ Future<void> _initializeEssentialServices() async {
         firebaseOptions.databaseURL!.isEmpty) {
       throw StateError('Firebase Realtime Database URL is not configured.');
     }
-    final activeApp = await _initializeFirebaseApp(firebaseOptions);
+    final activeApp = await _initializeFirebaseApp(
+      options: firebaseOptions,
+      flavor: flavor,
+    );
+    AppFirebaseDatabase.useApp(activeApp);
     final runtimeIsProd = activeApp.options.projectId ==
         firebase_prod.DefaultFirebaseOptions.currentPlatform.projectId;
     if (activeApp.options.projectId != firebaseOptions.projectId) {
@@ -81,7 +85,7 @@ Future<void> _initializeEssentialServices() async {
 
     if (enableAppCheck) {
       try {
-        await FirebaseAppCheck.instance.activate(
+        await FirebaseAppCheck.instanceFor(app: activeApp).activate(
           providerAndroid: runtimeIsProd
               ? const AndroidPlayIntegrityProvider()
               : const AndroidDebugProvider(),
@@ -154,19 +158,36 @@ void _configureRealtimeDatabaseCache(FirebaseApp app) {
   }
 }
 
-Future<FirebaseApp> _initializeFirebaseApp(FirebaseOptions options) async {
-  if (Firebase.apps.isNotEmpty) {
-    return Firebase.app();
-  }
-
+Future<FirebaseApp> _initializeFirebaseApp({
+  required FirebaseOptions options,
+  required String flavor,
+}) async {
+  final appName = 'hexagon-$flavor';
   try {
-    return await Firebase.initializeApp(options: options);
+    return await Firebase.initializeApp(
+      name: appName,
+      options: options,
+    );
   } on FirebaseException catch (error) {
     if (error.code != 'duplicate-app') {
       rethrow;
     }
-    return Firebase.app();
+    final existingApp = Firebase.app(appName);
+    if (_sameFirebaseProject(existingApp.options, options)) {
+      return existingApp;
+    }
+    await existingApp.delete();
+    return Firebase.initializeApp(
+      name: appName,
+      options: options,
+    );
   }
+}
+
+bool _sameFirebaseProject(FirebaseOptions a, FirebaseOptions b) {
+  return a.projectId == b.projectId &&
+      a.appId == b.appId &&
+      a.databaseURL == b.databaseURL;
 }
 
 class MyApp extends StatelessWidget {

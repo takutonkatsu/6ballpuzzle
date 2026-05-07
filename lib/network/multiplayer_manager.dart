@@ -2744,7 +2744,7 @@ class MultiplayerManager {
       parts.add(error.message!);
     }
     if (error.code == 'permission-denied') {
-      final projectId = Firebase.app().options.projectId;
+      final projectId = AppFirebaseDatabase.app.options.projectId;
       parts.add(
         '接続先Firebaseプロジェクト: $projectId\n'
         'Realtime Database Rules が対象プロジェクトへデプロイ済みか、'

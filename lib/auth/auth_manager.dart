@@ -4,13 +4,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../firebase_database_provider.dart';
+
 class AuthManager {
   AuthManager._internal();
 
   static final AuthManager instance = AuthManager._internal();
-  static const String _fallbackUidPrefsKey = 'auth_fallback_uid';
+  static const String _fallbackUidPrefsKeyPrefix = 'auth_fallback_uid';
 
-  FirebaseAuth get _auth => FirebaseAuth.instance;
+  FirebaseAuth get _auth => FirebaseAuth.instanceFor(
+        app: AppFirebaseDatabase.app,
+      );
 
   String? get currentUid => _auth.currentUser?.uid;
 
@@ -61,7 +65,9 @@ class AuthManager {
 
   Future<String> _loadOrCreateFallbackUid() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedUid = prefs.getString(_fallbackUidPrefsKey);
+    final prefsKey =
+        '${_fallbackUidPrefsKeyPrefix}_${AppFirebaseDatabase.app.options.projectId}';
+    final savedUid = prefs.getString(prefsKey);
     if (savedUid != null && savedUid.isNotEmpty) {
       return savedUid;
     }
@@ -75,7 +81,7 @@ class AuthManager {
                 : 'local';
     final fallbackUid =
         '$platformPrefix-${DateTime.now().millisecondsSinceEpoch}';
-    await prefs.setString(_fallbackUidPrefsKey, fallbackUid);
+    await prefs.setString(prefsKey, fallbackUid);
     return fallbackUid;
   }
 }

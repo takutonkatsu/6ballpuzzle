@@ -7,8 +7,22 @@ import 'firebase_options_prod.dart' as firebase_prod;
 class AppFirebaseDatabase {
   AppFirebaseDatabase._();
 
+  static FirebaseApp? _activeApp;
+
+  static FirebaseApp get app {
+    final activeApp = _activeApp;
+    if (activeApp == null) {
+      throw StateError(
+          'Firebase has not been initialized for the active flavor.');
+    }
+    return activeApp;
+  }
+
+  static void useApp(FirebaseApp app) {
+    _activeApp = app;
+  }
+
   static FirebaseDatabase instance() {
-    final app = Firebase.app();
     return FirebaseDatabase.instanceFor(
       app: app,
       databaseURL: databaseUrl,
@@ -18,7 +32,7 @@ class AppFirebaseDatabase {
   static DatabaseReference ref() => instance().ref();
 
   static String get databaseUrl {
-    final runtimeUrl = Firebase.app().options.databaseURL;
+    final runtimeUrl = app.options.databaseURL;
     if (runtimeUrl != null && runtimeUrl.isNotEmpty) {
       return runtimeUrl;
     }

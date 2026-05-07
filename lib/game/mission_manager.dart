@@ -199,8 +199,11 @@ class MissionManager {
 
     final target = _intValue(mission['target']) ?? 1;
     mission['progress'] = target;
+    mission['claimed'] = true;
+    final reward = rewardCoinsFor(mission);
+    await _playerData.addCoins(reward);
     await _persistMissionChanges(missions);
-    return 0;
+    return reward;
   }
 
   Future<void> markRewardedAdMissionWatched(int index) async {

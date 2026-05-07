@@ -13,7 +13,7 @@
             android:value="false" />
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-5703232072169520~5205962936" />
+            android:value="${admobApplicationId}" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

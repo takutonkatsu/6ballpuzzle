@@ -38,6 +38,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["admobApplicationId"] =
+            "ca-app-pub-5703232072169520~5205962936"
     }
 
     signingConfigs {
@@ -53,6 +55,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            manifestPlaceholders["admobApplicationId"] =
+                "ca-app-pub-3940256099942544~3347511713"
+        }
+        getByName("profile") {
+            manifestPlaceholders["admobApplicationId"] =
+                "ca-app-pub-3940256099942544~3347511713"
+        }
         release {
             signingConfig = signingConfigs.getByName("release")
         }

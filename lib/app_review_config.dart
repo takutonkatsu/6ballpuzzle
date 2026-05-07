@@ -15,6 +15,10 @@ class AppReviewConfig {
     'ENABLE_AD_REMOVAL_GIFT_CODE',
     defaultValue: _isNonProdFlavor,
   );
+  static const bool useTestAds = bool.fromEnvironment(
+    'USE_TEST_ADS',
+    defaultValue: _isNonProdFlavor,
+  );
 
   static const String privacyPolicyUrl = String.fromEnvironment(
     'PRIVACY_POLICY_URL',

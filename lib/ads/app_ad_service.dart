@@ -19,6 +19,14 @@ class AppAdService {
   bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
 
   String? get bannerAdUnitId {
+    if (AppReviewConfig.useTestAds) {
+      if (Platform.isAndroid) {
+        return _testAndroidBannerAdUnitId;
+      }
+      if (Platform.isIOS) {
+        return _testIosBannerAdUnitId;
+      }
+    }
     if (Platform.isAndroid) {
       return _nonEmpty(AppReviewConfig.androidBannerAdUnitId);
     }
@@ -29,6 +37,14 @@ class AppAdService {
   }
 
   String? get interstitialAdUnitId {
+    if (AppReviewConfig.useTestAds) {
+      if (Platform.isAndroid) {
+        return _testAndroidInterstitialAdUnitId;
+      }
+      if (Platform.isIOS) {
+        return _testIosInterstitialAdUnitId;
+      }
+    }
     if (Platform.isAndroid) {
       return _nonEmpty(AppReviewConfig.androidInterstitialAdUnitId);
     }
@@ -39,6 +55,14 @@ class AppAdService {
   }
 
   String? get rewardedAdUnitId {
+    if (AppReviewConfig.useTestAds) {
+      if (Platform.isAndroid) {
+        return _testAndroidRewardedAdUnitId;
+      }
+      if (Platform.isIOS) {
+        return _testIosRewardedAdUnitId;
+      }
+    }
     if (Platform.isAndroid) {
       return _nonEmpty(AppReviewConfig.androidRewardedAdUnitId);
     }
@@ -103,4 +127,17 @@ class AppAdService {
     }
     return const Duration(seconds: 8);
   }
+
+  static const String _testAndroidBannerAdUnitId =
+      'ca-app-pub-3940256099942544/6300978111';
+  static const String _testIosBannerAdUnitId =
+      'ca-app-pub-3940256099942544/2934735716';
+  static const String _testAndroidInterstitialAdUnitId =
+      'ca-app-pub-3940256099942544/1033173712';
+  static const String _testIosInterstitialAdUnitId =
+      'ca-app-pub-3940256099942544/4411468910';
+  static const String _testAndroidRewardedAdUnitId =
+      'ca-app-pub-3940256099942544/5224354917';
+  static const String _testIosRewardedAdUnitId =
+      'ca-app-pub-3940256099942544/1712485313';
 }
