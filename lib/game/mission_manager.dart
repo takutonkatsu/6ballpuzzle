@@ -102,7 +102,7 @@ class MissionManager {
         missions.map((mission) => mission['id']?.toString() ?? '').toSet();
     currentIds.remove(missions[index]['id']?.toString() ?? '');
 
-    final candidates = MissionCatalog.dailyPool
+    final candidates = MissionCatalog.activeDailyPool
         .where(
           (mission) =>
               !MissionCatalog.isRewardedAdMissionId(mission.id) &&

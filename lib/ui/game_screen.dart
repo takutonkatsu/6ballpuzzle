@@ -3345,6 +3345,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             currentX - startX >= targetDistance) {
           _tutorialRightMoveActive = false;
           _playerGame.stopMovingRight();
+          _playerGame.setFixedPieceX(startX + targetDistance);
           setState(() => _tutorialPhase = _TutorialPhase.step2Rotate);
         }
       case _TutorialPhase.step2Rotate:
@@ -3422,6 +3423,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (currentX != null && currentX - startX >= targetDistance) {
         _tutorialRightMoveActive = false;
         _playerGame.stopMovingRight();
+        _playerGame.setFixedPieceX(startX + targetDistance);
         setState(() => _tutorialPhase = _TutorialPhase.step1Drop);
         return;
       }
@@ -3443,6 +3445,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (currentX != null && currentX - startX >= targetDistance) {
         _tutorialRightMoveActive = false;
         _playerGame.stopMovingRight();
+        _playerGame.setFixedPieceX(startX + targetDistance);
         setState(() => _tutorialPhase = _TutorialPhase.step2Rotate);
         return;
       }
@@ -3482,13 +3485,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (_tutorialPhase == _TutorialPhase.step1Drop) {
       setState(() => _tutorialPhase = _TutorialPhase.step1Clear);
       _scheduleTutorial(
-        const Duration(milliseconds: 950),
+        const Duration(milliseconds: 1950),
         _setupTutorialStep2,
       );
     } else if (_tutorialPhase == _TutorialPhase.step2Drop) {
       setState(() => _tutorialPhase = _TutorialPhase.step2Clear);
       _scheduleTutorial(
-        const Duration(milliseconds: 1800),
+        const Duration(milliseconds: 3300),
         _setupTutorialStep3Incoming,
       );
     } else if (_tutorialPhase == _TutorialPhase.step3Drop) {
@@ -3504,7 +3507,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       HexCoordinate(7, 8),
       HexCoordinate(8, 8),
     ]);
-    _scheduleTutorial(const Duration(milliseconds: 950), () {
+    _scheduleTutorial(const Duration(milliseconds: 1950), () {
       if (!mounted) {
         return;
       }
@@ -3520,7 +3523,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       HexCoordinate(8, 10),
     ]);
     _scheduleTutorial(
-      const Duration(milliseconds: 1150),
+      const Duration(milliseconds: 2650),
       _setupTutorialStep3Incoming,
     );
   }

@@ -123,7 +123,7 @@ class _RankingScreenState extends State<RankingScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              HexagonTrophyIcon(size: 22),
+              HexagonTrophyIcon(size: 33),
               SizedBox(width: 10),
               _RankingPageTitle(
                 title: 'ランキング',

@@ -727,6 +727,19 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   double? get activePieceX => activePiece?.position.x;
 
+  void setFixedPieceX(double x) {
+    if (activePiece == null || activePiece!.isLocked) {
+      return;
+    }
+    activePiece!.position.x = x;
+    if (ghostPiece != null) {
+      ghostPiece!.position.x = x;
+    }
+    _enforceBounds();
+    _updateGhostPosition();
+    _notifyActivePieceState(force: true, action: 'set_x');
+  }
+
   void setFixedPieceColumn(int column) {
     if (activePiece == null || activePiece!.isLocked) {
       return;

@@ -441,10 +441,13 @@ class PlayerDataManager {
         .toSet();
     final hasRequiredRewardedMissions =
         MissionCatalog.rewardedAdMissionIds.every(missionIds.contains);
+    final hasTemporarilyDisabledMissions =
+        missionIds.any(MissionCatalog.isTemporarilyDisabledMissionId);
 
     if (_lastDailyReset != today ||
         _currentMissions.length != 4 ||
         !hasRequiredRewardedMissions ||
+        hasTemporarilyDisabledMissions ||
         _dailyShopItems.length != 3) {
       _lastDailyReset = today;
       _currentMissions = _generateDailyMissions();
@@ -898,10 +901,11 @@ class PlayerDataManager {
   }
 
   List<Map<String, dynamic>> _generateDailyMissions() {
-    final rewardedMission = MissionCatalog.dailyPool.firstWhere(
+    final activeDailyPool = MissionCatalog.activeDailyPool;
+    final rewardedMission = activeDailyPool.firstWhere(
       (mission) => mission.id == MissionCatalog.rewardedAdMissionIds.first,
     );
-    final pool = MissionCatalog.dailyPool
+    final pool = activeDailyPool
         .where((mission) => !MissionCatalog.isRewardedAdMissionId(mission.id))
         .toList()
       ..shuffle(_random);
@@ -949,7 +953,8 @@ class PlayerDataManager {
         changed = true;
       }
     }
-    final allowedItemIds = GameItemCatalog.allItems.map((item) => item.id).toSet();
+    final allowedItemIds =
+        GameItemCatalog.allItems.map((item) => item.id).toSet();
     final filteredItems =
         _ownedItems.where((item) => allowedItemIds.contains(item.id)).toList();
     if (filteredItems.length != _ownedItems.length) {

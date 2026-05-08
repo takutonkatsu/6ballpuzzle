@@ -1288,7 +1288,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          title: 'LEVEL STATUS',
+          title: 'レベルステータス',
           accentColor: Colors.cyanAccent,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1314,7 +1314,7 @@ class _HomeScreenState extends State<HomeScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'CURRENT LEVEL  $currentLevel',
+                      '現在のレベル  $currentLevel',
                       style: const TextStyle(
                         color: Colors.cyanAccent,
                         fontSize: 18,
@@ -3787,7 +3787,6 @@ class _HomeScreenState extends State<HomeScreen>
                     color: const Color(0xFFEAF6FF),
                     iconSize: 22,
                     fontSize: 20,
-                    prefix: '+',
                   ),
                   const SizedBox(width: 6),
                   const Text(

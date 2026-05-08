@@ -34,6 +34,9 @@ class MissionCatalog {
 
   static const List<String> rewardedAdMissionIds = ['watch_rewarded_ad_1'];
   static const List<String> loginRewardMissionIds = ['login_bonus_1'];
+  static const List<String> temporarilyDisabledMissionIds = [
+    'win_arena_match_1',
+  ];
 
   static bool isRewardedAdMissionId(String id) {
     return rewardedAdMissionIds.contains(id);
@@ -41,6 +44,16 @@ class MissionCatalog {
 
   static bool isLoginRewardMissionId(String id) {
     return loginRewardMissionIds.contains(id);
+  }
+
+  static bool isTemporarilyDisabledMissionId(String id) {
+    return temporarilyDisabledMissionIds.contains(id);
+  }
+
+  static List<MissionDefinition> get activeDailyPool {
+    return dailyPool
+        .where((mission) => !isTemporarilyDisabledMissionId(mission.id))
+        .toList(growable: false);
   }
 
   static String? localizedTitleForId(String id) {
