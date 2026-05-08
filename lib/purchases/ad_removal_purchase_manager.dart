@@ -20,7 +20,7 @@ class AdRemovalPurchaseManager {
   String? _lastInitializationError;
 
   ProductDetails? get product => _product;
-  bool get isConfigured => AppReviewConfig.hasAdRemovalProduct;
+  bool get isConfigured => _productId.trim().isNotEmpty;
   String? get lastInitializationError => _lastInitializationError;
   bool get isAvailableForPurchase => _product != null;
 
@@ -54,7 +54,7 @@ class AdRemovalPurchaseManager {
       _isInitialized = true;
       if (_product == null && _lastInitializationError == null) {
         _lastInitializationError =
-            'Product ${AppReviewConfig.adRemovalProductId} was not returned by the store.';
+            'Product $_productId was not returned by the store.';
       }
       return _product != null;
     } catch (error) {
@@ -95,8 +95,7 @@ class AdRemovalPurchaseManager {
 
   Future<void> _handlePurchases(List<PurchaseDetails> purchases) async {
     for (final purchase in purchases) {
-      final isAdRemoval =
-          purchase.productID == AppReviewConfig.adRemovalProductId;
+      final isAdRemoval = purchase.productID == _productId;
       if (!isAdRemoval) {
         continue;
       }
@@ -117,6 +116,16 @@ class AdRemovalPurchaseManager {
   }
 
   InAppPurchase get _iap => InAppPurchase.instance;
+
+  String get _productId {
+    if (Platform.isIOS) {
+      return AppReviewConfig.iosAdRemovalProductId;
+    }
+    if (Platform.isAndroid) {
+      return AppReviewConfig.androidAdRemovalProductId;
+    }
+    return AppReviewConfig.adRemovalProductId;
+  }
 
   Future<void> _configureStoreKitIfNeeded() async {
     if (!Platform.isIOS || _storeKitConfigured) {
@@ -139,7 +148,7 @@ class AdRemovalPurchaseManager {
     ProductDetailsResponse? latest;
     for (var attempt = 0; attempt < 3; attempt += 1) {
       latest = await _iap.queryProductDetails({
-        AppReviewConfig.adRemovalProductId,
+        _productId,
       });
       if (latest.error == null && latest.productDetails.isNotEmpty) {
         return latest;

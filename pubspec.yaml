@@ -21,6 +21,7 @@ dependencies:
   in_app_purchase: ^3.2.3
   in_app_purchase_storekit: ^0.4.8+1
   url_launcher: ^6.3.1
+  app_tracking_transparency: ^2.0.6+1
 
 dev_dependencies:
   flutter_test:

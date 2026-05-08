@@ -58,6 +58,14 @@ class AppReviewConfig {
     'AD_REMOVAL_PRODUCT_ID',
     defaultValue: 'remove_ads',
   );
+  static const String iosAdRemovalProductId = String.fromEnvironment(
+    'IOS_AD_REMOVAL_PRODUCT_ID',
+    defaultValue: 'ad_removal',
+  );
+  static const String androidAdRemovalProductId = String.fromEnvironment(
+    'ANDROID_AD_REMOVAL_PRODUCT_ID',
+    defaultValue: adRemovalProductId,
+  );
 
   static bool get hasPrivacyPolicy => privacyPolicyUrl.trim().isNotEmpty;
   static bool get hasSupportEmail => supportEmail.trim().isNotEmpty;

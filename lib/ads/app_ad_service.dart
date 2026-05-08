@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -95,6 +96,7 @@ class AppAdService {
     }
 
     try {
+      await _requestTrackingAuthorizationIfNeeded();
       await MobileAds.instance.initialize().timeout(_initializationTimeout);
       _initialized = true;
       completer.complete(true);
@@ -110,6 +112,21 @@ class AppAdService {
       completer.complete(false);
     } finally {
       _initializationCompleter = null;
+    }
+  }
+
+  Future<void> _requestTrackingAuthorizationIfNeeded() async {
+    if (!Platform.isIOS) {
+      return;
+    }
+    try {
+      final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      if (status == TrackingStatus.notDetermined) {
+        await AppTrackingTransparency.requestTrackingAuthorization();
+      }
+    } catch (error, stackTrace) {
+      debugPrint('ATT authorization request skipped: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
