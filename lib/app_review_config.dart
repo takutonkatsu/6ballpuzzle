@@ -6,6 +6,7 @@ class AppReviewConfig {
         defaultValue: bool.fromEnvironment('dart.vm.product') ? 'prod' : 'dev',
       ) !=
       'prod';
+  static const bool isProdFlavor = !_isNonProdFlavor;
 
   static const bool debugMenuEnabled = bool.fromEnvironment(
     'ENABLE_DEBUG_MENU',
@@ -13,6 +14,10 @@ class AppReviewConfig {
   );
   static const bool adRemovalGiftCodeEnabled = bool.fromEnvironment(
     'ENABLE_AD_REMOVAL_GIFT_CODE',
+    defaultValue: true,
+  );
+  static const bool adRemovalGiftCodeIssuerEnabled = bool.fromEnvironment(
+    'ENABLE_AD_REMOVAL_GIFT_CODE_ISSUER',
     defaultValue: _isNonProdFlavor,
   );
   static const bool useTestAds = bool.fromEnvironment(
@@ -54,20 +59,23 @@ class AppReviewConfig {
     defaultValue: 'ca-app-pub-5703232072169520/1672852543',
   );
 
+  static const String iosAdRemovalProductId = String.fromEnvironment(
+    'IOS_AD_REMOVAL_PRODUCT_ID',
+    defaultValue: 'hexagon_remove_ads',
+  );
   static const String adRemovalProductId = String.fromEnvironment(
     'AD_REMOVAL_PRODUCT_ID',
     defaultValue: 'remove_ads',
   );
-  static const String iosAdRemovalProductId = String.fromEnvironment(
-    'IOS_AD_REMOVAL_PRODUCT_ID',
-    defaultValue: 'ad_removal',
-  );
   static const String androidAdRemovalProductId = String.fromEnvironment(
     'ANDROID_AD_REMOVAL_PRODUCT_ID',
-    defaultValue: adRemovalProductId,
+    defaultValue: 'hexagon_remove_ads',
   );
 
   static bool get hasPrivacyPolicy => privacyPolicyUrl.trim().isNotEmpty;
   static bool get hasSupportEmail => supportEmail.trim().isNotEmpty;
-  static bool get hasAdRemovalProduct => adRemovalProductId.trim().isNotEmpty;
+  static bool get hasAdRemovalProduct =>
+      adRemovalProductId.trim().isNotEmpty ||
+      iosAdRemovalProductId.trim().isNotEmpty ||
+      androidAdRemovalProductId.trim().isNotEmpty;
 }

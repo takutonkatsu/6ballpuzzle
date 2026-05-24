@@ -19,6 +19,7 @@ import 'grid_system.dart';
 import 'score_manager.dart';
 import 'cpu_agent.dart';
 import 'game_models.dart';
+import 'perf_monitor.dart';
 
 enum GameState { title, ready, playing, gameover }
 
@@ -30,6 +31,35 @@ class _QueuedPreviewOjamaTask {
     required this.task,
     required this.readyAt,
   });
+}
+
+class _ActiveBallContactState {
+  const _ActiveBallContactState({
+    required this.isTouching,
+    required this.isFallInevitable,
+    required this.isPastLockAngle,
+    required this.upwardCorrection,
+    required this.slideDirection,
+    required this.horizontalOffset,
+    required this.slideSpeedFactor,
+  });
+
+  const _ActiveBallContactState.none()
+      : isTouching = false,
+        isFallInevitable = false,
+        isPastLockAngle = false,
+        upwardCorrection = 0.0,
+        slideDirection = 0.0,
+        horizontalOffset = 0.0,
+        slideSpeedFactor = 0.0;
+
+  final bool isTouching;
+  final bool isFallInevitable;
+  final bool isPastLockAngle;
+  final double upwardCorrection;
+  final double slideDirection;
+  final double horizontalOffset;
+  final double slideSpeedFactor;
 }
 
 class PuzzleGame extends FlameGame with KeyboardEvents {
@@ -88,15 +118,25 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   )? onActivePieceChanged;
   Function(List<dynamic>, int)? onOjamaSpawned;
 
-  static const double constantFallSpeed = 50.0;
-  static const double _activePieceSyncInterval = 0.12;
+  static const double constantFallSpeed = 15.0;
+  static const double _activePieceSyncInterval = 0.08;
   static const double _ballRadius = 15.0;
+  static const double _gridUnit = _ballRadius * 2;
   static const double _boardWidth = _ballRadius * 20;
+  static const double _contactLockAngle = pi / 6;
+  static const double _contactSlideSpeed = 22.0;
+  static const double _contactTopSlideSpeedFactor = 0.25;
+  static const double _contactTopEpsilon = 0.5;
+  static const double _activePieceWallInset = 0.3;
+  static const double _wallBlockedSlideLockDelay = 0.3;
+  static const double _wallBlockedSlideMoveRatio = 0.25;
+  static const double _deathLineYOffset = _gridUnit * 0.05;
+  static const double _pieceSpawnRaiseYOffset = _gridUnit * 0.5;
   static const double _ojamaSpawnYOffset = 120 - (_ballRadius * 1.73205);
-  static const double _lockedBallFallDuration = 0.15;
-  static const double _lockedBallFallMinDuration = 0.075;
-  static const double _lockedBallFallAcceleration = 0.09;
-  static const Curve _lockedBallFallCurve = Curves.easeInCubic;
+  static const double _lockedBallFallDuration = 0.105;
+  static const double _lockedBallFallMinDuration = 0.085;
+  static const double _lockedBallFallAcceleration = 0.0;
+  static const Curve _lockedBallFallCurve = Curves.linear;
 
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
@@ -110,6 +150,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   bool isReadyGoText = false;
   double _activePieceSyncCooldown = 0.0;
   bool _suppressNextLandingSfx = false;
+  bool _forceLockNextActivePieceContact = false;
+  bool _activePieceWasSupportedByContact = false;
+  double _activePieceContactSlideDirection = 0.0;
+  double? _remoteTopContactSlideDirection;
+  double _wallBlockedSlideTime = 0.0;
+  bool _ghostPositionDirty = true;
+  int _boardVersion = 0;
+  int _lastGhostBoardVersion = -1;
+  double? _lastGhostPieceX;
+  int? _lastGhostRotation;
   bool _hasRemoteOjamaInFlight = false;
   DateTime? _remoteOjamaSpawnedAt;
   async.Timer? _deferredRemoteBoardTimer;
@@ -187,6 +237,20 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _notifyActivePieceState(force: true, action: 'stop_right');
   }
 
+  void _markBoardChanged() {
+    _boardVersion++;
+    _markGhostPositionDirty();
+  }
+
+  void _markGhostPositionDirty() {
+    _ghostPositionDirty = true;
+  }
+
+  void refreshGhostPositionForCurrentPiece() {
+    _markGhostPositionDirty();
+    _updateGhostPosition();
+  }
+
   void startGame({int? newSeed, bool spawnInitialPiece = true}) {
     if (newSeed != null) {
       _rng = Random(newSeed);
@@ -194,6 +258,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     syncDropRng = null;
     currentDropSeed = 0;
     _clearAllBoardComponents();
+    _markBoardChanged();
     _clearHints();
     incomingOjama.clear();
 
@@ -240,6 +305,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     isMovingLeft = false;
     isMovingRight = false;
     _activePieceSyncCooldown = 0.0;
+    _forceLockNextActivePieceContact = false;
+    _activePieceWasSupportedByContact = false;
+    _activePieceContactSlideDirection = 0.0;
+    _remoteTopContactSlideDirection = null;
+    _wallBlockedSlideTime = 0.0;
+    _markGhostPositionDirty();
 
     gameStateWrapper.value = GameState.playing;
     if (!isRemotePlayerMode && spawnInitialPiece) {
@@ -391,6 +462,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     isMovingRight = false;
     _activePieceSyncCooldown = 0.0;
     _isSpawning = false;
+    _forceLockNextActivePieceContact = false;
+    _activePieceWasSupportedByContact = false;
+    _wallBlockedSlideTime = 0.0;
     _previewOjamaQueue.clear();
     _isProcessingPreviewOjamaQueue = false;
     _pendingPreviewOjamaSpawns = 0;
@@ -575,13 +649,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   void _snapLockedBallsToGrid() {
     for (final entry in grid.lockedBalls.entries) {
-      entry.value.position = grid.hexToPixel(entry.key);
+      _settleLockedBallVisual(entry.value, grid.hexToPixel(entry.key));
       entry.value.hitOffsetX = 0;
     }
   }
 
   Vector2 get _pieceSpawnPosition {
-    return Vector2(size.x / 2, max(32.0, grid.offset.y - 50));
+    return Vector2(
+      size.x / 2 + _gridUnit * 0.1,
+      max(32.0, grid.offset.y - 50 - _pieceSpawnRaiseYOffset),
+    );
   }
 
   List<BallColor> _generatePieceColors() {
@@ -622,6 +699,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       presetColors: currentColors,
     )..priority = 10;
     add(activePiece!);
+    _markGhostPositionDirty();
+    _forceLockNextActivePieceContact = false;
+    _activePieceWasSupportedByContact = false;
+    _activePieceContactSlideDirection = 0.0;
+    _remoteTopContactSlideDirection = null;
+    _wallBlockedSlideTime = 0.0;
 
     ghostPiece = ActivePieceComponent(
       position: _pieceSpawnPosition,
@@ -631,6 +714,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       presetColors: currentColors,
     )..priority = 0;
     add(ghostPiece!);
+    _markGhostPositionDirty();
 
     nextPieceColors.value = _generatePieceColors();
     if (_playsBoardSfx) {
@@ -671,6 +755,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       add(ball);
       grid.lockedBalls[entry.key] = ball;
     }
+    _markBoardChanged();
     _updateHints();
     _notifyBoardUpdated();
   }
@@ -699,6 +784,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     )..priority = 10;
     activePiece!.setRotationIndex(rotation);
     add(activePiece!);
+    _forceLockNextActivePieceContact = false;
+    _activePieceWasSupportedByContact = false;
+    _activePieceContactSlideDirection = 0.0;
+    _remoteTopContactSlideDirection = null;
+    _wallBlockedSlideTime = 0.0;
 
     ghostPiece = ActivePieceComponent(
       position: spawnPosition.clone(),
@@ -735,9 +825,20 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (ghostPiece != null) {
       ghostPiece!.position.x = x;
     }
+    _markGhostPositionDirty();
     _enforceBounds();
     _updateGhostPosition();
     _notifyActivePieceState(force: true, action: 'set_x');
+  }
+
+  void snapCpuPieceXBeforeDrop(double x) {
+    if (activePiece == null || activePiece!.isLocked) {
+      return;
+    }
+    activePiece!.position.x = x;
+    _markGhostPositionDirty();
+    _enforceBounds();
+    _updateGhostPosition();
   }
 
   void setFixedPieceColumn(int column) {
@@ -749,6 +850,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (ghostPiece != null) {
       ghostPiece!.position.x = nextX;
     }
+    _markGhostPositionDirty();
     _enforceBounds();
     _updateGhostPosition();
   }
@@ -812,7 +914,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     // The visual top is exactly 5 rows of hexes above the death line.
     // rowHeight = _ballRadius * sqrt(3)
     const rowHeight = _ballRadius * 1.73205;
-    final topClipY = grid.offset.y - (rowHeight * 5) - _ballRadius;
+    final deathLineY = grid.offset.y - _ballRadius + _deathLineYOffset;
+    final topClipY = deathLineY - (rowHeight * 5);
 
     final clipRect = Rect.fromLTRB(
       -1000, // Safe left boundless
@@ -830,8 +933,6 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         ..strokeWidth = 3.0
         ..maskFilter = const MaskFilter.blur(BlurStyle.solid, 2);
 
-      final deathLineY = grid.offset.y - _ballRadius;
-
       final path = Path();
       path.moveTo(grid.leftWallX, deathLineY);
       path.lineTo(grid.leftWallX, grid.floorY);
@@ -839,7 +940,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       path.lineTo(grid.rightWallX, deathLineY);
 
       canvas.drawPath(path, wallPaint);
+    }
 
+    super.render(canvas);
+
+    if (wallColor != null) {
       final lineColor = Color.lerp(
             Colors.white,
             Colors.red,
@@ -854,7 +959,6 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           Offset(grid.rightWallX, deathLineY), deathLinePaint);
     }
 
-    super.render(canvas);
     canvas.restore();
   }
 
@@ -890,23 +994,37 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     if (activePiece != null && !activePiece!.isLocked) {
+      final beforeX = activePiece!.position.x;
       if (isMovingLeft && !isMovingRight) {
         activePiece!.position.x -= moveSpeed * dt;
       } else if (isMovingRight && !isMovingLeft) {
         activePiece!.position.x += moveSpeed * dt;
       }
       _enforceBounds();
+      if ((activePiece!.position.x - beforeX).abs() > 0.01) {
+        _markGhostPositionDirty();
+      }
     }
 
     _updateGhostPosition();
-    _checkActivePieceCollision();
+    _checkActivePieceCollision(dt);
   }
 
   void _updateGhostPosition() {
     if (activePiece == null || ghostPiece == null) return;
 
+    final rotation = activePieceRotation;
+    if (!_ghostPositionDirty &&
+        _lastGhostBoardVersion == _boardVersion &&
+        _lastGhostPieceX != null &&
+        (_lastGhostPieceX! - activePiece!.position.x).abs() <= 0.01 &&
+        _lastGhostRotation == rotation) {
+      return;
+    }
+
+    final stopwatch = PerfMonitor.enabled ? (Stopwatch()..start()) : null;
+    ghostPiece!.setRotationIndex(rotation);
     ghostPiece!.position = activePiece!.position.clone();
-    ghostPiece!.angle = activePiece!.angle;
 
     double minGy = grid.floorY + 1000;
 
@@ -934,23 +1052,114 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     ghostPiece!.position.y = minGy;
+    _ghostPositionDirty = false;
+    _lastGhostBoardVersion = _boardVersion;
+    _lastGhostPieceX = activePiece!.position.x;
+    _lastGhostRotation = rotation;
+    if (stopwatch != null) {
+      PerfMonitor.logDuration('ghost.update', stopwatch, warnMs: 3);
+    }
   }
 
-  void _checkActivePieceCollision() {
+  void _checkActivePieceCollision(double dt) {
     if (activePiece == null || activePiece!.isLocked) return;
 
-    bool hit = false;
-    final positions = activePiece!.absoluteBallPositions;
+    final previousContactSlideDirection = _activePieceContactSlideDirection;
+    var shouldLock = false;
+    var hasContactSupport = false;
+    var upwardCorrection = 0.0;
+    var slideDirection = 0.0;
+    var slideSpeedFactor = 0.0;
+    var strongestSlideOffset = 0.0;
+    var contactAdjustedPiece = false;
+    var positions = activePiece!.absoluteBallPositions;
     final colors = activePiece!.colors;
 
-    for (var pos in positions) {
-      if (pos.y + 15.0 >= grid.floorY) hit = true;
+    for (var i = 0; i < positions.length; i++) {
+      final pos = positions[i];
+      if (pos.y + _ballRadius >= grid.floorY) {
+        shouldLock = true;
+        break;
+      }
       for (var locked in grid.lockedBalls.values) {
-        if (pos.distanceTo(locked.position) <= 30.0) hit = true;
+        final contact = _activeBallContactState(pos, colors[i], locked);
+        if (!contact.isTouching) {
+          continue;
+        }
+        if (_forceLockNextActivePieceContact ||
+            contact.isFallInevitable ||
+            contact.isPastLockAngle) {
+          shouldLock = true;
+          break;
+        }
+        hasContactSupport = true;
+        upwardCorrection = max(upwardCorrection, contact.upwardCorrection);
+        if (contact.horizontalOffset > strongestSlideOffset ||
+            slideDirection == 0.0) {
+          strongestSlideOffset = contact.horizontalOffset;
+          slideDirection = contact.slideDirection;
+          slideSpeedFactor = contact.slideSpeedFactor;
+        }
+      }
+      if (shouldLock) {
+        break;
       }
     }
 
-    if (hit) {
+    if (!shouldLock &&
+        !hasContactSupport &&
+        _activePieceWasSupportedByContact) {
+      shouldLock = true;
+    }
+
+    if (!shouldLock && upwardCorrection > 0) {
+      activePiece!.position.y -= upwardCorrection;
+      positions = activePiece!.absoluteBallPositions;
+      _updateGhostPosition();
+      contactAdjustedPiece = true;
+    }
+
+    if (!shouldLock && hasContactSupport && slideDirection != 0) {
+      final beforeX = activePiece!.position.x;
+      final intendedMove =
+          slideDirection * _contactSlideSpeed * slideSpeedFactor * dt;
+      activePiece!.position.x += intendedMove;
+      _enforceBounds();
+      final actualMove = activePiece!.position.x - beforeX;
+      if (actualMove.abs() > 0.01) {
+        contactAdjustedPiece = true;
+      }
+      final slideBlockedByWall = intendedMove.abs() > 0 &&
+          (actualMove.sign != intendedMove.sign ||
+              actualMove.abs() <
+                  intendedMove.abs() * _wallBlockedSlideMoveRatio);
+      if (slideBlockedByWall) {
+        _wallBlockedSlideTime += dt;
+        if (_wallBlockedSlideTime >= _wallBlockedSlideLockDelay) {
+          shouldLock = true;
+        }
+      } else {
+        _wallBlockedSlideTime = 0.0;
+      }
+      positions = activePiece!.absoluteBallPositions;
+      _updateGhostPosition();
+    } else {
+      _wallBlockedSlideTime = 0.0;
+    }
+
+    _activePieceWasSupportedByContact = !shouldLock && hasContactSupport;
+    _activePieceContactSlideDirection =
+        _activePieceWasSupportedByContact ? slideDirection : 0.0;
+    if (!shouldLock && contactAdjustedPiece) {
+      final slideDirectionChanged = previousContactSlideDirection.sign !=
+          _activePieceContactSlideDirection.sign;
+      _notifyActivePieceState(
+        force: slideDirectionChanged,
+        action: 'contact_slide',
+      );
+    }
+
+    if (shouldLock) {
       final oldActive = activePiece!;
       final oldGhost = ghostPiece;
 
@@ -962,9 +1171,91 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       activePiece = null;
       ghostPiece = null;
+      _forceLockNextActivePieceContact = false;
+      _activePieceWasSupportedByContact = false;
+      _activePieceContactSlideDirection = 0.0;
+      _remoteTopContactSlideDirection = null;
+      _wallBlockedSlideTime = 0.0;
 
       _executeLogicDrop(positions, colors);
     }
+  }
+
+  _ActiveBallContactState _activeBallContactState(
+    Vector2 activePosition,
+    BallColor activeColor,
+    BallComponent lockedBall,
+  ) {
+    const diameter = _ballRadius * 2;
+    final lockedPosition = lockedBall.position;
+    final dx = activePosition.x - lockedPosition.x;
+    if (dx.abs() >= diameter) {
+      return const _ActiveBallContactState.none();
+    }
+    final dy = activePosition.y - lockedPosition.y;
+    final distanceSquared = dx * dx + dy * dy;
+    if (distanceSquared > diameter * diameter) {
+      return const _ActiveBallContactState.none();
+    }
+
+    final surfaceY = lockedPosition.y - sqrt(diameter * diameter - dx * dx);
+    final lockOffset = diameter * sin(_contactLockAngle);
+    final isAboveCenter = activePosition.y < lockedPosition.y;
+    final isTopContact = dx.abs() <= _contactTopEpsilon;
+    final slideDirection = isTopContact
+        ? _topContactSlideDirection(activePosition, activeColor, lockedBall)
+        : dx.sign;
+    final slideSpeedFactor = isTopContact
+        ? _contactTopSlideSpeedFactor
+        : (dx.abs() / lockOffset).clamp(0.2, 1.0);
+    return _ActiveBallContactState(
+      isTouching: true,
+      isFallInevitable: !isAboveCenter,
+      isPastLockAngle: isAboveCenter && dx.abs() > lockOffset,
+      upwardCorrection: max(0.0, activePosition.y - surfaceY),
+      slideDirection: slideDirection,
+      horizontalOffset: isTopContact ? _contactTopEpsilon : dx.abs(),
+      slideSpeedFactor: slideSpeedFactor,
+    );
+  }
+
+  double _topContactSlideDirection(
+    Vector2 activePosition,
+    BallColor activeColor,
+    BallComponent lockedBall,
+  ) {
+    final remoteDirection = _remoteTopContactSlideDirection;
+    if (isRemotePlayerMode && remoteDirection != null && remoteDirection != 0) {
+      return remoteDirection.sign.toDouble();
+    }
+    if (isMovingLeft && !isMovingRight) {
+      return -1.0;
+    }
+    if (isMovingRight && !isMovingLeft) {
+      return 1.0;
+    }
+    return _deterministicTopContactSlideRight(
+      activePosition,
+      activeColor,
+      lockedBall,
+    )
+        ? 1.0
+        : -1.0;
+  }
+
+  bool _deterministicTopContactSlideRight(
+    Vector2 activePosition,
+    BallColor activeColor,
+    BallComponent lockedBall,
+  ) {
+    var hash = 17;
+    hash = 31 * hash + activePosition.x.round();
+    hash = 31 * hash + activePosition.y.round();
+    hash = 31 * hash + activeColor.index;
+    hash = 31 * hash + lockedBall.position.x.round();
+    hash = 31 * hash + lockedBall.position.y.round();
+    hash = 31 * hash + lockedBall.ballColor.index;
+    return hash.abs() % 2 == 0;
   }
 
   final ScoreManager scoreManager = ScoreManager();
@@ -1009,6 +1300,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       add(newBall);
       grid.lockedBalls[hex] = newBall;
     }
+    _markBoardChanged();
 
     if (_playsBoardSfx && !_suppressNextLandingSfx) {
       _playSfx(_landingSfx, volume: 0.33);
@@ -1032,6 +1324,36 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       _lockedBallFallMinDuration,
       _lockedBallFallDuration / acceleration,
     );
+  }
+
+  void _moveLockedBallOneStep(
+    BallComponent comp,
+    Vector2 targetPx,
+    double duration,
+  ) {
+    comp.clearSnapTarget();
+    for (final effect in comp.children.whereType<MoveEffect>().toList()) {
+      effect.removeFromParent();
+    }
+    comp.add(
+      MoveEffect.to(
+        targetPx,
+        EffectController(duration: duration, curve: _lockedBallFallCurve),
+      ),
+    );
+  }
+
+  void _settleLockedBallVisual(BallComponent comp, Vector2 targetPx) {
+    for (final effect in comp.children.whereType<MoveEffect>().toList()) {
+      effect.removeFromParent();
+    }
+    comp.lockTo(targetPx);
+  }
+
+  void _settleLockedBallVisualsToGrid() {
+    for (final entry in grid.lockedBalls.entries) {
+      _settleLockedBallVisual(entry.value, grid.hexToPixel(entry.key));
+    }
   }
 
   Future<bool> _settleBoardGravity() async {
@@ -1062,19 +1384,14 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           changed = true;
           hadGravitySequence = true;
           grid.lockedBalls[next] = comp;
+          _markBoardChanged();
           Vector2 targetPx = grid.hexToPixel(next);
           final fallStreak = (fallStreaks[comp] ?? 0) + 1;
           fallStreaks[comp] = fallStreak;
           final fallDuration = _lockedBallFallDurationFor(fallStreak);
           longestFallDuration = max(longestFallDuration, fallDuration);
 
-          comp.add(MoveEffect.to(
-            targetPx,
-            EffectController(
-              duration: fallDuration,
-              curve: _lockedBallFallCurve,
-            ),
-          ));
+          _moveLockedBallOneStep(comp, targetPx, fallDuration);
         } else {
           fallStreaks.remove(comp);
           grid.lockedBalls[curr] = comp;
@@ -1087,6 +1404,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         await Future.delayed(Duration(milliseconds: delayMs));
       }
     }
+
+    _settleLockedBallVisualsToGrid();
 
     if (_playsBoardSfx &&
         gameStateWrapper.value == GameState.playing &&
@@ -1105,6 +1424,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       return;
     }
     _isProcessingGravity = true;
+    final stopwatch = PerfMonitor.enabled ? (Stopwatch()..start()) : null;
 
     try {
       do {
@@ -1127,6 +1447,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           if (matchResults.isEmpty) {
             hasMatches = false;
           } else {
+            if (matchResults.any((result) =>
+                result.highestWaza != WazaType.none &&
+                result.wazaPattern.isNotEmpty)) {
+              _clearHints();
+            }
             for (var matchResult in matchResults) {
               var validTargets = matchResult.targets
                   .where((h) => grid.lockedBalls.containsKey(h))
@@ -1156,6 +1481,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
               for (var hex in validTargets) {
                 BallComponent? comp = grid.lockedBalls.remove(hex);
                 if (comp == null) continue;
+                _markBoardChanged();
 
                 final ringEffect = BallPopRingEffect(
                   position: comp.position.clone(),
@@ -1232,6 +1558,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         syncDropRng = null;
       }
       _isProcessingGravity = false;
+      if (stopwatch != null) {
+        PerfMonitor.logDuration('board.process', stopwatch, warnMs: 20);
+      }
     }
   }
 
@@ -1281,6 +1610,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       add(ball);
       grid.lockedBalls[hex] = ball;
     }
+    _markBoardChanged();
 
     _updateHints();
   }
@@ -1317,6 +1647,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           'rotation': activePieceRotation,
           'colors': piece.colors.map((color) => color.index).toList(),
           'dropSeed': currentDropSeed,
+          'movingLeft': isMovingLeft,
+          'movingRight': isMovingRight,
+          'contactSlideDirection': _activePieceContactSlideDirection,
         },
     };
   }
@@ -1405,6 +1738,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final y = _asDouble(activeSnapshot['y']);
       final rotation = _asInt(activeSnapshot['rotation']);
       final dropSeed = _asInt(activeSnapshot['dropSeed']);
+      final contactSlideDirection =
+          _asDouble(activeSnapshot['contactSlideDirection']);
       if (colors.length == 3 && x != null && y != null) {
         if (!isRemotePlayerMode) {
           currentDropSeed = dropSeed ?? currentDropSeed;
@@ -1429,6 +1764,15 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           activePiece!.setRotationIndex(rotation);
           ghostPiece!.setRotationIndex(rotation);
         }
+        isMovingLeft = activeSnapshot['movingLeft'] == true;
+        isMovingRight = activeSnapshot['movingRight'] == true;
+        if (isRemotePlayerMode && contactSlideDirection != null) {
+          syncRemoteActivePieceInputState(
+            movingLeft: isMovingLeft,
+            movingRight: isMovingRight,
+            contactSlideDirection: contactSlideDirection,
+          );
+        }
         _updateGhostPosition();
       }
     }
@@ -1451,6 +1795,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       remove(ball);
     }
     grid.lockedBalls.clear();
+    _markBoardChanged();
   }
 
   void _clearAllBoardComponents() {
@@ -1463,6 +1808,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     ghostPiece = null;
     activeOjamaBlocks.clear();
     _hintComponents.clear();
+    _markBoardChanged();
   }
 
   void _clearActiveOjamaBlocks() {
@@ -1500,6 +1846,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       remove(ghostPiece!);
     }
     ghostPiece = null;
+    _markGhostPositionDirty();
   }
 
   void setAutonomousRemotePreviewEnabled(bool enabled) {
@@ -1534,6 +1881,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     clearRemoteActivePiece();
+    isMovingLeft = false;
+    isMovingRight = false;
+    _activePieceContactSlideDirection = 0.0;
+    _remoteTopContactSlideDirection = null;
 
     activePiece = ActivePieceComponent(
       position: _pieceSpawnPosition,
@@ -1555,6 +1906,25 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (_autonomousRemotePreviewEnabled) {
       _notifyBoardUpdated();
     }
+  }
+
+  void syncRemoteActivePieceInputState({
+    required bool movingLeft,
+    required bool movingRight,
+    double? contactSlideDirection,
+  }) {
+    if (!isRemotePlayerMode) {
+      return;
+    }
+    isMovingLeft = movingLeft;
+    isMovingRight = movingRight;
+    if (contactSlideDirection == null || contactSlideDirection == 0) {
+      _remoteTopContactSlideDirection = null;
+      _activePieceContactSlideDirection = 0.0;
+      return;
+    }
+    _remoteTopContactSlideDirection = contactSlideDirection.sign.toDouble();
+    _activePieceContactSlideDirection = _remoteTopContactSlideDirection!;
   }
 
   void prepareSyncedOjamaDrop(int dropSeed) {
@@ -1674,6 +2044,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         ),
       );
     }
+    _markGhostPositionDirty();
     if (ghostPiece != null) {
       ghostPiece!.setRotationIndex(rotation);
       ghostPiece!.angle = piece.angle;
@@ -1687,6 +2058,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     return piece.logicalRotationIndex;
   }
+
+  double get activePieceContactSlideDirection =>
+      _activePieceContactSlideDirection;
 
   void _notifyActivePieceState({
     bool force = false,
@@ -2069,6 +2443,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void rotateLeft() {
     if (activePiece == null || activePiece!.isLocked) return;
     activePiece!.rotateLeft();
+    _markGhostPositionDirty();
     _enforceBounds();
     if (_playsBoardSfx) {
       _playSfx(_rotationSfx, volume: 0.14);
@@ -2079,6 +2454,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void rotateRight() {
     if (activePiece == null || activePiece!.isLocked) return;
     activePiece!.rotateRight();
+    _markGhostPositionDirty();
     _enforceBounds();
     if (_playsBoardSfx) {
       _playSfx(_rotationSfx, volume: 0.14);
@@ -2086,15 +2462,29 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _notifyActivePieceState(force: true, action: 'rotate_right');
   }
 
-  void _enforceBounds() {
-    if (activePiece == null) return;
+  bool _enforceBounds() {
+    if (activePiece == null) return false;
+
+    final minBallCenterX = grid.offset.x + _activePieceWallInset;
+    final maxBallCenterX =
+        grid.offset.x + _boardWidth - _ballRadius * 2 - _activePieceWallInset;
+    var correction = 0.0;
+
     for (var pos in activePiece!.absoluteBallPositions) {
-      if (pos.x < grid.offset.x + 0.3) {
-        activePiece!.position.x += ((grid.offset.x + 0.3) - pos.x);
-      } else if (pos.x > grid.offset.x + 269.7) {
-        activePiece!.position.x -= (pos.x - (grid.offset.x + 269.7));
+      if (pos.x + correction < minBallCenterX) {
+        correction = minBallCenterX - pos.x;
+      } else if (pos.x + correction > maxBallCenterX) {
+        correction = maxBallCenterX - pos.x;
       }
     }
+
+    if (correction == 0.0) {
+      return false;
+    }
+
+    activePiece!.position.x += correction;
+    _markGhostPositionDirty();
+    return true;
   }
 
   void hardDrop() {
@@ -2113,6 +2503,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       activePiece!.position = ghostPiece!.position.clone();
       activePiece!.position.y += 5.0;
+      _forceLockNextActivePieceContact = true;
       _suppressNextLandingSfx = true;
       if (_playsBoardSfx) {
         _playSfx(_hardDropSfx, volume: 0.85);

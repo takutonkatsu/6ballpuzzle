@@ -6,8 +6,10 @@ import 'package:flame_audio/flame_audio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'app_settings.dart';
+import 'app_update_manager.dart';
 import 'app_version.dart';
 import 'auth/auth_manager.dart';
 import 'data/player_data_manager.dart';
@@ -99,7 +101,9 @@ Future<void> _initializeEssentialServices() async {
       }
     }
 
-    await AuthManager.instance.ensureSignedIn();
+    await AuthManager.instance.ensureSignedIn().timeout(
+          const Duration(seconds: 4),
+        );
   } catch (error, stackTrace) {
     debugPrint('Startup Firebase/Auth initialization failed: $error');
     debugPrintStack(stackTrace: stackTrace);
@@ -114,8 +118,10 @@ Future<void> _initializeEssentialServices() async {
 }
 
 Future<void> _initializePostLaunchServices() async {
-  unawaited(AdRemovalPurchaseManager.instance.initialize());
-  await _configureExclusiveGameAudio();
+  if (AdRemovalPurchaseManager.isSupportedPlatform) {
+    unawaited(AdRemovalPurchaseManager.instance.initialize());
+  }
+  await _configureSharedGameAudio();
   try {
     await FlameAudio.bgm.initialize();
   } catch (error, stackTrace) {
@@ -124,7 +130,7 @@ Future<void> _initializePostLaunchServices() async {
   }
 }
 
-Future<void> _configureExclusiveGameAudio() async {
+Future<void> _configureSharedGameAudio() async {
   if (!Platform.isAndroid && !Platform.isIOS) {
     return;
   }
@@ -135,11 +141,13 @@ Future<void> _configureExclusiveGameAudio() async {
         android: const AudioContextAndroid(
           contentType: AndroidContentType.music,
           usageType: AndroidUsageType.game,
-          audioFocus: AndroidAudioFocus.gain,
+          audioFocus: AndroidAudioFocus.none,
         ),
         iOS: AudioContextIOS(
           category: AVAudioSessionCategory.playback,
-          options: const {},
+          options: const {
+            AVAudioSessionOptions.mixWithOthers,
+          },
         ),
       ),
     );
@@ -196,7 +204,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '6-Ball Puzzle',
+      title: 'ヘキサゴン',
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF1E1E1E),
       ),
@@ -215,6 +223,7 @@ class StartupLoadingScreen extends StatefulWidget {
 class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     with SingleTickerProviderStateMixin {
   static const Duration _bootstrapTimeout = Duration(seconds: 8);
+  static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
 
   late final AnimationController _progressController;
 
@@ -229,7 +238,39 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   }
 
   Future<void> _boot() async {
-    final bootstrapFuture = _prepareHome().timeout(
+    final minimumDisplayFuture = Future.wait<void>([
+      _progressController.forward(from: 0),
+      Future<void>.delayed(const Duration(milliseconds: 1800)),
+    ]);
+    await _initializeEssentialServices().timeout(
+      _bootstrapTimeout,
+      onTimeout: () {
+        debugPrint(
+          'Essential services initialization timed out; continuing startup.',
+        );
+      },
+    );
+    if (!mounted) {
+      return;
+    }
+
+    final updateRequirement = await AppUpdateManager.checkRequirement();
+    if (!mounted) {
+      return;
+    }
+    if (updateRequirement.required) {
+      Navigator.of(context).pushReplacement(
+        PageRouteBuilder<void>(
+          pageBuilder: (_, animation, __) => FadeTransition(
+            opacity: animation,
+            child: ForceUpdateScreen(requirement: updateRequirement),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final bootstrapFuture = prepareHomeBootstrapData().timeout(
       _bootstrapTimeout,
       onTimeout: () {
         debugPrint('Home bootstrap timed out; continuing with local defaults.');
@@ -239,10 +280,6 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         );
       },
     );
-    final minimumDisplayFuture = Future.wait<void>([
-      _progressController.forward(from: 0),
-      Future<void>.delayed(const Duration(milliseconds: 1800)),
-    ]);
     HomeBootstrapData bootstrapData;
     try {
       final results = await Future.wait<Object?>([
@@ -262,6 +299,9 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     if (!mounted) {
       return;
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_initializePostLaunchServices());
+    });
 
     if (!AppSettings.instance.onboardingSeen.value) {
       await Navigator.of(context).push(
@@ -307,15 +347,6 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     );
   }
 
-  Future<HomeBootstrapData> _prepareHome() async {
-    await _initializeEssentialServices();
-    final bootstrapData = await prepareHomeBootstrapData();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_initializePostLaunchServices());
-    });
-    return bootstrapData;
-  }
-
   Future<String> _showStartupNameRegistrationDialog({
     required String initialName,
     required int rating,
@@ -332,6 +363,9 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
           return StatefulBuilder(
             builder: (context, setDialogState) {
               Future<void> submit() async {
+                if (isSubmitting) {
+                  return;
+                }
                 final nextName = controller.text.trim();
                 if (nextName.isEmpty) {
                   setDialogState(() {
@@ -418,7 +452,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                         TextField(
                           controller: controller,
                           autofocus: true,
-                          maxLength: 12,
+                          maxLength: 10,
                           textInputAction: TextInputAction.done,
                           onSubmitted: (_) => unawaited(submit()),
                           style: const TextStyle(color: Colors.white),
@@ -494,15 +528,35 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   }) async {
     final playerDataManager = PlayerDataManager.instance;
     final multiplayerManager = MultiplayerManager.instance;
-    final rankingManager = RankingManager.instance;
     final trimmed = name.trim();
     await playerDataManager.setPlayerName(trimmed);
     multiplayerManager.setPlayerName(trimmed);
-    await multiplayerManager.updateUserName(playerDataManager.playerName);
-    await rankingManager.updateMyRating(
-      rating: rating,
-      displayName: playerDataManager.displayPlayerName,
-    );
+    unawaited(_syncStartupPlayerNameOnline(rating: rating));
+  }
+
+  Future<void> _syncStartupPlayerNameOnline({
+    required int rating,
+  }) async {
+    final playerDataManager = PlayerDataManager.instance;
+    final multiplayerManager = MultiplayerManager.instance;
+    final rankingManager = RankingManager.instance;
+    try {
+      await multiplayerManager
+          .updateUserName(playerDataManager.playerName)
+          .timeout(_nameRegistrationSyncTimeout);
+    } catch (_) {
+      // 名前はローカルに保存済みなので、オンライン同期の遅延で登録画面を止めない。
+    }
+    try {
+      await rankingManager
+          .updateMyRating(
+            rating: rating,
+            displayName: playerDataManager.displayPlayerName,
+          )
+          .timeout(_nameRegistrationSyncTimeout);
+    } catch (_) {
+      // ランキング同期の権限/通信失敗で初回名前登録を止めない。
+    }
   }
 
   @override
@@ -666,6 +720,139 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ForceUpdateScreen extends StatelessWidget {
+  const ForceUpdateScreen({
+    super.key,
+    required this.requirement,
+  });
+
+  final AppUpdateRequirement requirement;
+
+  Future<void> _openStore() async {
+    final url = Uri.tryParse(requirement.storeUrl);
+    if (url == null) {
+      return;
+    }
+    await launchUrl(url, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        body: Container(
+          width: double.infinity,
+          height: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF111827),
+                Color(0xFF161626),
+                Color(0xFF080A12),
+              ],
+            ),
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141421),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.cyanAccent.withValues(alpha: 0.72),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.cyanAccent.withValues(alpha: 0.24),
+                      blurRadius: 28,
+                    ),
+                    BoxShadow(
+                      color: Colors.pinkAccent.withValues(alpha: 0.12),
+                      blurRadius: 38,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.system_update,
+                      color: Colors.cyanAccent,
+                      size: 42,
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'アップデートが必要です',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      requirement.message,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        height: 1.55,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '現在: ${requirement.currentBuild} / 必要: ${requirement.minSupportedBuild}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: requirement.storeUrl.isEmpty
+                            ? null
+                            : () => unawaited(_openStore()),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.cyanAccent,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'ストアでアップデート',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

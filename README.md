@@ -18,7 +18,7 @@ App Store提出ビルドでは、以下の値を実プロダクトのものに�
 
 - `PRIVACY_POLICY_URL`
 - `SUPPORT_EMAIL`
-- `AD_REMOVAL_PRODUCT_ID`
+- `IOS_AD_REMOVAL_PRODUCT_ID`
 - `IOS_BANNER_AD_UNIT_ID`
 - `IOS_INTERSTITIAL_AD_UNIT_ID`
 - `IOS_REWARDED_AD_UNIT_ID`
@@ -30,7 +30,7 @@ flutter build ipa --release \
   --dart-define=FLAVOR=prod \
   --dart-define=PRIVACY_POLICY_URL=https://example.com/privacy \
   --dart-define=SUPPORT_EMAIL=support@example.com \
-  --dart-define=AD_REMOVAL_PRODUCT_ID=ad_removal \
+  --dart-define=IOS_AD_REMOVAL_PRODUCT_ID=remove_ads \
   --dart-define=IOS_BANNER_AD_UNIT_ID=ca-app-pub-.../... \
   --dart-define=IOS_INTERSTITIAL_AD_UNIT_ID=ca-app-pub-.../... \
   --dart-define=IOS_REWARDED_AD_UNIT_ID=ca-app-pub-.../...

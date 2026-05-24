@@ -50,6 +50,7 @@ class _ShopScreenState extends State<ShopScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(RewardedAdManager.instance.warmUp());
     _loadShop();
   }
 

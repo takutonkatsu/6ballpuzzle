@@ -19,12 +19,18 @@ class AdRemovalPurchaseManager {
   bool _storeKitConfigured = false;
   String? _lastInitializationError;
 
+  static bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
   ProductDetails? get product => _product;
   bool get isConfigured => _productId.trim().isNotEmpty;
   String? get lastInitializationError => _lastInitializationError;
   bool get isAvailableForPurchase => _product != null;
 
   Future<bool> initialize() async {
+    if (!isSupportedPlatform) {
+      _isInitialized = true;
+      _product = null;
+      return false;
+    }
     if (!isConfigured) {
       return false;
     }
@@ -39,7 +45,8 @@ class AdRemovalPurchaseManager {
       final available = await _iap.isAvailable();
       if (!available) {
         _isInitialized = true;
-        _lastInitializationError = 'StoreKit is unavailable on this device.';
+        _lastInitializationError =
+            'In-app purchases are unavailable on this device.';
         return false;
       }
 
@@ -77,7 +84,7 @@ class AdRemovalPurchaseManager {
   }
 
   Future<void> restore() async {
-    if (!isConfigured) {
+    if (!isSupportedPlatform || !isConfigured) {
       return;
     }
     final ready = await initialize();

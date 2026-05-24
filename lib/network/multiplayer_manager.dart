@@ -11,6 +11,8 @@ import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
 import '../game/game_models.dart';
 import '../moderation/moderation_manager.dart';
+import 'ranked_season_manager.dart';
+import 'server_time_manager.dart';
 
 typedef RoomUpdateCallback = void Function(MultiplayerRoom room);
 typedef OpponentBoardUpdateCallback = void Function(Map<String, dynamic> board);
@@ -98,6 +100,8 @@ class MultiplayerRoom {
     required this.seed,
     required this.players,
     this.isRanked = false,
+    this.seasonId,
+    this.seasonEndsAt,
   });
 
   final String roomId;
@@ -105,6 +109,8 @@ class MultiplayerRoom {
   final int seed;
   final Map<String, MultiplayerPlayer> players;
   final bool isRanked;
+  final String? seasonId;
+  final int? seasonEndsAt;
 
   bool get hasHost => players.containsKey('host');
   bool get hasGuest => players.containsKey('guest');
@@ -128,6 +134,8 @@ class MultiplayerRoom {
       isRanked: map['mode'] == 'ranked' ||
           map['mode'] == 'arena' ||
           map['ranked'] == true,
+      seasonId: map['seasonId']?.toString(),
+      seasonEndsAt: _globalIntValue(map['seasonEndsAt']),
       players: {
         for (final entry in playersRaw.entries)
           entry.key.toString(): MultiplayerPlayer.fromMap(
@@ -240,7 +248,13 @@ class MultiplayerManager {
   static MultiplayerManager get instance => _instance;
 
   static const int initialRating = 1000;
-  static const int rankedBotRatingCap = 1500;
+  static const int rankedBotMinimumMaxRating = 1500;
+  static const int rankedBotRatingLeadOffset = 300;
+  static const int rankedBotRatingLeadVariance = 40;
+  static const int rankedBotStrengthMinRating = 700;
+  static const Duration rankedBotTopRatingTimeout = Duration(seconds: 3);
+  static const Duration matchmakingDatabaseOperationTimeout =
+      Duration(seconds: 5);
   static const String rankedBotRoomId = '__ranked_bot__';
   static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v2';
   static const List<String> _legacySavedSessionPrefsKeys = [
@@ -258,6 +272,8 @@ class MultiplayerManager {
   bool isRankedMode = false;
   int? rankedBotRating;
   CPUDifficulty? rankedBotDifficulty;
+  String? rankedBotSeasonId;
+  int? rankedBotSeasonEndsAt;
 
   StreamSubscription<DatabaseEvent>? _roomSubscription;
   StreamSubscription<DatabaseEvent>? _opponentBoardSubscription;
@@ -280,6 +296,7 @@ class MultiplayerManager {
   RematchStartedCallback? onRematchStarted;
 
   String? _lastRoomStatus;
+  String? _lastRoomUiSignature;
   bool _hadOpponentPresent = false;
   bool _isLaunchingRematch = false;
   bool _isMatchFound = false;
@@ -334,6 +351,7 @@ class MultiplayerManager {
   }
 
   Future<int> initializeUser({String? name}) async {
+    final hasProvidedName = name?.trim().isNotEmpty ?? false;
     if (name != null) {
       setPlayerName(name);
     }
@@ -343,10 +361,17 @@ class MultiplayerManager {
 
     try {
       final userRef = _db.child('users/$uid');
-      final snapshot = await userRef.get();
+      final snapshot =
+          await userRef.get().timeout(matchmakingDatabaseOperationTimeout);
       final userData = snapshot.value is Map ? snapshot.value as Map : null;
       final syncedRating = _intValue(userData?['rating']) ?? currentRating;
       currentRating = syncedRating;
+      await PlayerDataManager.instance.load();
+      final hasSavedName =
+          PlayerDataManager.instance.playerName.trim().isNotEmpty;
+      if (!hasProvidedName && !hasSavedName) {
+        return currentRating;
+      }
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
       await userRef.update({
@@ -355,7 +380,9 @@ class MultiplayerManager {
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
         'updatedAt': ServerValue.timestamp,
-      });
+      }).timeout(matchmakingDatabaseOperationTimeout);
+    } on TimeoutException {
+      return currentRating;
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('ユーザー情報の同期', error));
     }
@@ -365,16 +392,15 @@ class MultiplayerManager {
 
   Future<void> updateUserName(String name) async {
     setPlayerName(name);
-    final uid = myUid;
-    if (uid == null) {
-      return;
-    }
+    final uid = myUid ?? await _loadAuthenticatedUid();
+    myUid = uid;
 
     try {
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
+        'rating': currentRating,
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
         'updatedAt': ServerValue.timestamp,
@@ -416,7 +442,10 @@ class MultiplayerManager {
     final oldRating = currentRating;
     final opponentRating =
         currentRoom?.players[opponentRoleId]?.rating ?? oldRating;
-    final newRating = calculateNewRating(oldRating, opponentRating, isWin);
+    final seasonExpired = await _rankedRoomSeasonExpired(currentRoom);
+    final newRating = seasonExpired
+        ? oldRating
+        : calculateNewRating(oldRating, opponentRating, isWin);
     final delta = newRating - oldRating;
 
     currentRating = newRating;
@@ -441,6 +470,8 @@ class MultiplayerManager {
           'oldRating': oldRating,
           'newRating': newRating,
           'delta': delta,
+          if (seasonExpired) 'seasonExpired': true,
+          if (currentRoom?.seasonId != null) 'seasonId': currentRoom!.seasonId,
           'timestamp': ServerValue.timestamp,
         });
 
@@ -449,6 +480,7 @@ class MultiplayerManager {
             roomId: roomId,
             myOldRating: oldRating,
             opponentWon: !isWin,
+            seasonExpired: seasonExpired,
           );
         }
       }
@@ -471,7 +503,10 @@ class MultiplayerManager {
     myUid = uid;
 
     final oldRating = currentRating;
-    final newRating = calculateNewRating(oldRating, opponentRating, isWin);
+    final seasonExpired = await _rankedBotSeasonExpired();
+    final newRating = seasonExpired
+        ? oldRating
+        : calculateNewRating(oldRating, opponentRating, isWin);
     final delta = newRating - oldRating;
     currentRating = newRating;
 
@@ -496,6 +531,7 @@ class MultiplayerManager {
     required String roomId,
     required int myOldRating,
     required bool opponentWon,
+    required bool seasonExpired,
   }) async {
     final opponent = currentRoom?.players[opponentRoleId];
     final opponentUid = opponent?.uid;
@@ -510,11 +546,13 @@ class MultiplayerManager {
       return;
     }
 
-    final opponentNewRating = calculateNewRating(
-      opponentOldRating,
-      myOldRating,
-      opponentWon,
-    );
+    final opponentNewRating = seasonExpired
+        ? opponentOldRating
+        : calculateNewRating(
+            opponentOldRating,
+            myOldRating,
+            opponentWon,
+          );
     final opponentDelta = opponentNewRating - opponentOldRating;
     await resultRef.set({
       'uid': opponentUid,
@@ -522,9 +560,36 @@ class MultiplayerManager {
       'oldRating': opponentOldRating,
       'newRating': opponentNewRating,
       'delta': opponentDelta,
+      if (seasonExpired) 'seasonExpired': true,
+      if (currentRoom?.seasonId != null) 'seasonId': currentRoom!.seasonId,
       'resolvedBy': myUid,
       'timestamp': ServerValue.timestamp,
     });
+  }
+
+  Future<bool> _rankedRoomSeasonExpired(MultiplayerRoom? room) async {
+    if (room?.seasonId == null) {
+      return false;
+    }
+    final nowJst = await ServerTimeManager.instance.nowJst(forceRefresh: true);
+    return room!.seasonId !=
+        RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+  }
+
+  Future<bool> _rankedBotSeasonExpired() async {
+    final seasonId = rankedBotSeasonId;
+    if (seasonId == null || seasonId.isEmpty) {
+      return false;
+    }
+    final nowJst = await ServerTimeManager.instance.nowJst(forceRefresh: true);
+    return seasonId !=
+        RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+  }
+
+  Future<String> _currentSeasonId({bool forceRefresh = false}) async {
+    final nowJst =
+        await ServerTimeManager.instance.nowJst(forceRefresh: forceRefresh);
+    return RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
   }
 
   Future<String> createRoom() async {
@@ -644,6 +709,8 @@ class MultiplayerManager {
     currentRating = myRating;
     rankedBotRating = null;
     rankedBotDifficulty = null;
+    rankedBotSeasonId = null;
+    rankedBotSeasonEndsAt = null;
     _isMatchFound = false;
     _isMatchmakingAttemptInProgress = false;
     _matchmakingStartedAt = DateTime.now();
@@ -655,8 +722,16 @@ class MultiplayerManager {
     Timer? rankedBotTimer;
 
     try {
-      await entryRef.onDisconnect().remove();
-      await _writeWaitingMatchmakingEntry(uid, myRating);
+      try {
+        await entryRef
+            .onDisconnect()
+            .remove()
+            .timeout(matchmakingDatabaseOperationTimeout);
+        await _writeWaitingMatchmakingEntry(uid, myRating)
+            .timeout(matchmakingDatabaseOperationTimeout);
+      } catch (_) {
+        // DB待機列が使えない場合でも、Bot補完までは進める。
+      }
 
       _matchmakingInviteSubscription = entryRef.onValue.listen(
         (event) {
@@ -674,7 +749,7 @@ class MultiplayerManager {
       );
       rankedBotTimer = Timer(
         const Duration(seconds: 15),
-        () => _completeRankedBotMatch(myRating),
+        () => unawaited(_completeRankedBotMatch(myRating)),
       );
 
       return await completer.future;
@@ -965,9 +1040,14 @@ class MultiplayerManager {
     }
   }
 
-  void _completeRankedBotMatch(int myRating) {
+  Future<void> _completeRankedBotMatch(int myRating) async {
     final completer = _matchmakingCompleter;
     if (completer == null || completer.isCompleted || _isMatchFound) {
+      return;
+    }
+
+    final topRating = await _loadTopRankingRating();
+    if (completer.isCompleted || _isMatchFound) {
       return;
     }
 
@@ -975,32 +1055,125 @@ class MultiplayerManager {
     _matchmakingPollTimer?.cancel();
     currentRating = myRating;
     isRankedMode = true;
-    rankedBotRating = _generateRankedBotRating(myRating);
-    rankedBotDifficulty = _rankedBotDifficultyForRating(myRating);
+    final nowJst = await ServerTimeManager.instance.nowJst(forceRefresh: true);
+    rankedBotSeasonId =
+        RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+    rankedBotSeasonEndsAt = RankedSeasonManager.seasonEndJst(rankedBotSeasonId!)
+        .millisecondsSinceEpoch;
+    rankedBotRating = _generateRankedBotRating(
+      playerRating: myRating,
+      topRating: topRating,
+    );
+    rankedBotDifficulty = _rankedBotDifficultyForRating(
+      playerRating: myRating,
+      topRating: topRating,
+    );
     completer.complete(rankedBotRoomId);
   }
 
-  int _generateRankedBotRating(int playerRating) {
-    if (playerRating >= rankedBotRatingCap) {
-      return 1450 + _random.nextInt(51);
+  Future<int> _loadTopRankingRating() async {
+    try {
+      final snapshot = await _db
+          .child('rankedSeasons/seasons/${await _currentSeasonId()}/rankings')
+          .orderByChild('rating')
+          .limitToLast(1)
+          .get()
+          .timeout(rankedBotTopRatingTimeout);
+      final value = snapshot.value;
+      if (value is! Map) {
+        return max(initialRating, currentRating);
+      }
+      var topRating = initialRating;
+      for (final entry in value.values) {
+        if (entry is Map) {
+          topRating = max(topRating, _intValue(entry['rating']) ?? topRating);
+        }
+      }
+      return max(topRating, currentRating);
+    } catch (_) {
+      return max(initialRating, currentRating);
     }
-
-    final minRating = max(0, playerRating - 100);
-    final maxRating = min(rankedBotRatingCap, playerRating + 100);
-    return minRating + _random.nextInt(maxRating - minRating + 1);
   }
 
-  CPUDifficulty _rankedBotDifficultyForRating(int playerRating) {
-    if (playerRating >= rankedBotRatingCap) {
-      return CPUDifficulty.oni;
+  int _rankedBotMaxRating(int topRating) {
+    final leadJitter = _random.nextInt(rankedBotRatingLeadVariance * 2 + 1) -
+        rankedBotRatingLeadVariance;
+    final leadOffset = rankedBotRatingLeadOffset + leadJitter;
+    return max(
+      rankedBotMinimumMaxRating,
+      topRating - leadOffset,
+    );
+  }
+
+  int _generateRankedBotRating({
+    required int playerRating,
+    required int topRating,
+  }) {
+    final botMaxRating = _rankedBotMaxRating(topRating);
+    late final int minOffset;
+    late final int maxOffset;
+
+    if (playerRating < 1000) {
+      minOffset = 0;
+      maxOffset = 100;
+    } else if (playerRating >= botMaxRating - 200) {
+      minOffset = -100;
+      maxOffset = 0;
+    } else {
+      minOffset = -50;
+      maxOffset = 50;
     }
-    if (playerRating >= 1250) {
-      return CPUDifficulty.hard;
-    }
-    if (playerRating >= 950) {
-      return CPUDifficulty.normal;
-    }
-    return CPUDifficulty.easy;
+
+    final offset = minOffset + _random.nextInt(maxOffset - minOffset + 1);
+    return min(botMaxRating, max(0, playerRating + offset));
+  }
+
+  CPUDifficulty _rankedBotDifficultyForRating({
+    required int playerRating,
+    required int topRating,
+  }) {
+    final strengthMaxRating = max(rankedBotMinimumMaxRating, topRating);
+    final span = max(1, strengthMaxRating - rankedBotStrengthMinRating);
+    final step = span / 10;
+    final rawLevel =
+        ((playerRating - rankedBotStrengthMinRating) / step).floor() + 1;
+    final level = rawLevel.clamp(1, 10);
+    return switch (level) {
+      1 => CPUDifficulty.rankedLv1,
+      2 => CPUDifficulty.rankedLv2,
+      3 => CPUDifficulty.rankedLv3,
+      4 => CPUDifficulty.rankedLv4,
+      5 => CPUDifficulty.rankedLv5,
+      6 => CPUDifficulty.rankedLv6,
+      7 => CPUDifficulty.rankedLv7,
+      8 => CPUDifficulty.rankedLv8,
+      9 => CPUDifficulty.rankedLv9,
+      _ => CPUDifficulty.rankedLv10,
+    };
+  }
+
+  static int rankedBotLevelForDifficulty(CPUDifficulty difficulty) {
+    return switch (difficulty) {
+      CPUDifficulty.rankedLv1 => 1,
+      CPUDifficulty.rankedLv2 => 2,
+      CPUDifficulty.rankedLv3 => 3,
+      CPUDifficulty.rankedLv4 => 4,
+      CPUDifficulty.rankedLv5 => 5,
+      CPUDifficulty.rankedLv6 => 6,
+      CPUDifficulty.rankedLv7 => 7,
+      CPUDifficulty.rankedLv8 => 8,
+      CPUDifficulty.rankedLv9 => 9,
+      CPUDifficulty.rankedLv10 => 10,
+      CPUDifficulty.easy => 1,
+      CPUDifficulty.normal => 5,
+      CPUDifficulty.hard => 8,
+      CPUDifficulty.oni => 10,
+    };
+  }
+
+  static String rankedBotLevelLabel(CPUDifficulty difficulty) {
+    final level = rankedBotLevelForDifficulty(difficulty);
+    return 'Lv.$level';
   }
 
   Future<void> _tryArenaMatch(int currentWins) async {
@@ -1470,10 +1643,15 @@ class MultiplayerManager {
       rating: myRating,
     );
     final seed = DateTime.now().millisecondsSinceEpoch;
+    final seasonId = await _currentSeasonId(forceRefresh: true);
+    final seasonEndsAt =
+        RankedSeasonManager.seasonEndJst(seasonId).millisecondsSinceEpoch;
     final roomRef = _db.child('rooms/$roomId');
     await roomRef.set({
       'mode': 'ranked',
       'ranked': true,
+      'seasonId': seasonId,
+      'seasonEndsAt': seasonEndsAt,
       'status': 'waiting',
       'seed': seed,
       'matchmaking': {
@@ -1493,6 +1671,8 @@ class MultiplayerManager {
       status: 'waiting',
       seed: seed,
       isRanked: true,
+      seasonId: seasonId,
+      seasonEndsAt: seasonEndsAt,
       players: {
         'host': MultiplayerPlayer.fromMap(hostData),
       },
@@ -1626,6 +1806,8 @@ class MultiplayerManager {
     myRoleId = null;
     currentRoom = null;
     isRankedMode = false;
+    rankedBotSeasonId = null;
+    rankedBotSeasonEndsAt = null;
     _lastRoomStatus = null;
     _hadOpponentPresent = false;
     _isLaunchingRematch = false;
@@ -1796,6 +1978,9 @@ class MultiplayerManager {
       snapshot: {
         'opponentRating': opponentRating,
         'opponentName': 'Player',
+        if (rankedBotSeasonId != null) 'seasonId': rankedBotSeasonId,
+        if (rankedBotSeasonEndsAt != null)
+          'seasonEndsAt': rankedBotSeasonEndsAt,
       },
     );
     await prefs.setString(_savedSessionPrefsKey, jsonEncode(session.toJson()));
@@ -1944,8 +2129,8 @@ class MultiplayerManager {
   Future<SavedSessionResolution> _resolveAbandonedRankedBotSession(
     SavedOnlineSession session,
   ) async {
-    final opponentRating =
-        _intValue(session.snapshot?['opponentRating']) ?? rankedBotRatingCap;
+    final opponentRating = _intValue(session.snapshot?['opponentRating']) ??
+        rankedBotMinimumMaxRating;
     final opponentName =
         session.snapshot?['opponentName']?.toString().trim().isNotEmpty == true
             ? session.snapshot!['opponentName'].toString().trim()
@@ -1954,7 +2139,14 @@ class MultiplayerManager {
     myUid = uid;
 
     final oldRating = await _loadLatestUserRating();
-    final newRating = calculateNewRating(oldRating, opponentRating, false);
+    final sessionSeasonId = session.snapshot?['seasonId']?.toString();
+    final currentSeasonId = await _currentSeasonId(forceRefresh: true);
+    final seasonExpired = sessionSeasonId != null &&
+        sessionSeasonId.isNotEmpty &&
+        sessionSeasonId != currentSeasonId;
+    final newRating = seasonExpired
+        ? oldRating
+        : calculateNewRating(oldRating, opponentRating, false);
     final delta = newRating - oldRating;
     currentRating = newRating;
 
@@ -2002,11 +2194,14 @@ class MultiplayerManager {
     myUid = myUidValue;
     final myOldRating = myPlayer.rating ?? await _loadLatestUserRating();
     final opponentOldRating = opponentPlayer?.rating ?? myOldRating;
-    final myNewRating = calculateNewRating(
-      myOldRating,
-      opponentOldRating,
-      isWin,
-    );
+    final seasonExpired = await _rankedRoomSeasonExpired(room);
+    final myNewRating = seasonExpired
+        ? myOldRating
+        : calculateNewRating(
+            myOldRating,
+            opponentOldRating,
+            isWin,
+          );
     final myDelta = myNewRating - myOldRating;
 
     final myResult = <String, Object?>{
@@ -2015,6 +2210,8 @@ class MultiplayerManager {
       'oldRating': myOldRating,
       'newRating': myNewRating,
       'delta': myDelta,
+      if (seasonExpired) 'seasonExpired': true,
+      if (room.seasonId != null) 'seasonId': room.seasonId,
       'resolvedBy': myUidValue,
       'timestamp': ServerValue.timestamp,
     };
@@ -2029,11 +2226,13 @@ class MultiplayerManager {
         opponentPlayer?.uid != null &&
         opponentPlayer?.rating != null) {
       final opponentUidValue = opponentPlayer!.uid!;
-      final opponentNewRating = calculateNewRating(
-        opponentPlayer.rating!,
-        myOldRating,
-        !isWin,
-      );
+      final opponentNewRating = seasonExpired
+          ? opponentPlayer.rating!
+          : calculateNewRating(
+              opponentPlayer.rating!,
+              myOldRating,
+              !isWin,
+            );
       final opponentDelta = opponentNewRating - opponentPlayer.rating!;
       await _db.child('rooms/$roomId/results/$opponentRoleId').set({
         'uid': opponentUidValue,
@@ -2041,6 +2240,8 @@ class MultiplayerManager {
         'oldRating': opponentPlayer.rating,
         'newRating': opponentNewRating,
         'delta': opponentDelta,
+        if (seasonExpired) 'seasonExpired': true,
+        if (room.seasonId != null) 'seasonId': room.seasonId,
         'resolvedBy': myUidValue,
         'timestamp': ServerValue.timestamp,
       });
@@ -2236,6 +2437,9 @@ class MultiplayerManager {
     String action,
     int dropSeed,
     List<int> nextColors,
+    bool movingLeft,
+    bool movingRight,
+    double contactSlideDirection,
   ) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
@@ -2252,6 +2456,9 @@ class MultiplayerManager {
         'colors': colors.map((color) => color.index).toList(),
         'dropSeed': dropSeed,
         'nextColors': nextColors,
+        'movingLeft': movingLeft,
+        'movingRight': movingRight,
+        'contactSlideDirection': contactSlideDirection,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
@@ -2456,6 +2663,7 @@ class MultiplayerManager {
         }
         currentRoom = null;
         _lastRoomStatus = null;
+        _lastRoomUiSignature = null;
         _hadOpponentPresent = false;
         return;
       }
@@ -2485,8 +2693,46 @@ class MultiplayerManager {
       currentRoom = room;
       _lastRoomStatus = room.status;
       unawaited(_refreshPresenceModeIfNeeded());
-      onRoomUpdated?.call(room);
+      final nextRoomUiSignature = _roomUiSignature(room);
+      if (_lastRoomUiSignature != nextRoomUiSignature) {
+        _lastRoomUiSignature = nextRoomUiSignature;
+        onRoomUpdated?.call(room);
+      }
     });
+  }
+
+  String _roomUiSignature(MultiplayerRoom room) {
+    final buffer = StringBuffer()
+      ..write(room.status)
+      ..write('|')
+      ..write(room.seed)
+      ..write('|')
+      ..write(room.isRanked)
+      ..write('|')
+      ..write(room.seasonId ?? '')
+      ..write('|')
+      ..write(room.seasonEndsAt ?? '');
+
+    final roles = room.players.keys.toList()..sort();
+    for (final role in roles) {
+      final player = room.players[role]!;
+      buffer
+        ..write('|')
+        ..write(role)
+        ..write(':')
+        ..write(player.status)
+        ..write(':')
+        ..write(player.name)
+        ..write(':')
+        ..write(player.uid ?? '')
+        ..write(':')
+        ..write(player.rating ?? '')
+        ..write(':')
+        ..write(player.playerIconId)
+        ..write(':')
+        ..write(player.badgeIds.join(','));
+    }
+    return buffer.toString();
   }
 
   void _listenGameplayChannels() {
@@ -2704,6 +2950,7 @@ class MultiplayerManager {
     currentRoom = null;
     isRankedMode = false;
     _lastRoomStatus = null;
+    _lastRoomUiSignature = null;
     _hadOpponentPresent = false;
     _isLaunchingRematch = false;
     _opponentDisconnectNotified = false;

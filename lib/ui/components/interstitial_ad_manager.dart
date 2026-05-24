@@ -4,17 +4,19 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../ads/app_ad_service.dart';
+import '../../audio/seamless_bgm.dart';
 
 class InterstitialAdManager {
   InterstitialAdManager._internal();
 
   static final InterstitialAdManager instance =
       InterstitialAdManager._internal();
-  static const Duration _showTimeout = Duration(seconds: 8);
   static const Duration _retryDelay = Duration(seconds: 10);
+  static const Duration _afterGameLoadGrace = Duration(milliseconds: 900);
 
   InterstitialAd? _cachedAd;
   bool _isLoading = false;
+  bool _isShowing = false;
   Timer? _retryTimer;
 
   Future<void> warmUp() async {
@@ -32,49 +34,77 @@ class InterstitialAdManager {
     }
   }
 
-  Future<void> showIfNeeded() async {
+  Future<void> showAfterGame() async {
     if (!AppAdService.instance.canRequestAds) {
+      return;
+    }
+    if (_cachedAd == null) {
+      try {
+        await _ensureLoaded().timeout(
+          _afterGameLoadGrace,
+          onTimeout: () {},
+        );
+      } catch (_) {
+        // リザルト離脱時に間に合わない広告は、次の操作へ持ち越して表示しない。
+      }
+    }
+    await showIfNeeded(warmUpOnMiss: false);
+  }
+
+  Future<void> showIfNeeded({bool warmUpOnMiss = true}) async {
+    if (!AppAdService.instance.canRequestAds) {
+      return;
+    }
+    if (_isShowing) {
       return;
     }
     final ad = _cachedAd;
     if (ad == null) {
-      unawaited(warmUp());
+      if (warmUpOnMiss) {
+        unawaited(warmUp());
+      }
       return;
     }
     _cachedAd = null;
+    _isShowing = true;
 
     final completer = Completer<void>();
+    Future<void> finishAd(InterstitialAd ad) async {
+      ad.dispose();
+      try {
+        await SeamlessBgm.instance.resumeFromExternalAudio();
+      } finally {
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      }
+    }
+
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-        unawaited(warmUp());
+        unawaited(finishAd(ad));
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
-        ad.dispose();
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-        unawaited(warmUp());
+        unawaited(finishAd(ad));
       },
     );
     try {
+      await SeamlessBgm.instance.suspendForExternalAudio();
       ad.show();
-      await completer.future.timeout(_showTimeout, onTimeout: () {
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      });
+      await completer.future;
     } catch (error, stackTrace) {
       debugPrint('Interstitial ad show threw: $error');
       debugPrintStack(stackTrace: stackTrace);
       ad.dispose();
-      if (!completer.isCompleted) {
-        completer.complete();
+      try {
+        await SeamlessBgm.instance.resumeFromExternalAudio();
+      } finally {
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
       }
     } finally {
+      _isShowing = false;
       unawaited(warmUp());
     }
   }

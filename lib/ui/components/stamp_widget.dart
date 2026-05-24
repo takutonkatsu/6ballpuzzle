@@ -95,7 +95,8 @@ class _StampWidgetState extends State<StampWidget>
   @override
   Widget build(BuildContext context) {
     final text = widget.item.text ?? '...';
-    final color = widget.colorOverride ?? _getColor(widget.item.colorName);
+    final color = widget.colorOverride ?? Colors.white;
+    final glowColor = _getColor(widget.item.colorName);
     final iconData = _getIcon(widget.item.iconName);
 
     final double scale = widget.forceLarge ? 2.0 : 1.0;
@@ -111,7 +112,7 @@ class _StampWidgetState extends State<StampWidget>
           fontFamily: 'Courier',
           fontWeight: FontWeight.bold,
           shadows: [
-            Shadow(color: color.withValues(alpha: 0.55), blurRadius: 2)
+            Shadow(color: glowColor.withValues(alpha: 0.35), blurRadius: 2)
           ],
         ),
       );
@@ -128,7 +129,7 @@ class _StampWidgetState extends State<StampWidget>
           fontFamily: 'Courier',
           fontWeight: FontWeight.w900,
           shadows: [
-            Shadow(color: color, blurRadius: 10 * scale),
+            Shadow(color: glowColor, blurRadius: 10 * scale),
             Shadow(color: Colors.white, blurRadius: 2 * scale),
           ],
         ),
@@ -144,7 +145,7 @@ class _StampWidgetState extends State<StampWidget>
           iconData,
           color: color,
           size: 20 * scale,
-          shadows: [Shadow(color: color, blurRadius: 12 * scale)],
+          shadows: [Shadow(color: glowColor, blurRadius: 12 * scale)],
         ),
         SizedBox(width: 8 * scale),
         Text(
@@ -156,7 +157,7 @@ class _StampWidgetState extends State<StampWidget>
             fontFamily: 'Courier',
             fontWeight: FontWeight.w900,
             shadows: [
-              Shadow(color: color, blurRadius: 12 * scale),
+              Shadow(color: glowColor, blurRadius: 12 * scale),
               Shadow(color: Colors.white, blurRadius: 2 * scale),
             ],
           ),

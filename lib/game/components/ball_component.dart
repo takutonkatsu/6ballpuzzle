@@ -142,6 +142,18 @@ class BallComponent extends PositionComponent {
     _snapProgress = 0.0;
   }
 
+  void clearSnapTarget() {
+    _snapTarget = null;
+    _snapProgress = 0.0;
+  }
+
+  void lockTo(Vector2 targetPos) {
+    clearSnapTarget();
+    velocity = Vector2.zero();
+    state = BallState.locked;
+    position = targetPos.clone();
+  }
+
   @override
   void render(Canvas canvas) {
     super.render(canvas);

@@ -89,6 +89,7 @@ class BadgeItem {
     required this.icon,
     required this.unlockedCondition,
     this.level,
+    this.evolutionGroup,
   });
 
   final String id;
@@ -96,6 +97,7 @@ class BadgeItem {
   final IconData icon;
   final BadgeUnlockCondition unlockedCondition;
   final int? level;
+  final String? evolutionGroup;
 
   Color get frameColor {
     return switch (level) {
@@ -106,6 +108,81 @@ class BadgeItem {
       5 => const Color(0xFFB56CFF),
       _ => Colors.amberAccent,
     };
+  }
+}
+
+class SeasonRankBadge {
+  const SeasonRankBadge({
+    required this.seasonId,
+    required this.rank,
+  });
+
+  static final RegExp _idPattern =
+      RegExp(r'^season_rank_(\d{4}-\d{2})_(\d{1,3})$');
+
+  final String seasonId;
+  final int rank;
+
+  String get id => idFor(seasonId: seasonId, rank: rank);
+  String get label => 'ランク戦 $rank位';
+  String get detailLabel => '$rank位　${_seasonName(seasonId)}';
+
+  Map<String, dynamic> toJson() {
+    return {
+      'seasonId': seasonId,
+      'rank': rank,
+    };
+  }
+
+  factory SeasonRankBadge.fromJson(Map<String, dynamic> json) {
+    return SeasonRankBadge(
+      seasonId: json['seasonId']?.toString() ?? '',
+      rank: _intValue(json['rank']) ?? 0,
+    );
+  }
+
+  static String idFor({required String seasonId, required int rank}) {
+    return 'season_rank_${seasonId}_$rank';
+  }
+
+  static SeasonRankBadge? fromId(String id) {
+    final match = _idPattern.firstMatch(id);
+    if (match == null) {
+      return null;
+    }
+    final rank = int.tryParse(match.group(2) ?? '');
+    if (rank == null || rank <= 0) {
+      return null;
+    }
+    return SeasonRankBadge(
+      seasonId: match.group(1) ?? '',
+      rank: rank,
+    );
+  }
+
+  static bool isSeasonRankBadgeId(String id) => fromId(id) != null;
+
+  static int? _intValue(Object? value) {
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse('$value');
+  }
+
+  static String _seasonName(String seasonId) {
+    final parts = seasonId.split('-');
+    if (parts.length != 2) {
+      return 'シーズン0';
+    }
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    if (year == null || month == null) {
+      return 'シーズン0';
+    }
+    const baseYear = 2026;
+    const baseMonth = 5;
+    final number = (year - baseYear) * 12 + (month - baseMonth);
+    return 'シーズン$number';
   }
 }
 
@@ -156,6 +233,8 @@ class BadgeCatalog {
         id: 'anniversary_$year',
         label: '$year周年',
         icon: Icons.cake,
+        level: year,
+        evolutionGroup: 'anniversary',
         unlockedCondition: BadgeUnlockCondition(
           type: BadgeUnlockType.accountYears,
           threshold: year,
@@ -187,6 +266,7 @@ class BadgeCatalog {
           label: '$label Lv.${i + 1}',
           icon: icon,
           level: i + 1,
+          evolutionGroup: idPrefix,
           unlockedCondition: BadgeUnlockCondition(
             type: type,
             threshold: thresholds[i],
@@ -201,6 +281,74 @@ class BadgeCatalog {
       if (badge.id == id) {
         return badge;
       }
+    }
+    return null;
+  }
+
+  static List<BadgeItem> visibleBadgesFor(Set<String> unlockedIds) {
+    final visible = <BadgeItem>[];
+    final visibleGroups = <String>{};
+    for (final badge in allBadges) {
+      final group = _evolutionGroupFor(badge);
+      if (group == null) {
+        visible.add(badge);
+        continue;
+      }
+      if (!visibleGroups.add(group)) {
+        continue;
+      }
+      final badges = allBadges
+          .where((item) => _evolutionGroupFor(item) == group)
+          .toList()
+        ..sort((a, b) => (a.level ?? 0).compareTo(b.level ?? 0));
+      final highestUnlocked = badges.where((badge) {
+        return unlockedIds.contains(badge.id);
+      }).fold<BadgeItem?>(null, (current, badge) {
+        if (current == null || (badge.level ?? 0) > (current.level ?? 0)) {
+          return badge;
+        }
+        return current;
+      });
+      visible.add(highestUnlocked ?? badges.first);
+    }
+    return visible;
+  }
+
+  static String evolvedBadgeIdFor(String id, Set<String> unlockedIds) {
+    final badge = findById(id);
+    final group = badge == null ? null : _evolutionGroupFor(badge);
+    if (badge == null || group == null) {
+      return id;
+    }
+    final candidates = allBadges
+        .where((item) =>
+            _evolutionGroupFor(item) == group && unlockedIds.contains(item.id))
+        .toList()
+      ..sort((a, b) => (b.level ?? 0).compareTo(a.level ?? 0));
+    return candidates.isEmpty ? id : candidates.first.id;
+  }
+
+  static BadgeItem? nextEvolutionBadgeFor(BadgeItem badge) {
+    final group = _evolutionGroupFor(badge);
+    if (group == null) {
+      return null;
+    }
+    final currentLevel = badge.level ?? 0;
+    final candidates = allBadges
+        .where((item) =>
+            _evolutionGroupFor(item) == group &&
+            (item.level ?? 0) > currentLevel)
+        .toList()
+      ..sort((a, b) => (a.level ?? 0).compareTo(b.level ?? 0));
+    return candidates.isEmpty ? null : candidates.first;
+  }
+
+  static String? _evolutionGroupFor(BadgeItem badge) {
+    if (badge.evolutionGroup != null) {
+      return badge.evolutionGroup;
+    }
+    if (RegExp(r'^anniversary_\d+$').hasMatch(badge.id)) {
+      return 'anniversary';
     }
     return null;
   }

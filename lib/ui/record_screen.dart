@@ -35,6 +35,7 @@ class _RecordScreenState extends State<RecordScreen> {
     } catch (_) {
       summary = null;
     }
+    await _playerData.syncRecordSummary();
     if (!mounted) {
       return;
     }
@@ -162,25 +163,43 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   Widget _playStyleRadar() {
-    final matches = math.max(1, _playerData.totalMatches);
-    final counts = _playerData.wazaCounts;
-    final days = math.max(
-      1,
-      DateTime.now().difference(_playerData.accountCreatedAt).inDays + 1,
-    );
+    final now = DateTime.now();
+    final cutoff = now.subtract(const Duration(days: 7));
+    final recentBattles = _playerData.matchHistory
+        .where(
+          (entry) => entry.mode != 'SOLO' && !entry.playedAt.isBefore(cutoff),
+        )
+        .toList();
+    final styleBattles =
+        recentBattles.where((entry) => entry.hasStyleMetrics).toList();
+    final matches = math.max(1, styleBattles.length);
+    final counts = <String, int>{
+      'straight': 0,
+      'pyramid': 0,
+      'hexagon': 0,
+    };
+    var normalClearedBalls = 0;
+    var totalChain = 0;
+    for (final entry in styleBattles) {
+      normalClearedBalls += entry.normalClearedBalls;
+      totalChain += entry.maxChain;
+      for (final count in entry.wazaCounts.entries) {
+        counts[count.key] = (counts[count.key] ?? 0) + count.value;
+      }
+    }
     final hexAvg = (counts['hexagon'] ?? 0) / matches;
     final pyramidAvg = (counts['pyramid'] ?? 0) / matches;
     final straightAvg = (counts['straight'] ?? 0) / matches;
-    final normalClearAvg = _playerData.totalNormalClearedBalls / matches;
-    final dailyPlayAvg = _playerData.totalMatches / days;
-    final averageChain = _playerData.averageChain;
+    final normalClearAvg = normalClearedBalls / matches;
+    final dailyPlayAvg = recentBattles.length / 7;
+    final averageChain = totalChain / matches;
     final values = [
-      _score(hexAvg, 5),
-      _score(pyramidAvg, 5),
-      _score(straightAvg, 5),
-      _score(normalClearAvg, 500),
-      _score(averageChain, 10),
-      _score(dailyPlayAvg, 20),
+      _score(hexAvg, 3),
+      _score(pyramidAvg, 3),
+      _score(straightAvg, 3),
+      _score(normalClearAvg, 100),
+      _score(averageChain, 5),
+      _score(dailyPlayAvg, 50),
     ];
     const labels = [
       'ヘキサゴン',
@@ -191,12 +210,12 @@ class _RecordScreenState extends State<RecordScreen> {
       'プレイ頻度',
     ];
     final details = [
-      '${hexAvg.toStringAsFixed(1)} / 5.0',
-      '${pyramidAvg.toStringAsFixed(1)} / 5.0',
-      '${straightAvg.toStringAsFixed(1)} / 5.0',
-      '${normalClearAvg.toStringAsFixed(0)} / 500',
-      '${averageChain.toStringAsFixed(1)} / 10',
-      '${dailyPlayAvg.toStringAsFixed(1)} / 20',
+      '${hexAvg.toStringAsFixed(1)} / 3.0',
+      '${pyramidAvg.toStringAsFixed(1)} / 3.0',
+      '${straightAvg.toStringAsFixed(1)} / 3.0',
+      '${normalClearAvg.toStringAsFixed(0)} / 100',
+      '${averageChain.toStringAsFixed(1)} / 5.0',
+      '${dailyPlayAvg.toStringAsFixed(1)} / 50',
     ];
 
     return Container(
@@ -206,7 +225,7 @@ class _RecordScreenState extends State<RecordScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'プレイスタイル',
+            'プレイスタイル（直近7日）',
             style: TextStyle(
               color: Colors.white,
               fontSize: 18,

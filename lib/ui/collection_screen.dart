@@ -6,6 +6,7 @@ import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
 import 'components/hexagon_grid_background.dart';
+import 'components/season_rank_badge_icon.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -134,16 +135,17 @@ class _CollectionScreenState extends State<CollectionScreen>
   Widget _buildBadgesTab() {
     final unlocked = _playerData.unlockedBadgeIds.toSet();
     final equipped = _playerData.equippedBadgeIds.toSet();
+    final visibleBadges = BadgeCatalog.visibleBadgesFor(unlocked);
     return _grid(
       children: [
-        for (final badge in BadgeCatalog.allBadges)
+        for (final badge in visibleBadges)
           _simpleCard(
             title: badge.label,
-            subtitle: equipped.contains(badge.id)
-                ? '装備中'
-                : unlocked.contains(badge.id)
-                    ? 'タップで装備'
-                    : '未解放',
+            subtitle: _badgeSubtitle(
+              badge: badge,
+              unlocked: unlocked,
+              equipped: equipped,
+            ),
             icon: badge.icon,
             accentColor: badge.frameColor,
             replaceSelectedIcon: false,
@@ -173,8 +175,65 @@ class _CollectionScreenState extends State<CollectionScreen>
                   }
                 : null,
           ),
+        for (final badge in _playerData.seasonRankBadges)
+          _simpleCard(
+            title: badge.label,
+            subtitle: equipped.contains(badge.id)
+                ? '装備中 / ${badge.detailLabel}'
+                : 'タップで装備 / ${badge.detailLabel}',
+            icon: Icons.leaderboard,
+            leading: SeasonRankBadgeIcon(rank: badge.rank, size: 28),
+            accentColor: Colors.amberAccent,
+            replaceSelectedIcon: false,
+            selected: equipped.contains(badge.id),
+            available: true,
+            onTap: () async {
+              _playUiTap();
+              final next = equipped.toSet();
+              if (next.contains(badge.id)) {
+                next.remove(badge.id);
+              } else if (next.length < 2) {
+                next.add(badge.id);
+              } else {
+                final first = next.first;
+                next.remove(first);
+                next.add(badge.id);
+              }
+              await _playerData.setEquippedBadgeIds(next.toList());
+              await _multiplayerManager.updateUserName(
+                _playerData.playerName,
+              );
+              if (!mounted) {
+                return;
+              }
+              setState(() {});
+            },
+          ),
       ],
     );
+  }
+
+  String _badgeSubtitle({
+    required BadgeItem badge,
+    required Set<String> unlocked,
+    required Set<String> equipped,
+  }) {
+    final status = equipped.contains(badge.id)
+        ? '装備中'
+        : unlocked.contains(badge.id)
+            ? 'タップで装備'
+            : '未解放';
+    final nextBadge = BadgeCatalog.nextEvolutionBadgeFor(badge);
+    if (badge.evolutionGroup == null) {
+      return '$status / ${badge.unlockedCondition.description}';
+    }
+    if (!unlocked.contains(badge.id)) {
+      return '$status / ${badge.unlockedCondition.description}';
+    }
+    if (nextBadge == null) {
+      return '$status / 最高Lv達成';
+    }
+    return '$status / 次Lv.${nextBadge.level}: ${nextBadge.unlockedCondition.description}';
   }
 
   Widget _buildSkinsTab() {
@@ -280,7 +339,7 @@ class _CollectionScreenState extends State<CollectionScreen>
         return GridView.count(
           padding: const EdgeInsets.all(12),
           crossAxisCount: crossAxisCount,
-          childAspectRatio: 2.6,
+          childAspectRatio: 2.35,
           crossAxisSpacing: 8,
           mainAxisSpacing: 8,
           children: children,
@@ -293,6 +352,7 @@ class _CollectionScreenState extends State<CollectionScreen>
     required String title,
     required String subtitle,
     required IconData icon,
+    Widget? leading,
     Color? accentColor,
     bool replaceSelectedIcon = true,
     required bool selected,
@@ -330,15 +390,18 @@ class _CollectionScreenState extends State<CollectionScreen>
             Stack(
               clipBehavior: Clip.none,
               children: [
-                Icon(
-                  selected && replaceSelectedIcon ? Icons.check_circle : icon,
-                  color: selected
-                      ? accent
-                      : muted
-                          ? Colors.white24
-                          : accent.withValues(alpha: 0.9),
-                  size: 24,
-                ),
+                leading ??
+                    Icon(
+                      selected && replaceSelectedIcon
+                          ? Icons.check_circle
+                          : icon,
+                      color: selected
+                          ? accent
+                          : muted
+                              ? Colors.white24
+                              : accent.withValues(alpha: 0.9),
+                      size: 24,
+                    ),
                 if (muted)
                   const Positioned(
                     right: -4,
@@ -370,7 +433,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                   const SizedBox(height: 3),
                   Text(
                     subtitle,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: selected

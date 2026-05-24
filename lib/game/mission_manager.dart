@@ -159,6 +159,28 @@ class MissionManager {
     return reward;
   }
 
+  Future<int> claimMissionRewardById(String missionId) async {
+    await load();
+    final missions = currentMissions;
+    final index = _indexOfMission(missions, missionId);
+    if (index == -1) {
+      throw StateError('ミッションが見つかりません。');
+    }
+    final mission = missions[index];
+    if (!_isComplete(mission)) {
+      throw StateError('ミッションがまだクリアされていません。');
+    }
+    if (mission['claimed'] as bool? ?? false) {
+      return 0;
+    }
+
+    final reward = rewardCoinsFor(mission);
+    mission['claimed'] = true;
+    await _playerData.addCoins(reward);
+    await _persistMissionChanges(missions);
+    return reward;
+  }
+
   Future<int> claimAllClearBonus() async {
     await load();
     if (!allMissionsComplete) {
@@ -206,6 +228,30 @@ class MissionManager {
     return reward;
   }
 
+  Future<int> completeRewardedAdMissionById(String missionId) async {
+    await load();
+    final missions = currentMissions;
+    final index = _indexOfMission(missions, missionId);
+    if (index == -1) {
+      throw StateError('ミッションが見つかりません。');
+    }
+    final mission = missions[index];
+    if (!MissionCatalog.isRewardedAdMissionId(missionId)) {
+      throw StateError('動画広告ミッションではありません。');
+    }
+    if (mission['claimed'] as bool? ?? false) {
+      return 0;
+    }
+
+    final target = _intValue(mission['target']) ?? 1;
+    mission['progress'] = target;
+    mission['claimed'] = true;
+    final reward = rewardCoinsFor(mission);
+    await _playerData.addCoins(reward);
+    await _persistMissionChanges(missions);
+    return reward;
+  }
+
   Future<void> markRewardedAdMissionWatched(int index) async {
     await load();
     final missions = currentMissions;
@@ -221,6 +267,48 @@ class MissionManager {
       return;
     }
     mission['progress'] = mission['target'] ?? 1;
+    await _persistMissionChanges(missions);
+  }
+
+  Future<void> rerollMissionById(String missionId) async {
+    await load();
+    final missions = currentMissions;
+    final index = _indexOfMission(missions, missionId);
+    if (index == -1) {
+      throw StateError('ミッションが見つかりません。');
+    }
+    if (MissionCatalog.isRewardedAdMissionId(missionId) ||
+        MissionCatalog.isLoginRewardMissionId(missionId)) {
+      throw StateError('このミッションはチェンジできません。');
+    }
+
+    final currentIds =
+        missions.map((mission) => mission['id']?.toString() ?? '').toSet();
+    currentIds.remove(missionId);
+
+    final candidates = MissionCatalog.activeDailyPool
+        .where(
+          (mission) =>
+              !MissionCatalog.isRewardedAdMissionId(mission.id) &&
+              !currentIds.contains(mission.id),
+        )
+        .toList();
+    if (candidates.isEmpty) {
+      throw StateError('差し替え可能なミッションがありません。');
+    }
+
+    if (adsRemovedBenefitsEnabled) {
+      final prefs = await _prefs();
+      final rerollCount = _dailyRerollCountToday(prefs);
+      if (rerollCount >= _adsRemovedDailyRerollLimit) {
+        throw StateError('チェンジは1日1回までです。');
+      }
+      await prefs.setString(_dailyRerollDateKey, _todayKey());
+      await prefs.setInt(_dailyRerollCountKey, rerollCount + 1);
+    }
+
+    missions[index] =
+        candidates[_random.nextInt(candidates.length)].toMissionMap();
     await _persistMissionChanges(missions);
   }
 
@@ -248,6 +336,11 @@ class MissionManager {
   }
 
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
+
+  int _indexOfMission(List<Map<String, dynamic>> missions, String missionId) =>
+      missions.indexWhere(
+        (mission) => mission['id']?.toString() == missionId,
+      );
 
   Future<void> _persistMissionChanges(
       List<Map<String, dynamic>> missions) async {
@@ -361,7 +454,8 @@ class MissionManager {
           ? (replacement['target'] as int)
           : ((mission['claimed'] as bool? ?? false) ? 1 : 0);
       if (missionId != replacement['id'] ||
-          mission['progress'] != replacement['progress']) {
+          mission['progress'] != replacement['progress'] ||
+          mission['claimed'] != replacement['claimed']) {
         missions[i] = replacement;
         changed = true;
       }

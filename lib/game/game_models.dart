@@ -10,7 +10,22 @@ enum WazaType {
   const WazaType(this.multiplier);
 }
 
-enum CPUDifficulty { easy, normal, hard, oni }
+enum CPUDifficulty {
+  easy,
+  normal,
+  hard,
+  oni,
+  rankedLv1,
+  rankedLv2,
+  rankedLv3,
+  rankedLv4,
+  rankedLv5,
+  rankedLv6,
+  rankedLv7,
+  rankedLv8,
+  rankedLv9,
+  rankedLv10,
+}
 
 enum OjamaType {
   straightSet,

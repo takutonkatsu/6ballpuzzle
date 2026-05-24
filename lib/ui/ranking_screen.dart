@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
 import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
+import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
+import '../network/server_time_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 
 class RankingScreen extends StatefulWidget {
@@ -15,14 +18,69 @@ class RankingScreen extends StatefulWidget {
   State<RankingScreen> createState() => _RankingScreenState();
 }
 
+class _SeasonResultViewData {
+  const _SeasonResultViewData({
+    required this.seasonName,
+    required this.rating,
+    required this.rank,
+    required this.record,
+    required this.winRate,
+  });
+
+  final String seasonName;
+  final String rating;
+  final String rank;
+  final String record;
+  final String winRate;
+
+  factory _SeasonResultViewData.fromLog(String log) {
+    final lines = log
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    String valueAfter(String prefix, String fallback) {
+      final line = lines.cast<String?>().firstWhere(
+            (line) => line?.startsWith(prefix) ?? false,
+            orElse: () => null,
+          );
+      if (line == null) {
+        return fallback;
+      }
+      return line.substring(prefix.length).trim();
+    }
+
+    return _SeasonResultViewData(
+      seasonName: lines.isEmpty ? '前シーズン 結果' : lines.first,
+      rating: valueAfter('最終レート:', '-'),
+      rank: valueAfter('最終順位:', '圏外'),
+      record: valueAfter('勝敗:', '-'),
+      winRate: valueAfter('勝率:', '-'),
+    );
+  }
+}
+
+enum _RankingTab {
+  currentSeason,
+  dailyWins,
+  endless,
+}
+
 class _RankingScreenState extends State<RankingScreen> {
+  static const Duration _rankingOperationTimeout = Duration(seconds: 8);
+
   final RankingManager _rankingManager = RankingManager.instance;
   final MultiplayerManager _multiplayerManager = MultiplayerManager.instance;
 
-  bool _isLoading = true;
+  bool _isLoading = false;
   List<RankingEntry> _entries = const [];
   String? _errorMessage;
-  bool _showDailyWins = false;
+  _RankingTab _selectedTab = _RankingTab.currentSeason;
+  Timer? _remainingTimer;
+  String _remainingLabel = '残り--';
+  String _dailyRemainingLabel = '残り--';
+  String _loadedSeasonId = '';
+  String _loadedDailyDateKey = '';
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -31,24 +89,58 @@ class _RankingScreenState extends State<RankingScreen> {
   @override
   void initState() {
     super.initState();
+    _remainingTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(_updateServerClockLabels()),
+    );
+    unawaited(_updateServerClockLabels(forceRefresh: true));
     _loadRankings();
   }
 
+  @override
+  void dispose() {
+    _remainingTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadRankings() async {
+    if (_isLoading) {
+      return;
+    }
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final entries = _showDailyWins
-          ? await _rankingManager.fetchTopDailyWinRankings(forceRefresh: true)
-          : await _rankingManager.fetchTopRankings(forceRefresh: true);
+      await (switch (_selectedTab) {
+        _RankingTab.endless => _syncEndlessBeforeLoad(),
+        _ => _syncCurrentSeasonBeforeLoad(),
+      })
+          .timeout(_rankingOperationTimeout);
+      final entries = switch (_selectedTab) {
+        _RankingTab.currentSeason => await _rankingManager
+            .fetchTopRankings(forceRefresh: true)
+            .timeout(_rankingOperationTimeout),
+        _RankingTab.dailyWins => await _rankingManager
+            .fetchTopDailyWinRankings(forceRefresh: true)
+            .timeout(_rankingOperationTimeout),
+        _RankingTab.endless => await _rankingManager
+            .fetchTopEndlessScoreRankings(forceRefresh: true)
+            .timeout(_rankingOperationTimeout),
+      };
       if (!mounted) {
         return;
       }
+      final nowJst = await ServerTimeManager.instance.nowJst();
+      final loadedSeasonId =
+          RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
       setState(() {
         _entries = entries;
+        _loadedSeasonId = loadedSeasonId;
+        _loadedDailyDateKey = RankingManager.todayKeyJst(
+          nowJstOverride: nowJst,
+        );
         _isLoading = false;
       });
     } catch (error) {
@@ -56,10 +148,124 @@ class _RankingScreenState extends State<RankingScreen> {
         return;
       }
       setState(() {
-        _errorMessage = '$error';
+        _errorMessage = _rankingLoadErrorMessage(error);
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _updateServerClockLabels({bool forceRefresh = false}) async {
+    if (!mounted) {
+      return;
+    }
+    try {
+      final nowJst =
+          await ServerTimeManager.instance.nowJst(forceRefresh: forceRefresh);
+      final currentSeasonId =
+          RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+      final currentDailyDateKey =
+          RankingManager.todayKeyJst(nowJstOverride: nowJst);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _remainingLabel =
+            RankedSeasonManager.remainingLabel(nowJstOverride: nowJst);
+        _dailyRemainingLabel =
+            RankingManager.dailyRemainingLabel(nowJstOverride: nowJst);
+      });
+      if (currentSeasonId != _loadedSeasonId ||
+          (_selectedTab == _RankingTab.dailyWins &&
+              currentDailyDateKey != _loadedDailyDateKey)) {
+        unawaited(_loadRankings());
+      }
+    } catch (_) {
+      // サーバー時刻の一時取得失敗では、ランキング画面の表示を止めない。
+    }
+  }
+
+  Future<void> _syncCurrentSeasonBeforeLoad() async {
+    try {
+      await _rankingManager
+          .syncSeasonStateForCurrentPlayer()
+          .timeout(_rankingOperationTimeout);
+    } catch (_) {
+      // シーズン同期に失敗しても、ランキングの読み込み自体は試す。
+    }
+    await PlayerDataManager.instance.load();
+    await _showSeasonResultLogIfNeeded();
+    final seasonRating = PlayerDataManager.instance.currentRating;
+    _multiplayerManager.currentRating = seasonRating;
+    try {
+      await _rankingManager
+          .updateMyRating(
+            rating: seasonRating,
+            displayName: PlayerDataManager.instance.displayPlayerName,
+          )
+          .timeout(_rankingOperationTimeout);
+    } catch (_) {
+      // 新シーズンの自分の行作成に失敗しても、一覧読み込みは続ける。
+    }
+  }
+
+  Future<void> _syncEndlessBeforeLoad() async {
+    try {
+      await PlayerDataManager.instance.load();
+      await _rankingManager
+          .syncEndlessScore(
+            displayName: PlayerDataManager.instance.displayPlayerName,
+          )
+          .timeout(_rankingOperationTimeout);
+    } catch (_) {
+      // エンドレスランキングは恒久ランキングなので、シーズン同期には依存しない。
+    }
+  }
+
+  Future<void> _showSeasonResultLogIfNeeded() async {
+    final log =
+        await PlayerDataManager.instance.consumePendingRankedSeasonResultLog();
+    if (log == null || log.isEmpty || !mounted) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) {
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              child: _buildSeasonDialogFrame(
+                title: 'シーズン結果',
+                width: 360,
+                child: _buildSeasonResultLog(log),
+                actions: [
+                  _buildSeasonDialogButton(
+                    label: 'OK',
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+    });
+  }
+
+  String _rankingLoadErrorMessage(Object error) {
+    if (error is FirebaseException &&
+        (error.code == 'permission-denied' ||
+            (error.code == 'unknown' &&
+                (error.message ?? '').toLowerCase().contains('permission')))) {
+      return 'ランキングの読み込み権限がありません。テスト環境のDatabase Rulesを確認してください。';
+    }
+    return '通信状況を確認して、もう一度お試しください。';
   }
 
   @override
@@ -98,6 +304,13 @@ class _RankingScreenState extends State<RankingScreen> {
                   child: _buildBody(),
                 ),
               ),
+              if (_selectedTab == _RankingTab.currentSeason ||
+                  _selectedTab == _RankingTab.dailyWins) ...[
+                const SizedBox(height: 10),
+                _selectedTab == _RankingTab.dailyWins
+                    ? _buildDailyFooter()
+                    : _buildSeasonFooter(),
+              ],
             ],
           ),
         ),
@@ -206,7 +419,12 @@ class _RankingScreenState extends State<RankingScreen> {
         final entry = _entries[index];
         final rank = _displayRankAt(index);
         final isMe = _isCurrentPlayer(entry);
-        return _buildRankingRow(entry, rank, isMe);
+        return _buildRankingRow(
+          entry,
+          rank,
+          isMe,
+          tab: _selectedTab,
+        );
       },
     );
   }
@@ -226,9 +444,12 @@ class _RankingScreenState extends State<RankingScreen> {
     }
     final current = _entries[index];
     final previous = _entries[index - 1];
-    final isSameScore = _showDailyWins
-        ? current.dailyWins == previous.dailyWins
-        : current.rating == previous.rating;
+    final isSameScore = switch (_selectedTab) {
+      _RankingTab.currentSeason => current.rating == previous.rating,
+      _RankingTab.dailyWins => current.dailyWins == previous.dailyWins,
+      _RankingTab.endless =>
+        current.highestEndlessScore == previous.highestEndlessScore,
+    };
     if (isSameScore) {
       return _displayRankAt(index - 1);
     }
@@ -254,33 +475,33 @@ class _RankingScreenState extends State<RankingScreen> {
         children: [
           _buildModeTab(
             label: '今シーズン',
-            selected: !_showDailyWins,
-            onTap: () {
-              if (_showDailyWins) {
-                _playUiTap();
-                setState(() {
-                  _showDailyWins = false;
-                });
-                unawaited(_loadRankings());
-              }
-            },
+            selected: _selectedTab == _RankingTab.currentSeason,
+            onTap: () => _selectTab(_RankingTab.currentSeason),
           ),
           _buildModeTab(
             label: '今日の勝利数',
-            selected: _showDailyWins,
-            onTap: () {
-              if (!_showDailyWins) {
-                _playUiTap();
-                setState(() {
-                  _showDailyWins = true;
-                });
-                unawaited(_loadRankings());
-              }
-            },
+            selected: _selectedTab == _RankingTab.dailyWins,
+            onTap: () => _selectTab(_RankingTab.dailyWins),
+          ),
+          _buildModeTab(
+            label: 'エンドレス',
+            selected: _selectedTab == _RankingTab.endless,
+            onTap: () => _selectTab(_RankingTab.endless),
           ),
         ],
       ),
     );
+  }
+
+  void _selectTab(_RankingTab tab) {
+    if (_selectedTab == tab) {
+      return;
+    }
+    _playUiTap();
+    setState(() {
+      _selectedTab = tab;
+    });
+    unawaited(_loadRankings());
   }
 
   Widget _buildModeTab({
@@ -323,20 +544,23 @@ class _RankingScreenState extends State<RankingScreen> {
     );
   }
 
-  Widget _buildRankingRow(RankingEntry entry, int rank, bool isMe) {
+  Widget _buildRankingRow(
+    RankingEntry entry,
+    int rank,
+    bool isMe, {
+    required _RankingTab tab,
+  }) {
     final accent = switch (rank) {
       1 => Colors.amberAccent,
       2 => const Color(0xFFE5E7EB),
       3 => const Color(0xFFCD7F32),
-      _ => isMe ? Colors.pinkAccent : Colors.white24,
+      _ => Colors.white24,
     };
     final backgroundColor = switch (rank) {
       1 => const Color(0x33D4AF37),
       2 => const Color(0x33C0C7D1),
       3 => const Color(0x33B87333),
-      _ => isMe
-          ? Colors.pinkAccent.withValues(alpha: 0.12)
-          : Colors.white.withValues(alpha: 0.04),
+      _ => Colors.white.withValues(alpha: 0.04),
     };
 
     return Container(
@@ -347,17 +571,28 @@ class _RankingScreenState extends State<RankingScreen> {
         border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.2),
         boxShadow: [
           BoxShadow(
-            color: accent.withValues(alpha: isMe || rank <= 3 ? 0.18 : 0.08),
-            blurRadius: isMe || rank <= 3 ? 18 : 10,
+            color: accent.withValues(alpha: rank <= 3 ? 0.18 : 0.08),
+            blurRadius: rank <= 3 ? 18 : 10,
           ),
         ],
       ),
       child: Row(
         children: [
-          SizedBox(
-            width: 54,
+          Container(
+            width: 42,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: rank <= 3 ? 0.18 : 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: accent.withValues(alpha: rank <= 3 ? 0.72 : 0.38),
+                width: 1.2,
+              ),
+            ),
             child: Text(
               '$rank',
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color:
                     rank <= 3 ? accent : Colors.white.withValues(alpha: 0.76),
@@ -366,37 +601,484 @@ class _RankingScreenState extends State<RankingScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 6),
           Expanded(
-            child: Text(
+            child: _buildResponsiveRankingNameText(
               entry.displayName,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color:
-                    isMe ? Colors.white : Colors.white.withValues(alpha: 0.92),
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              color: Colors.white.withValues(alpha: 0.92),
+              maxFontSize: 16,
             ),
           ),
           const SizedBox(width: 12),
-          _showDailyWins
-              ? Text(
-                  '${entry.dailyWins}勝',
-                  style: TextStyle(
-                    color: accent,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                  ),
-                )
-              : HexagonTrophyAmount(
-                  entry.rating,
-                  color: Colors.amberAccent,
-                  iconSize: 17,
-                  fontSize: 16,
-                ),
+          _buildRankingValue(entry, accent, tab),
         ],
       ),
+    );
+  }
+
+  Widget _buildRankingValue(
+    RankingEntry entry,
+    Color accent,
+    _RankingTab tab,
+  ) {
+    switch (tab) {
+      case _RankingTab.currentSeason:
+        return HexagonTrophyAmount(
+          entry.rating,
+          color: Colors.amberAccent,
+          iconSize: 17,
+          fontSize: 16,
+        );
+      case _RankingTab.dailyWins:
+        return Text(
+          '${entry.dailyWins}勝',
+          style: TextStyle(
+            color: accent,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+          ),
+        );
+      case _RankingTab.endless:
+        return Text(
+          '${entry.highestEndlessScore}点',
+          style: TextStyle(
+            color: accent,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+          ),
+        );
+    }
+  }
+
+  Widget _buildResponsiveRankingNameText(
+    String name, {
+    required Color color,
+    required double maxFontSize,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: maxFontSize + 5,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            name,
+            maxLines: 1,
+            style: TextStyle(
+              color: color,
+              fontSize: maxFontSize,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSeasonFooter() {
+    return Row(
+      children: [
+        _buildRemainingPill(_remainingLabel),
+        const Spacer(),
+        InkWell(
+          onTap: () {
+            _playUiTap();
+            unawaited(_showPastSeasonsDialog());
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.32),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Colors.amberAccent.withValues(alpha: 0.42),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.amberAccent.withValues(alpha: 0.10),
+                  blurRadius: 14,
+                ),
+              ],
+            ),
+            child: const Text(
+              '過去シーズン',
+              style: TextStyle(
+                color: Colors.amberAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDailyFooter() {
+    return Row(
+      children: [
+        _buildRemainingPill(_dailyRemainingLabel),
+        const Spacer(),
+      ],
+    );
+  }
+
+  Widget _buildRemainingPill(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.32),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.cyanAccent,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPastSeasonsDialog() async {
+    final seasonIds = await _rankingManager.fetchArchivedSeasonIds();
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: _buildSeasonDialogFrame(
+            title: '過去シーズン',
+            width: 360,
+            child: seasonIds.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      '確定済みのシーズンはまだありません',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: seasonIds.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final seasonId = seasonIds[index];
+                      return _buildSeasonSelectButton(
+                        seasonId: seasonId,
+                        onTap: () {
+                          _playUiTap();
+                          Navigator.of(dialogContext).pop();
+                          unawaited(_showSeasonRankingDialog(seasonId));
+                        },
+                      );
+                    },
+                  ),
+            actions: [
+              _buildSeasonDialogButton(
+                label: '閉じる',
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showSeasonRankingDialog(String seasonId) async {
+    final entries = await _rankingManager.fetchSeasonRankings(seasonId);
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: _buildSeasonDialogFrame(
+            title: '${RankedSeasonManager.seasonName(seasonId)} ランキング',
+            width: 390,
+            child: SizedBox(
+              height: 420,
+              child: entries.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'ランキングデータがありません',
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: entries.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final entry = entries[index];
+                        return _buildCompactSeasonRankingRow(
+                          entry,
+                          entry.finalRank ?? _displayRankForEntries(index),
+                        );
+                      },
+                    ),
+            ),
+            actions: [
+              _buildSeasonDialogButton(
+                label: '閉じる',
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSeasonDialogFrame({
+    required String title,
+    required double width,
+    required Widget child,
+    required List<Widget> actions,
+  }) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: width),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101321),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.cyanAccent.withValues(alpha: 0.52),
+            width: 1.4,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.cyanAccent.withValues(alpha: 0.18),
+              blurRadius: 28,
+            ),
+            BoxShadow(
+              color: Colors.pinkAccent.withValues(alpha: 0.10),
+              blurRadius: 36,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 14),
+            child,
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: actions,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSeasonResultLog(String message) {
+    final result = _SeasonResultViewData.fromLog(message);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.cyanAccent.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.cyanAccent.withValues(alpha: 0.42),
+              width: 1.2,
+            ),
+          ),
+          child: Column(
+            children: [
+              Text(
+                result.seasonName,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              HexagonTrophyAmount(
+                int.tryParse(result.rating) ?? 0,
+                color: Colors.amberAccent,
+                iconSize: 30,
+                fontSize: 34,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'FINAL RATE',
+                style: TextStyle(
+                  color: Colors.cyanAccent.withValues(alpha: 0.78),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(child: _buildSeasonResultMetric('RANK', result.rank)),
+            const SizedBox(width: 8),
+            Expanded(child: _buildSeasonResultMetric('RECORD', result.record)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _buildSeasonResultMetric('WIN RATE', result.winRate),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSeasonResultMetric(String label, String value) {
+    return Container(
+      height: 62,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.26),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSeasonSelectButton({
+    required String seasonId,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.055),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.amberAccent.withValues(alpha: 0.38),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    RankedSeasonManager.seasonName(seasonId),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    seasonId,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              color: Colors.cyanAccent,
+              size: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSeasonDialogButton({
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+      child: Text(label),
+    );
+  }
+
+  int _displayRankForEntries(int index) {
+    return index + 1;
+  }
+
+  Widget _buildCompactSeasonRankingRow(RankingEntry entry, int rank) {
+    return _buildRankingRow(
+      entry,
+      rank,
+      _isCurrentPlayer(entry),
+      tab: _RankingTab.currentSeason,
     );
   }
 }

@@ -25,6 +25,7 @@ import 'components/banner_ad_widget.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/interstitial_ad_manager.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'components/season_rank_badge_icon.dart';
 import 'components/stamp_widget.dart';
 import 'home_screen.dart';
 
@@ -99,6 +100,8 @@ enum _TutorialAction {
 }
 
 class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
+  static const Object _bgmOwner = 'game_screen';
+
   static const double _gameViewportWidth = 308;
   static const double _gameViewportHeight = 480;
   static const double _gridBallDiameter = 30;
@@ -127,6 +130,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   String? _onlineResultMessage;
   bool _onlineResultWasForfeit = false;
   bool _isWaitingForRematch = false;
+  bool _opponentUnavailableForRematch = false;
   bool _isDisconnectDialogVisible = false;
   bool _isReturningToHome = false;
   bool? _cpuBattlePlayerWon;
@@ -154,6 +158,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _resultCoinTripleInProgress = false;
   bool _didLevelUpFromResultExp = false;
   int? _resultLevelAfterExp;
+  Set<String>? _resultUnlockedBadgeIdsBefore;
+  List<BadgeItem> _newlyUnlockedBadges = const [];
+  bool _battleBgmSuspendedByLifecycle = false;
   final Map<WazaType, int> _playerWazaCounts = {
     WazaType.straight: 0,
     WazaType.pyramid: 0,
@@ -232,11 +239,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       widget.isCpuMode && widget.isRankedMode ? widget.rankedBotRating : null;
 
   String _cpuDifficultyLabel(CPUDifficulty difficulty) {
+    final rankedLevel = MultiplayerManager.rankedBotLevelForDifficulty(
+      difficulty,
+    );
+    if (difficulty.name.startsWith('rankedLv')) {
+      return 'ランクBot Lv.$rankedLevel';
+    }
     return switch (difficulty) {
       CPUDifficulty.easy => '弱い',
       CPUDifficulty.normal => '普通',
       CPUDifficulty.hard => '強い',
       CPUDifficulty.oni => '鬼',
+      _ => 'ランクBot Lv.$rankedLevel',
     };
   }
 
@@ -272,6 +286,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   bool get _isRankedBotMode =>
       widget.isCpuMode && widget.isRankedMode && !_isOnlineMode;
+
+  bool get _usesConstantFallSpeed =>
+      widget.isCpuMode || widget.isOnlineMultiplayer || widget.isTutorialMode;
+
+  bool get _showsStampButton => _isOnlineMode || _isRankedBotMode;
 
   bool get _isBattleInProgress =>
       _playerGame.gameStateWrapper.value == GameState.playing &&
@@ -314,6 +333,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_arenaManager.load().then((_) {
       if (mounted) {
         setState(() {});
@@ -328,7 +348,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       isCpuMode: false,
       seed: gameSeed,
       autoStart: false,
-      useConstantFallSpeed: false,
+      useConstantFallSpeed: _usesConstantFallSpeed,
       manualPieceSpawning: widget.isTutorialMode,
       wallColor: Colors.blueAccent,
     );
@@ -338,6 +358,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         isCpuMode: false,
         seed: gameSeed,
         autoStart: false,
+        useConstantFallSpeed: true,
         manualPieceSpawning: true,
         wallColor: Colors.redAccent,
       );
@@ -357,6 +378,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         seed: gameSeed,
         autoStart: false,
         isRemotePlayerMode: true,
+        useConstantFallSpeed: true,
         wallColor: Colors.redAccent,
       );
       _cpuGame!.onDeathLineCrossed = () {
@@ -399,6 +421,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         isCpuMode: true,
         seed: gameSeed,
         autoStart: false,
+        useConstantFallSpeed: true,
         wallColor: Colors.redAccent,
       );
       if (_cpuGame!.cpuAgent != null) {
@@ -433,6 +456,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             _playerGame.nextPieceColors.value
                 .map((color) => color.index)
                 .toList(),
+            _playerGame.isMovingLeft,
+            _playerGame.isMovingRight,
+            _playerGame.activePieceContactSlideDirection,
           ),
         );
       }
@@ -531,7 +557,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     BallColor? color,
   ) {
     late Timer timer;
-    timer = Timer(const Duration(seconds: 2), () {
+    timer = Timer(const Duration(milliseconds: 2500), () {
       _pendingAttackTimers.remove(timer);
 
       if (targetGame.gameStateWrapper.value == GameState.playing) {
@@ -559,7 +585,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
     late Timer timer;
-    timer = Timer(const Duration(seconds: 2), () {
+    timer = Timer(const Duration(milliseconds: 2500), () {
       _pendingAttackTimers.remove(timer);
       targetGame.resumeEngine();
       targetGame.forceDropOjamaTask(task);
@@ -680,13 +706,33 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!_isOnlineMode) {
-      return;
-    }
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
+      unawaited(_suspendBattleBgmForLifecycle());
       return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_resumeBattleBgmFromLifecycle());
+    }
+  }
+
+  Future<void> _suspendBattleBgmForLifecycle() async {
+    if (_battleBgmSuspendedByLifecycle) {
+      return;
+    }
+    _battleBgmSuspendedByLifecycle = true;
+    await SeamlessBgm.instance.suspendForExternalAudio();
+  }
+
+  Future<void> _resumeBattleBgmFromLifecycle() async {
+    if (_battleBgmSuspendedByLifecycle) {
+      _battleBgmSuspendedByLifecycle = false;
+      await SeamlessBgm.instance.resumeFromExternalAudio();
+    }
+    if (_isBattleBgmPlaying && !SeamlessBgm.instance.isPlaying) {
+      await _startBattleBgm();
     }
   }
 
@@ -738,7 +784,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (!mounted || _isStampCoolingDown) return;
 
     AppSfx.playUiTap();
-    unawaited(_multiplayerManager.sendStamp(stamp.id));
+    if (_isOnlineMode) {
+      unawaited(_multiplayerManager.sendStamp(stamp.id));
+    }
 
     setState(() {
       _currentFloatingStamp = stamp;
@@ -1705,7 +1753,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           isCpu: false,
                           ballSize: nextBallSize,
                         ),
-                        if (_isOnlineMode) ...[
+                        if (_showsStampButton) ...[
                           const SizedBox(height: 16),
                           InkWell(
                             onTap: _isStampCoolingDown
@@ -1953,11 +2001,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildBadgeIconRow(List<String> badgeIds) {
-    final badges = badgeIds
-        .map(BadgeCatalog.findById)
-        .whereType<BadgeItem>()
-        .take(2)
-        .toList();
+    final badges = badgeIds.map(_badgeIconForId).whereType<Widget>().take(2);
     if (badges.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -1965,25 +2009,39 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        for (final badge in badges)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: badge.frameColor.withValues(alpha: 0.7),
-              ),
-            ),
-            child: Icon(
-              badge.icon,
-              size: 14,
-              color: badge.frameColor,
-            ),
-          ),
+        for (final badge in badges) badge,
       ],
+    );
+  }
+
+  Widget? _badgeIconForId(String id) {
+    final seasonBadge = SeasonRankBadge.fromId(id);
+    if (seasonBadge != null) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        child: SeasonRankBadgeIcon(rank: seasonBadge.rank, size: 24),
+      );
+    }
+    final badge = BadgeCatalog.findById(id);
+    if (badge == null) {
+      return null;
+    }
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2),
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: badge.frameColor.withValues(alpha: 0.7),
+        ),
+      ),
+      child: Icon(
+        badge.icon,
+        size: 14,
+        color: badge.frameColor,
+      ),
     );
   }
 
@@ -2105,6 +2163,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     _buildResultCoinSummary(),
                     const SizedBox(height: 12),
                     _buildResultExpSummary(),
+                    if (_newlyUnlockedBadges.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _buildBadgeUnlockResultCard(),
+                    ],
                     const SizedBox(height: 12),
                     if (!isBattleResult) ...[
                       _buildCyberResultButton(
@@ -2165,10 +2227,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           _buildResultCoinSummary(),
           const SizedBox(height: 12),
           _buildResultExpSummary(),
+          if (_newlyUnlockedBadges.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _buildBadgeUnlockResultCard(),
+          ],
           const SizedBox(height: 12),
-          if (!widget.isRankedMode && !_onlineResultWasForfeit) ...[
+          if (_canShowRematchButton) ...[
             _buildCyberResultButton(
-              label: _isWaitingForRematch ? '相手の準備待ち...' : 'REMATCH',
+              label: _isWaitingForRematch ? '相手の準備待ち...' : '再戦',
               baseColor: Colors.blueAccent,
               isWaiting: _isWaitingForRematch,
               onPressed: _isWaitingForRematch
@@ -2190,6 +2256,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  bool get _canShowRematchButton {
+    if (widget.isRankedMode ||
+        _onlineResultWasForfeit ||
+        _opponentUnavailableForRematch) {
+      return false;
+    }
+    final room = _room ?? _multiplayerManager.currentRoom;
+    if (room == null) {
+      return false;
+    }
+    return !_opponentHasLeft(room);
+  }
+
+  bool _opponentHasLeft(MultiplayerRoom room) {
+    final opponent = room.players[_multiplayerManager.opponentRoleId];
+    return opponent == null || opponent.status == 'left';
   }
 
   List<Widget> _buildTutorialResultChildren() {
@@ -2733,6 +2817,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final accentColor = isOccupied ? Colors.cyanAccent : Colors.white38;
     final nameColor = isOccupied ? Colors.white : Colors.white54;
     final statusText = isOccupied ? '' : '未参加';
+    final hasSubLabel = subLabel != null && subLabel.trim().isNotEmpty;
+    final showBadgesInSubLabelSlot =
+        isOccupied && !hasSubLabel && badgeIds.isNotEmpty;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2765,26 +2852,32 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                _buildResponsivePlayerNameText(
                   name,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: nameColor,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.5,
-                  ),
+                  color: nameColor,
+                  maxFontSize: 16,
                 ),
                 const SizedBox(height: 4),
-                _buildLobbySubLabelText(!isOccupied ? '-' : (subLabel ?? '-')),
-                if (isOccupied && badgeIds.isNotEmpty && !isReady) ...[
+                if (showBadgesInSubLabelSlot)
+                  _buildBadgeIconRow(badgeIds)
+                else
+                  _buildLobbySubLabelText(
+                    !isOccupied ? '-' : (subLabel ?? '-'),
+                  ),
+                if (isOccupied &&
+                    badgeIds.isNotEmpty &&
+                    !isReady &&
+                    !showBadgesInSubLabelSlot) ...[
                   const SizedBox(height: 6),
                   _buildBadgeIconRow(badgeIds),
                 ],
               ],
             ),
           ),
-          if (isOccupied && isReady && badgeIds.isNotEmpty) ...[
+          if (isOccupied &&
+              isReady &&
+              badgeIds.isNotEmpty &&
+              !showBadgesInSubLabelSlot) ...[
             const SizedBox(width: 12),
             _buildBadgeIconRow(badgeIds),
           ] else if (statusText.isNotEmpty) ...[
@@ -2820,6 +2913,34 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   String _buildLobbyRatingLabel(int? rating) {
     return rating == null ? 'rating:-' : 'rating:$rating';
+  }
+
+  Widget _buildResponsivePlayerNameText(
+    String name, {
+    required Color color,
+    required double maxFontSize,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: maxFontSize + 5,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            name,
+            maxLines: 1,
+            style: TextStyle(
+              color: color,
+              fontSize: maxFontSize,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildLobbySubLabelText(String value) {
@@ -2896,6 +3017,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     setState(() {
       _room = room;
+      if (_opponentHasLeft(room)) {
+        _opponentUnavailableForRematch = true;
+        _isWaitingForRematch = false;
+      }
     });
 
     if (_onlineGameStarted) {
@@ -3631,7 +3756,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     await _startLocalBattleWithReadyGo(seed);
   }
 
-  Future<void> _startOnlineBattleWithReadyGo(int? seed) async {
+  Future<void> _startOnlineBattleWithReadyGo(
+    int? seed, {
+    Duration preReadyDelay = _preReadyDelay,
+  }) async {
     if (!mounted) {
       return;
     }
@@ -3639,7 +3767,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
     _rankedAutoStartTimer?.cancel();
-    await Future<void>.delayed(_preReadyDelay);
+    _playerGame.resumeEngine();
+    _cpuGame?.resumeEngine();
+    _playerGame.startGame(newSeed: seed, spawnInitialPiece: false);
+    _cpuGame?.startGame(newSeed: seed, spawnInitialPiece: false);
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+    if (!mounted) {
+      return;
+    }
+    _playerGame.pauseEngine();
+    _cpuGame?.pauseEngine();
+
+    await Future<void>.delayed(preReadyDelay);
     if (!mounted) {
       return;
     }
@@ -3672,8 +3811,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _playerGame.resumeEngine();
     _cpuGame?.resumeEngine();
-    _cpuGame?.startGame(newSeed: seed);
-    _playerGame.startGame(newSeed: seed);
+    _playerGame.spawnInitialPieceAfterReadyGo();
     if (_pendingPreBattleForfeitWin) {
       _pendingPreBattleForfeitWin = false;
       unawaited(
@@ -3732,12 +3870,54 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final colors = _parseColors(pieceData['colors']);
     final nextColors = _parseColors(pieceData['nextColors']);
     final dropSeed = (pieceData['dropSeed'] as num?)?.toInt();
+    final contactSlideDirection =
+        (pieceData['contactSlideDirection'] as num?)?.toDouble();
+    var movingLeft = pieceData['movingLeft'] == true;
+    var movingRight = pieceData['movingRight'] == true;
+    if (!pieceData.containsKey('movingLeft') ||
+        !pieceData.containsKey('movingRight')) {
+      movingLeft = opponentGame.isMovingLeft;
+      movingRight = opponentGame.isMovingRight;
+      switch (action) {
+        case 'start_left':
+          movingLeft = true;
+          break;
+        case 'stop_left':
+          movingLeft = false;
+          break;
+        case 'start_right':
+          movingRight = true;
+          break;
+        case 'stop_right':
+          movingRight = false;
+          break;
+        case 'spawn':
+        case 'hard_drop':
+          movingLeft = false;
+          movingRight = false;
+          break;
+      }
+    }
+    opponentGame.syncRemoteActivePieceInputState(
+      movingLeft: movingLeft,
+      movingRight: movingRight,
+      contactSlideDirection: contactSlideDirection,
+    );
     if (dropSeed != null) {
       opponentGame.currentDropSeed = dropSeed;
       opponentGame.syncDropRng = Random(dropSeed);
     }
     if (nextColors.isNotEmpty) {
       opponentGame.nextPieceColors.value = nextColors;
+    }
+
+    if (action != 'spawn' && action != 'hard_drop') {
+      _ensureOpponentActivePiece(opponentGame, colors);
+      opponentGame.syncRemoteActivePieceInputState(
+        movingLeft: movingLeft,
+        movingRight: movingRight,
+        contactSlideDirection: contactSlideDirection,
+      );
     }
 
     switch (action) {
@@ -3784,6 +3964,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _ensureOpponentActivePiece(
+      PuzzleGame opponentGame, List<BallColor> colors) {
+    if (opponentGame.activePiece != null || colors.length != 3) {
+      return;
+    }
+    opponentGame.spawnRemotePiece(colors);
+  }
+
   void _handleAttackReceived(OjamaTask task) {
     _queueOjamaTask(_playerGame, task);
   }
@@ -3819,23 +4007,27 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         applyOpponentResult: applyOpponentResult,
       );
       if (change != null) {
-        unawaited(_playerDataManager.setCurrentRating(change.newRating));
+        await _playerDataManager.setCurrentRating(change.newRating);
         unawaited(
           _playerDataManager.updateLatestRankedHistory(
             ratingAfter: change.newRating,
             ratingDelta: change.delta,
           ),
         );
-        unawaited(
-          _rankingManager.updateMyRating(
-            rating: change.newRating,
-            incrementDailyWin: isWin,
-          ),
-        );
+        if (change.delta != 0) {
+          unawaited(
+            _rankingManager.updateMyRating(
+              rating: change.newRating,
+              incrementDailyWin: isWin,
+              incrementSeasonLoss: !isWin,
+            ),
+          );
+        }
       }
       if (!mounted || change == null) {
         return;
       }
+      _refreshNewlyUnlockedBadgesFromSnapshot();
       setState(() {
         _rankedRatingChange = change;
       });
@@ -3865,22 +4057,26 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         opponentRating: opponentRating,
       );
       await _multiplayerManager.clearSavedSession();
-      unawaited(_playerDataManager.setCurrentRating(change.newRating));
+      await _playerDataManager.setCurrentRating(change.newRating);
       unawaited(
         _playerDataManager.updateLatestRankedHistory(
           ratingAfter: change.newRating,
           ratingDelta: change.delta,
         ),
       );
-      unawaited(
-        _rankingManager.updateMyRating(
-          rating: change.newRating,
-          incrementDailyWin: isWin,
-        ),
-      );
+      if (change.delta != 0) {
+        unawaited(
+          _rankingManager.updateMyRating(
+            rating: change.newRating,
+            incrementDailyWin: isWin,
+            incrementSeasonLoss: !isWin,
+          ),
+        );
+      }
       if (!mounted) {
         return;
       }
+      _refreshNewlyUnlockedBadgesFromSnapshot();
       setState(() {
         _rankedRatingChange = change;
       });
@@ -3905,9 +4101,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _resultCoinTripleInProgress = false;
     _didLevelUpFromResultExp = false;
     _resultLevelAfterExp = null;
+    _resultUnlockedBadgeIdsBefore = null;
+    _newlyUnlockedBadges = const [];
     _arenaResultApplied = false;
     _arenaMatchResult = null;
     _onlineResultWasForfeit = false;
+    _opponentUnavailableForRematch = false;
     _autoReadyRequested = false;
     _tutorialOpponentDefeatQueued = false;
     _resultRevealPending = false;
@@ -3924,6 +4123,106 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
     _playerWazaCounts[waza] = (_playerWazaCounts[waza] ?? 0) + 1;
+  }
+
+  Future<void> _captureResultBadgeSnapshot() async {
+    if (_resultUnlockedBadgeIdsBefore != null) {
+      return;
+    }
+    await _playerDataManager.load();
+    _resultUnlockedBadgeIdsBefore = _playerDataManager.unlockedBadgeIds.toSet();
+  }
+
+  void _refreshNewlyUnlockedBadgesFromSnapshot() {
+    final before = _resultUnlockedBadgeIdsBefore;
+    if (before == null) {
+      return;
+    }
+    final after = _playerDataManager.unlockedBadgeIds.toSet();
+    final newlyUnlocked = BadgeCatalog.visibleBadgesFor(after)
+        .where(
+            (badge) => after.contains(badge.id) && !before.contains(badge.id))
+        .toList();
+    if (newlyUnlocked.isEmpty || !mounted) {
+      return;
+    }
+    setState(() {
+      _newlyUnlockedBadges = newlyUnlocked;
+    });
+  }
+
+  Widget _buildBadgeUnlockResultCard() {
+    if (_newlyUnlockedBadges.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.amberAccent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.amberAccent.withValues(alpha: 0.68),
+          width: 1.4,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.amberAccent.withValues(alpha: 0.22),
+            blurRadius: 18,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'バッジ解放',
+            style: TextStyle(
+              color: Colors.amberAccent,
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+              shadows: [Shadow(color: Colors.amberAccent, blurRadius: 10)],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              for (final badge in _newlyUnlockedBadges)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: badge.frameColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: badge.frameColor.withValues(alpha: 0.72),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(badge.icon, color: badge.frameColor, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        badge.label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   int _calculateMatchExp({required bool isWin}) {
@@ -3958,6 +4257,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _resultCoinBaseEarned = earnedCoins;
       _resultCoinTripleClaimed = adsRemoved;
     });
+    if (!adsRemoved) {
+      unawaited(RewardedAdManager.instance.warmUp());
+    }
   }
 
   Future<void> _claimResultTripleCoinBonus() async {
@@ -4018,6 +4320,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (!mounted) {
         return;
       }
+      _refreshNewlyUnlockedBadgesFromSnapshot();
       setState(() {
         _matchExpEarned = earnedExp;
         if (currentLevel > previousLevel) {
@@ -4030,6 +4333,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (!mounted) {
         return;
       }
+      _refreshNewlyUnlockedBadgesFromSnapshot();
       setState(() {
         _matchExpEarned = earnedExp;
       });
@@ -4059,6 +4363,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (!mounted) {
         return;
       }
+      _refreshNewlyUnlockedBadgesFromSnapshot();
       setState(() {
         _soloExpEarned = earnedExp;
         if (currentLevel > previousLevel) {
@@ -4106,6 +4411,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       ratingAfter: _rankedRatingChange?.newRating,
       ratingDelta: _rankedRatingChange?.delta,
     );
+    _refreshNewlyUnlockedBadgesFromSnapshot();
   }
 
   Future<void> _recordSoloStats() async {
@@ -4123,6 +4429,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       maxChain: _playerGame.scoreManager.maxChainThisRun,
       score: _currentPlayerScore,
     );
+    try {
+      await _rankingManager.updateMyRating(
+        rating: _playerDataManager.currentRating,
+      );
+    } catch (_) {
+      // ランキング同期に失敗しても、エンドレス結果の保存は維持する。
+    }
+    _refreshNewlyUnlockedBadgesFromSnapshot();
   }
 
   Future<void> _recordArenaResult({required bool isWin}) async {
@@ -4147,6 +4461,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (!mounted) {
       return;
     }
+    _refreshNewlyUnlockedBadgesFromSnapshot();
     setState(() {
       _arenaMatchResult = result;
       if (currentLevel > previousLevel) {
@@ -4157,6 +4472,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _returnHomeAfterMatch() async {
+    if (_isReturningToHome) {
+      return;
+    }
     _isReturningToHome = true;
     _shutdownBattleGames();
     _myStampTimer?.cancel();
@@ -4177,7 +4495,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     final bootstrapFuture = prepareHomeBootstrapData();
     if (!_resultCoinTripleClaimed) {
-      await InterstitialAdManager.instance.showIfNeeded();
+      await InterstitialAdManager.instance.showAfterGame();
       await InterstitialAdManager.instance.settleAfterGame();
     }
     await SfxPlayer.resetTransientAudio();
@@ -4201,6 +4519,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final resultAlreadyShown = _onlineResultMessage != null ||
         _playerGame.gameStateWrapper.value == GameState.gameover;
     if (resultAlreadyShown) {
+      if (mounted) {
+        setState(() {
+          _opponentUnavailableForRematch = true;
+          _isWaitingForRematch = false;
+        });
+      }
       return;
     }
 
@@ -4224,6 +4548,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (!mounted) {
       return;
     }
+    unawaited(_startRematchBattleWithReadyGo(newSeed));
+  }
+
+  Future<void> _startRematchBattleWithReadyGo(int newSeed) async {
+    if (!mounted) {
+      return;
+    }
 
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
@@ -4233,18 +4564,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _onlineGameStarted = true;
       _onlineResultMessage = null;
       _onlineResultWasForfeit = false;
+      _opponentUnavailableForRematch = false;
       _isWaitingForRematch = false;
     });
-    _playerGame.resumeEngine();
-    _cpuGame?.resumeEngine();
-    _cpuGame?.startGame(newSeed: newSeed);
-    _playerGame.startGame(newSeed: newSeed);
+    await _startOnlineBattleWithReadyGo(
+      newSeed,
+      preReadyDelay: const Duration(seconds: 1),
+    );
     if (_isOnlineMode) {
       unawaited(_multiplayerManager.saveActiveSession(
         isArenaMode: widget.isArenaMode,
       ));
     }
-    unawaited(_startBattleBgm());
   }
 
   Future<void> _startBattleBgmAfterGoDelay() async {
@@ -4256,7 +4587,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _startBattleBgm() async {
-    if (_isBattleBgmPlaying) {
+    if (_isBattleBgmPlaying && SeamlessBgm.instance.isPlaying) {
       return;
     }
     _isBattleBgmPlaying = true;
@@ -4268,6 +4599,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         assetPath: 'audio/battle_bgm01.wav',
         duration: _battleBgmDuration,
         volume: 0.2448,
+        owner: _bgmOwner,
       );
     } catch (_) {
       _isBattleBgmPlaying = false;
@@ -4275,7 +4607,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _startTutorialBgm() async {
-    if (_isBattleBgmPlaying) {
+    if (_isBattleBgmPlaying && SeamlessBgm.instance.isPlaying) {
       return;
     }
     _isBattleBgmPlaying = true;
@@ -4287,6 +4619,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         assetPath: 'audio/home_screen_bgm01.wav',
         duration: _homeBgmDuration,
         volume: 0.576,
+        owner: _bgmOwner,
       );
     } catch (_) {
       _isBattleBgmPlaying = false;
@@ -4407,7 +4740,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
     _isBattleBgmPlaying = false;
     try {
-      await SeamlessBgm.instance.stop();
+      await SeamlessBgm.instance.stop(owner: _bgmOwner);
     } catch (_) {
       // BGM停止失敗で画面遷移や破棄を止めない。
     }
@@ -4643,6 +4976,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _requestRematch() async {
+    if (!_canShowRematchButton) {
+      return;
+    }
     setState(() {
       _isWaitingForRematch = true;
     });
@@ -4667,7 +5003,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   void _queueOjamaTask(PuzzleGame targetGame, OjamaTask task) {
     late Timer timer;
-    timer = Timer(const Duration(seconds: 2), () {
+    timer = Timer(const Duration(milliseconds: 2500), () {
       _pendingAttackTimers.remove(timer);
       if (targetGame.gameStateWrapper.value != GameState.playing) {
         return;
@@ -4740,7 +5076,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return;
     }
 
+    await _captureResultBadgeSnapshot();
+    if (!mounted) {
+      return;
+    }
+
     if (widget.isCpuMode) {
+      if (!_resultCoinTripleClaimed) {
+        unawaited(InterstitialAdManager.instance.warmUp());
+      }
       _cpuBattlePlayerWon = playerWon;
       unawaited(_missionManager.recordEvent('play_match'));
       unawaited(_missionManager.recordEvent('play_cpu'));
@@ -4760,6 +5104,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     if (_isOnlineMode) {
+      if (!_resultCoinTripleClaimed) {
+        unawaited(InterstitialAdManager.instance.warmUp());
+      }
       unawaited(_missionManager.recordEvent('play_match'));
       if (playerWon) {
         unawaited(_missionManager.recordEvent('win_match'));
@@ -4792,6 +5139,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     unawaited(_applyBattleCoinReward(isWin: false));
+    if (!_resultCoinTripleClaimed) {
+      unawaited(InterstitialAdManager.instance.warmUp());
+    }
     if (_currentPlayerScore >= 10000) {
       unawaited(_missionManager.recordEvent('score_endless_10000'));
     }
@@ -4904,7 +5254,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         final actions = _controlActionsFor(
           game,
           widget.isTutorialMode
-              ? ControlLayoutPreset.rotateRotateMoveMove
+              ? ControlLayoutPreset.rotateMoveMoveRotate
               : preset,
         );
         return SizedBox(

@@ -29,7 +29,7 @@ class AppSettings {
   final ValueNotifier<bool> adsRemoved = ValueNotifier(false);
   final ValueNotifier<bool> onboardingSeen = ValueNotifier(false);
   final ValueNotifier<ControlLayoutPreset> controlLayout =
-      ValueNotifier(ControlLayoutPreset.rotateRotateMoveMove);
+      ValueNotifier(ControlLayoutPreset.rotateMoveMoveRotate);
 
   bool _loaded = false;
 
@@ -44,7 +44,7 @@ class AppSettings {
     sfxVolume.value = (prefs.getDouble(_sfxVolumeKey) ?? 1.0).clamp(0.0, 1.0);
     adsRemoved.value = prefs.getBool(_adsRemovedKey) ?? false;
     onboardingSeen.value = prefs.getBool(_onboardingSeenKey) ?? false;
-    final defaultLayout = ControlLayoutPreset.rotateRotateMoveMove.index;
+    final defaultLayout = ControlLayoutPreset.rotateMoveMoveRotate.index;
     final rawLayout = prefs.getInt(_controlLayoutKey) ?? defaultLayout;
     controlLayout.value = ControlLayoutPreset
         .values[rawLayout.clamp(0, ControlLayoutPreset.values.length - 1)];
@@ -111,7 +111,7 @@ class AppSettings {
   }
 
   String generateAdRemovalGiftCode() {
-    if (!AppReviewConfig.adRemovalGiftCodeEnabled) {
+    if (!AppReviewConfig.adRemovalGiftCodeIssuerEnabled) {
       return '';
     }
     final millis = DateTime.now().millisecondsSinceEpoch;

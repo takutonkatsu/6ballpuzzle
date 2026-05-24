@@ -31,9 +31,65 @@
     "rankings": {
       "global": {
         ".read": "auth != null",
-        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate"],
+        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"],
         "$uid": {
           ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('publicId').exists() && data.child('publicId').val() === root.child('rankings/global/' + auth.uid + '/publicId').val()))"
+        }
+      }
+    },
+    "rankedSeasons": {
+      ".read": "auth != null",
+      "currentSeasonId": {
+        ".write": "auth != null"
+      },
+      "seasons": {
+        "$seasonId": {
+          "rankings": {
+            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"],
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid"
+            }
+          },
+          "finalTop100": {
+            ".write": "auth != null"
+          },
+          "finalized": {
+            ".write": "auth != null"
+          },
+          "finalizedAt": {
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+    "rankedSeasonBadges": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null"
+      }
+    },
+    "serverTimePings": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "appConfig": {
+      ".read": true,
+      ".write": false
+    },
+    "playerRecordSummaries": {
+      ".read": "auth != null",
+      ".indexOn": ["publicId", "displayName", "updatedAt", "recordDate"],
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "playerNameLookup": {
+      ".read": "auth != null",
+      "$name": {
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid"
         }
       }
     },

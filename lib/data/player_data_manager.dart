@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
@@ -9,6 +11,7 @@ import '../moderation/moderation_manager.dart';
 import 'models/badge_item.dart';
 import 'models/game_item.dart';
 import '../app_review_config.dart';
+import '../firebase_database_provider.dart';
 
 class ItemGrantResult {
   const ItemGrantResult({
@@ -33,6 +36,11 @@ class MatchHistoryEntry {
     required this.mode,
     required this.playedAt,
     this.isForfeitWin = false,
+    this.wazaCounts = const {},
+    this.clearedBalls = 0,
+    this.normalClearedBalls = 0,
+    this.maxChain = 0,
+    this.hasStyleMetrics = false,
     this.score,
     this.ratingAfter,
     this.ratingDelta,
@@ -43,6 +51,11 @@ class MatchHistoryEntry {
   final String mode;
   final DateTime playedAt;
   final bool isForfeitWin;
+  final Map<String, int> wazaCounts;
+  final int clearedBalls;
+  final int normalClearedBalls;
+  final int maxChain;
+  final bool hasStyleMetrics;
   final int? score;
   final int? ratingAfter;
   final int? ratingDelta;
@@ -54,6 +67,12 @@ class MatchHistoryEntry {
       'mode': mode,
       'playedAt': playedAt.toIso8601String(),
       if (isForfeitWin) 'isForfeitWin': true,
+      if (hasStyleMetrics) ...{
+        'wazaCounts': wazaCounts,
+        'clearedBalls': clearedBalls,
+        'normalClearedBalls': normalClearedBalls,
+        'maxChain': maxChain,
+      },
       if (score != null) 'score': score,
       if (ratingAfter != null) 'ratingAfter': ratingAfter,
       if (ratingDelta != null) 'ratingDelta': ratingDelta,
@@ -61,6 +80,11 @@ class MatchHistoryEntry {
   }
 
   factory MatchHistoryEntry.fromJson(Map<String, dynamic> json) {
+    final wazaCounts = _intMapValue(json['wazaCounts']);
+    final hasStyleMetrics = json.containsKey('wazaCounts') ||
+        json.containsKey('clearedBalls') ||
+        json.containsKey('normalClearedBalls') ||
+        json.containsKey('maxChain');
     return MatchHistoryEntry(
       isWin: json['isWin'] == true,
       opponentName: json['opponentName']?.toString() ?? 'UNKNOWN',
@@ -68,6 +92,11 @@ class MatchHistoryEntry {
       playedAt: DateTime.tryParse(json['playedAt']?.toString() ?? '') ??
           DateTime.now(),
       isForfeitWin: json['isForfeitWin'] == true,
+      wazaCounts: wazaCounts,
+      clearedBalls: _intValue(json['clearedBalls']) ?? 0,
+      normalClearedBalls: _intValue(json['normalClearedBalls']) ?? 0,
+      maxChain: _intValue(json['maxChain']) ?? 0,
+      hasStyleMetrics: hasStyleMetrics,
       score: _intValue(json['score']),
       ratingAfter: _intValue(json['ratingAfter']),
       ratingDelta: _intValue(json['ratingDelta']),
@@ -79,6 +108,16 @@ class MatchHistoryEntry {
       return value.toInt();
     }
     return int.tryParse('$value');
+  }
+
+  static Map<String, int> _intMapValue(Object? value) {
+    if (value is! Map) {
+      return const {};
+    }
+    return {
+      for (final entry in value.entries)
+        entry.key.toString(): _intValue(entry.value) ?? 0,
+    };
   }
 }
 
@@ -100,9 +139,17 @@ class PlayerDataManager {
   static const String _loginStreakKey = 'player_login_streak';
   static const String _totalLoginDaysKey = 'player_total_login_days';
   static const String _lastLoginDateKey = 'player_last_login_date';
+  static const String _lastLoginBonusStreakKey =
+      'player_last_login_bonus_streak';
   static const String _playerNameKey = 'player_name';
   static const String _playerIdKey = 'player_public_id';
   static const String _equippedBadgeIdsKey = 'player_equipped_badge_ids_json';
+  static const String _seasonRankBadgesKey = 'player_season_rank_badges_json';
+  static const String _rankedSeasonIdKey = 'player_ranked_season_id';
+  static const String _seasonRankedWinsKey = 'player_season_ranked_wins';
+  static const String _seasonRankedLossesKey = 'player_season_ranked_losses';
+  static const String _pendingRankedSeasonResultLogKey =
+      'player_pending_ranked_season_result_log';
   static const String _currentRatingKey = 'player_current_rating';
   static const String _equippedBallSkinIdKey = 'player_equipped_ball_skin_id';
   static const String _equippedPlayerIconIdKey =
@@ -136,6 +183,38 @@ class PlayerDataManager {
       'player_pending_level_up_reward_log';
   static const String _pendingLoginBonusLogKey =
       'player_pending_login_bonus_log';
+  static const String _todayStatsDateKey = 'player_today_stats_date';
+  static const String _todayTotalMatchesKey = 'player_today_total_matches';
+  static const String _todayTotalWinsKey = 'player_today_total_wins';
+  static const String _todayTotalLossesKey = 'player_today_total_losses';
+  static const String _todayClearedBallsKey = 'player_today_cleared_balls';
+  static const String _todayNormalClearedBallsKey =
+      'player_today_normal_cleared_balls';
+  static const String _todayMaxChainKey = 'player_today_max_chain';
+  static const String _todayHighestEndlessScoreKey =
+      'player_today_highest_endless_score';
+  static const String _todayRankedMatchesKey = 'player_today_ranked_matches';
+  static const String _todayRankedWinsKey = 'player_today_ranked_wins';
+  static const String _todayRankedLossesKey = 'player_today_ranked_losses';
+  static const String _todayRankedRatingStartKey =
+      'player_today_ranked_rating_start';
+  static const String _todayRankedRatingCurrentKey =
+      'player_today_ranked_rating_current';
+  static const String _todayWazaCountsKey = 'player_today_waza_counts_json';
+  static const String _todayModePlayCountsKey =
+      'player_today_mode_play_counts_json';
+  static const String _recordSummaryLastSyncAtKey =
+      'player_record_summary_last_sync_at';
+  static const String _recordSummaryLastHashKey =
+      'player_record_summary_last_hash';
+  static const String _recordSummaryLastNameKey =
+      'player_record_summary_last_name';
+  static const String _recordSummarySchemaVersionKey =
+      'player_record_summary_schema_version';
+  static const Duration _matchHistoryRetention = Duration(days: 8);
+  static const Duration _recordSummarySyncInterval = Duration(minutes: 1);
+  static const Duration _playerNameSyncTimeout = Duration(seconds: 3);
+  static const int _recordSummarySchemaVersion = 2;
   static const int _currentInventoryRevision = 3;
   static const int _currentRecordResetVersion = 1;
   static const int _debugBuildCoins = 1000000;
@@ -153,10 +232,15 @@ class PlayerDataManager {
   List<String> _dailyShopItems = [];
   int _loginStreak = 0;
   int _totalLoginDays = 0;
+  int _lastLoginBonusStreak = 0;
   String _lastLoginDate = '';
   String _playerName = '';
   String _playerId = '';
   List<String> _equippedBadgeIds = [];
+  List<SeasonRankBadge> _seasonRankBadges = [];
+  String _rankedSeasonId = '';
+  int _seasonRankedWins = 0;
+  int _seasonRankedLosses = 0;
   int _currentRating = 1000;
   String _equippedBallSkinId = 'default';
   String _equippedPlayerIconId = 'default';
@@ -190,6 +274,31 @@ class PlayerDataManager {
     'SOLO': 0,
     'FRIEND': 0,
   };
+  String _todayStatsDate = '';
+  int _todayTotalMatches = 0;
+  int _todayTotalWins = 0;
+  int _todayTotalLosses = 0;
+  int _todayClearedBalls = 0;
+  int _todayNormalClearedBalls = 0;
+  int _todayMaxChain = 0;
+  int _todayHighestEndlessScore = 0;
+  int _todayRankedMatches = 0;
+  int _todayRankedWins = 0;
+  int _todayRankedLosses = 0;
+  int? _todayRankedRatingStart;
+  int? _todayRankedRatingCurrent;
+  Map<String, int> _todayWazaCounts = {
+    'straight': 0,
+    'pyramid': 0,
+    'hexagon': 0,
+  };
+  Map<String, int> _todayModePlayCounts = {
+    'RANKED': 0,
+    'ARENA': 0,
+    'CPU': 0,
+    'SOLO': 0,
+    'FRIEND': 0,
+  };
 
   int get coins => _coins;
   int get exp => _exp;
@@ -214,6 +323,11 @@ class PlayerDataManager {
       _playerName.trim().isEmpty ? 'プレイヤー' : _playerName.trim();
   String get playerId => _playerId;
   List<String> get equippedBadgeIds => List.unmodifiable(_equippedBadgeIds);
+  List<SeasonRankBadge> get seasonRankBadges =>
+      List.unmodifiable(_seasonRankBadges);
+  String get rankedSeasonId => _rankedSeasonId;
+  int get seasonRankedWins => _seasonRankedWins;
+  int get seasonRankedLosses => _seasonRankedLosses;
   int get currentRating => _currentRating;
   String get equippedBallSkinId => _equippedBallSkinId;
   String get equippedPlayerIconId => _equippedPlayerIconId;
@@ -252,6 +366,7 @@ class PlayerDataManager {
         ),
       )
       .map((badge) => badge.id)
+      .followedBy(_seasonRankBadges.map((badge) => badge.id))
       .toList();
 
   Future<List<GameItem>> getOwnedItems() async {
@@ -312,6 +427,7 @@ class PlayerDataManager {
     }
     _loginStreak = max(0, prefs.getInt(_loginStreakKey) ?? 0);
     _lastLoginDate = prefs.getString(_lastLoginDateKey) ?? '';
+    _lastLoginBonusStreak = max(0, prefs.getInt(_lastLoginBonusStreakKey) ?? 0);
     _totalLoginDays = max(0,
         prefs.getInt(_totalLoginDaysKey) ?? (_lastLoginDate.isEmpty ? 0 : 1));
 
@@ -335,6 +451,12 @@ class PlayerDataManager {
     _equippedBadgeIds = _stringListFromJson(
       prefs.getString(_equippedBadgeIdsKey),
     ).take(2).toList();
+    _seasonRankBadges = _seasonRankBadgesFromJson(
+      prefs.getString(_seasonRankBadgesKey),
+    );
+    _rankedSeasonId = prefs.getString(_rankedSeasonIdKey) ?? '';
+    _seasonRankedWins = prefs.getInt(_seasonRankedWinsKey) ?? 0;
+    _seasonRankedLosses = prefs.getInt(_seasonRankedLossesKey) ?? 0;
     _currentRating = prefs.getInt(_currentRatingKey) ?? 1000;
     _highestRating = max(
       prefs.getInt(_highestRatingKey) ?? _currentRating,
@@ -374,6 +496,7 @@ class PlayerDataManager {
       ..._intMapFromJson(prefs.getString(_wazaCountsKey)),
     };
     _matchHistory = _historyFromJson(prefs.getString(_matchHistoryKey));
+    _trimMatchHistory();
     _modePlayCounts = {
       'RANKED': 0,
       'ARENA': 0,
@@ -382,6 +505,36 @@ class PlayerDataManager {
       'FRIEND': 0,
       ..._intMapFromJson(prefs.getString(_modePlayCountsKey)),
     };
+    _todayStatsDate = prefs.getString(_todayStatsDateKey) ?? '';
+    _todayTotalMatches = prefs.getInt(_todayTotalMatchesKey) ?? 0;
+    _todayTotalWins = prefs.getInt(_todayTotalWinsKey) ?? 0;
+    _todayTotalLosses = prefs.getInt(_todayTotalLossesKey) ?? 0;
+    _todayClearedBalls = prefs.getInt(_todayClearedBallsKey) ?? 0;
+    _todayNormalClearedBalls = prefs.getInt(_todayNormalClearedBallsKey) ?? 0;
+    _todayMaxChain = prefs.getInt(_todayMaxChainKey) ?? 0;
+    _todayHighestEndlessScore = prefs.getInt(_todayHighestEndlessScoreKey) ?? 0;
+    _todayRankedMatches = prefs.getInt(_todayRankedMatchesKey) ?? 0;
+    _todayRankedWins = prefs.getInt(_todayRankedWinsKey) ?? 0;
+    _todayRankedLosses = prefs.getInt(_todayRankedLossesKey) ?? 0;
+    _todayRankedRatingStart = prefs.getInt(_todayRankedRatingStartKey);
+    _todayRankedRatingCurrent = prefs.getInt(_todayRankedRatingCurrentKey);
+    _todayWazaCounts = {
+      'straight': 0,
+      'pyramid': 0,
+      'hexagon': 0,
+      ..._intMapFromJson(prefs.getString(_todayWazaCountsKey)),
+    };
+    _todayModePlayCounts = {
+      'RANKED': 0,
+      'ARENA': 0,
+      'CPU': 0,
+      'SOLO': 0,
+      'FRIEND': 0,
+      ..._intMapFromJson(prefs.getString(_todayModePlayCountsKey)),
+    };
+    if (_ensureTodayStatsDate(_todayKey())) {
+      shouldSaveStats = true;
+    }
 
     if ((prefs.getInt(_recordResetVersionKey) ?? 0) <
         _currentRecordResetVersion) {
@@ -394,7 +547,12 @@ class PlayerDataManager {
     _loaded = true;
 
     _equippedBadgeIds = _equippedBadgeIds
+        .map((id) => BadgeCatalog.evolvedBadgeIdFor(
+              id,
+              unlockedBadgeIds.toSet(),
+            ))
         .where((id) => unlockedBadgeIds.contains(id))
+        .toSet()
         .take(2)
         .toList();
     var shouldSaveItems = false;
@@ -431,22 +589,32 @@ class PlayerDataManager {
     await load();
     final today = _todayKey();
     var changed = false;
+    var statsChanged = false;
+
+    if (_ensureTodayStatsDate(today)) {
+      statsChanged = true;
+    }
 
     if (await _updateLoginStreak(today)) {
+      changed = true;
+      statsChanged = true;
+    }
+    if (await _grantLoginBonusIfEligible()) {
       changed = true;
     }
 
     final missionIds = _currentMissions
         .map((mission) => mission['id']?.toString() ?? '')
         .toSet();
-    final hasRequiredRewardedMissions =
-        MissionCatalog.rewardedAdMissionIds.every(missionIds.contains);
+    final hasSpecialDailyMission =
+        missionIds.any(MissionCatalog.isRewardedAdMissionId) ||
+            missionIds.any(MissionCatalog.isLoginRewardMissionId);
     final hasTemporarilyDisabledMissions =
         missionIds.any(MissionCatalog.isTemporarilyDisabledMissionId);
 
     if (_lastDailyReset != today ||
         _currentMissions.length != 4 ||
-        !hasRequiredRewardedMissions ||
+        !hasSpecialDailyMission ||
         hasTemporarilyDisabledMissions ||
         _dailyShopItems.length != 3) {
       _lastDailyReset = today;
@@ -461,6 +629,9 @@ class PlayerDataManager {
 
     if (changed) {
       await _saveDailyData();
+    }
+    if (statsChanged) {
+      await _saveStats();
     }
   }
 
@@ -610,14 +781,20 @@ class PlayerDataManager {
 
   Future<void> setPlayerName(String name) async {
     await load();
+    final previousName = _playerName;
     _playerName = ModerationManager.instance.sanitizePlayerName(name);
     await _savePublicProfile();
+    _syncRecordSummaryInBackground(force: previousName != _playerName);
   }
 
   Future<void> setCurrentRating(int rating) async {
     await load();
+    _ensureTodayStatsDate(_todayKey());
     _currentRating = rating;
     _highestRating = max(_highestRating, rating);
+    if (_todayRankedRatingStart != null) {
+      _todayRankedRatingCurrent = rating;
+    }
     await _savePublicProfile();
     await _saveStats();
   }
@@ -625,8 +802,33 @@ class PlayerDataManager {
   Future<void> setEquippedBadgeIds(List<String> badgeIds) async {
     await load();
     final unlocked = unlockedBadgeIds.toSet();
-    _equippedBadgeIds =
-        badgeIds.where((id) => unlocked.contains(id)).toSet().take(2).toList();
+    _equippedBadgeIds = badgeIds
+        .map((id) => BadgeCatalog.evolvedBadgeIdFor(id, unlocked))
+        .where((id) => unlocked.contains(id))
+        .toSet()
+        .take(2)
+        .toList();
+    await _savePublicProfile();
+  }
+
+  Future<void> setSeasonRankBadges(List<SeasonRankBadge> badges) async {
+    await load();
+    final deduped = <String, SeasonRankBadge>{
+      for (final badge in badges.where((badge) => badge.rank > 0))
+        badge.id: badge,
+    };
+    _seasonRankBadges = deduped.values.toList()
+      ..sort((a, b) => b.seasonId.compareTo(a.seasonId));
+    _equippedBadgeIds = _equippedBadgeIds
+        .map((id) => BadgeCatalog.evolvedBadgeIdFor(
+              id,
+              unlockedBadgeIds.toSet(),
+            ))
+        .where((id) => unlockedBadgeIds.contains(id))
+        .toSet()
+        .take(2)
+        .toList();
+    await _saveSeasonRankBadges();
     await _savePublicProfile();
   }
 
@@ -724,6 +926,7 @@ class PlayerDataManager {
     int? ratingDelta,
   }) async {
     await load();
+    _ensureTodayStatsDate(_todayKey());
     _totalMatches++;
     if (isWin) {
       _totalWins++;
@@ -742,14 +945,27 @@ class PlayerDataManager {
         _rankedWins++;
         _rankedCurrentWinStreak++;
         _rankedMaxWinStreak = max(_rankedMaxWinStreak, _rankedCurrentWinStreak);
+        _seasonRankedWins++;
       } else {
         _rankedCurrentWinStreak = 0;
+        _seasonRankedLosses++;
       }
     }
     _modePlayCounts[mode] = (_modePlayCounts[mode] ?? 0) + 1;
     for (final entry in wazaCounts.entries) {
       _wazaCounts[entry.key] = (_wazaCounts[entry.key] ?? 0) + entry.value;
     }
+    _recordTodayMatchResult(
+      isWin: isWin,
+      mode: mode,
+      wazaCounts: wazaCounts,
+      clearedBalls: clearedBalls,
+      normalClearedBalls: normalClearedBalls,
+      maxChain: maxChain,
+      score: score,
+      ratingAfter: ratingAfter,
+      ratingDelta: ratingDelta,
+    );
     if (ratingAfter != null) {
       _currentRating = ratingAfter;
       _highestRating = max(_highestRating, ratingAfter);
@@ -761,12 +977,18 @@ class PlayerDataManager {
         mode: mode,
         playedAt: DateTime.now(),
         isForfeitWin: isForfeitWin,
+        wazaCounts: Map<String, int>.from(wazaCounts),
+        clearedBalls: max(0, clearedBalls),
+        normalClearedBalls: max(0, normalClearedBalls),
+        maxChain: max(0, maxChain),
+        hasStyleMetrics: !isForfeitWin,
         score: score,
         ratingAfter: ratingAfter,
         ratingDelta: ratingDelta,
       ),
       ..._matchHistory,
-    ].take(30).toList();
+    ];
+    _trimMatchHistory();
     await _savePublicProfile();
     await _saveStats();
   }
@@ -787,14 +1009,34 @@ class PlayerDataManager {
       mode: target.mode,
       playedAt: target.playedAt,
       isForfeitWin: target.isForfeitWin,
+      wazaCounts: target.wazaCounts,
+      clearedBalls: target.clearedBalls,
+      normalClearedBalls: target.normalClearedBalls,
+      maxChain: target.maxChain,
+      hasStyleMetrics: target.hasStyleMetrics,
       score: target.score,
       ratingAfter: ratingAfter,
       ratingDelta: ratingDelta,
     );
     _currentRating = ratingAfter;
     _highestRating = max(_highestRating, ratingAfter);
+    if (_todayRankedRatingStart != null) {
+      _todayRankedRatingCurrent = ratingAfter;
+    }
     await _savePublicProfile();
     await _saveStats();
+  }
+
+  void _trimMatchHistory() {
+    final cutoff = DateTime.now().subtract(_matchHistoryRetention);
+    final recent = _matchHistory
+        .where((entry) => !entry.playedAt.isBefore(cutoff))
+        .toList();
+    final latestDisplayEntries = _matchHistory.take(30);
+    _matchHistory = {
+      for (final entry in [...recent, ...latestDisplayEntries]) entry: entry,
+    }.keys.toList()
+      ..sort((a, b) => b.playedAt.compareTo(a.playedAt));
   }
 
   Future<void> recordBestRankedRank(int rank) async {
@@ -806,12 +1048,149 @@ class PlayerDataManager {
     await _saveStats();
   }
 
+  Future<String?> consumePendingRankedSeasonResultLog() async {
+    await load();
+    final prefs = await SharedPreferences.getInstance();
+    final log = prefs.getString(_pendingRankedSeasonResultLogKey);
+    if (log == null || log.isEmpty) {
+      return null;
+    }
+    await prefs.remove(_pendingRankedSeasonResultLogKey);
+    return log;
+  }
+
+  Future<void> ensureRankedSeason({
+    required String currentSeasonId,
+    required String previousSeasonName,
+    int? previousFinalRank,
+    int? previousFinalRating,
+    int? previousSeasonWins,
+    int? previousSeasonLosses,
+  }) async {
+    await load();
+    if (_rankedSeasonId == currentSeasonId) {
+      return;
+    }
+
+    final hadRankedSeason = _rankedSeasonId.isNotEmpty;
+    if (hadRankedSeason) {
+      final wins = previousSeasonWins ?? _seasonRankedWins;
+      final losses = previousSeasonLosses ?? _seasonRankedLosses;
+      final total = wins + losses;
+      final winRate =
+          total <= 0 ? '未参加' : '${((wins / total) * 100).toStringAsFixed(1)}%';
+      final rankText = previousFinalRank == null ? '圏外' : '$previousFinalRank位';
+      final ratingText = previousFinalRating ?? _currentRating;
+      final log = StringBuffer()
+        ..writeln('$previousSeasonName 結果')
+        ..writeln('最終レート: $ratingText')
+        ..writeln('最終順位: $rankText')
+        ..writeln('勝敗: $wins勝 $losses敗')
+        ..write('勝率: $winRate');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_pendingRankedSeasonResultLogKey, log.toString());
+    }
+
+    _rankedSeasonId = currentSeasonId;
+    if (hadRankedSeason) {
+      _seasonRankedWins = 0;
+      _seasonRankedLosses = 0;
+      _rankedCurrentWinStreak = 0;
+      _currentRating = 1000;
+    }
+    await _savePublicProfile();
+    await _saveStats();
+  }
+
+  Future<void> syncRecordSummary({bool force = false}) async {
+    await load();
+    final uid = await AuthManager.instance.ensureSignedIn();
+    final prefs = await SharedPreferences.getInstance();
+    final summary = _recordSummaryPayload(uid);
+    final hash = jsonEncode(summary);
+    final previousHash = prefs.getString(_recordSummaryLastHashKey);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final lastSyncedAt = prefs.getInt(_recordSummaryLastSyncAtKey) ?? 0;
+    final previousName = prefs.getString(_recordSummaryLastNameKey) ?? '';
+    final nameChanged = previousName != displayPlayerName;
+    final schemaChanged = (prefs.getInt(_recordSummarySchemaVersionKey) ?? 0) <
+        _recordSummarySchemaVersion;
+
+    if (!force &&
+        !schemaChanged &&
+        previousHash == hash &&
+        !nameChanged &&
+        now - lastSyncedAt < _recordSummarySyncInterval.inMilliseconds) {
+      return;
+    }
+    if (!force &&
+        !schemaChanged &&
+        previousHash != null &&
+        previousHash != hash &&
+        now - lastSyncedAt < _recordSummarySyncInterval.inMilliseconds) {
+      return;
+    }
+
+    try {
+      final database = AppFirebaseDatabase.ref();
+      if (nameChanged && previousName.trim().isNotEmpty) {
+        final previousKey = _nameLookupKey(previousName);
+        final nextKey = _nameLookupKey(displayPlayerName);
+        if (previousKey != nextKey) {
+          await database.child('playerNameLookup/$previousKey/$uid').remove();
+        }
+      }
+      final syncedAt = DateTime.now();
+      await database.child('playerRecordSummaries/$uid').set({
+        ...summary,
+        'updatedAt': ServerValue.timestamp,
+        'updatedAtText': _formatDateTimeForDatabase(syncedAt),
+        'lastSeenAtText': _formatDateTimeForDatabase(syncedAt),
+      });
+      await database
+          .child('playerNameLookup/${_nameLookupKey(displayPlayerName)}/$uid')
+          .set({
+        'uid': uid,
+        'publicId': _playerId,
+        'displayName': displayPlayerName,
+        'currentRating': _currentRating,
+        'totalMatches': _totalMatches,
+        'updatedAt': ServerValue.timestamp,
+      });
+      await prefs.setString(_recordSummaryLastHashKey, hash);
+      await prefs.setInt(_recordSummaryLastSyncAtKey, now);
+      await prefs.setString(_recordSummaryLastNameKey, displayPlayerName);
+      await prefs.setInt(
+        _recordSummarySchemaVersionKey,
+        _recordSummarySchemaVersion,
+      );
+    } catch (_) {
+      // 管理用サマリーの同期失敗で、プレイ中の保存処理は止めない。
+    }
+  }
+
+  void _syncRecordSummaryInBackground({bool force = false}) {
+    unawaited(_syncRecordSummarySafely(force: force));
+  }
+
+  Future<void> _syncRecordSummarySafely({bool force = false}) async {
+    try {
+      await syncRecordSummary(force: force).timeout(
+        _playerNameSyncTimeout,
+        onTimeout: () {},
+      );
+    } catch (_) {
+      // 管理用サマリーのバックグラウンド同期失敗で保存処理は止めない。
+    }
+  }
+
   Future<void> _saveEconomy() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_coinsKey, _coins);
     await prefs.setInt(_expKey, _exp);
     await prefs.setInt(_gachaTicketsKey, _gachaTickets);
     await prefs.setInt(_cyberScrapKey, _cyberScrap);
+    _syncRecordSummaryInBackground();
   }
 
   Future<void> _saveItems() async {
@@ -819,6 +1198,15 @@ class PlayerDataManager {
     await prefs.setString(
       _itemsKey,
       jsonEncode(_ownedItems.map((item) => item.toJson()).toList()),
+    );
+    _syncRecordSummaryInBackground();
+  }
+
+  Future<void> _saveSeasonRankBadges() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _seasonRankBadgesKey,
+      jsonEncode(_seasonRankBadges.map((badge) => badge.toJson()).toList()),
     );
   }
 
@@ -853,6 +1241,9 @@ class PlayerDataManager {
     await prefs.setInt(_rankedCurrentWinStreakKey, _rankedCurrentWinStreak);
     await prefs.setInt(_rankedMaxWinStreakKey, _rankedMaxWinStreak);
     await prefs.setInt(_bestRankedRankKey, _bestRankedRank);
+    await prefs.setString(_rankedSeasonIdKey, _rankedSeasonId);
+    await prefs.setInt(_seasonRankedWinsKey, _seasonRankedWins);
+    await prefs.setInt(_seasonRankedLossesKey, _seasonRankedLosses);
     await prefs.setInt(_arenaPerfectClearCountKey, _arenaPerfectClearCount);
     await prefs.setString(_wazaCountsKey, jsonEncode(_wazaCounts));
     await prefs.setString(_modePlayCountsKey, jsonEncode(_modePlayCounts));
@@ -860,6 +1251,9 @@ class PlayerDataManager {
       _matchHistoryKey,
       jsonEncode(_matchHistory.map((entry) => entry.toJson()).toList()),
     );
+    await _saveTodayStats(prefs);
+    await _saveSeasonRankBadges();
+    await syncRecordSummary();
   }
 
   Future<void> _saveDailyData() async {
@@ -875,7 +1269,45 @@ class PlayerDataManager {
     );
     await prefs.setInt(_loginStreakKey, _loginStreak);
     await prefs.setInt(_totalLoginDaysKey, _totalLoginDays);
+    await prefs.setInt(_lastLoginBonusStreakKey, _lastLoginBonusStreak);
     await prefs.setString(_lastLoginDateKey, _lastLoginDate);
+  }
+
+  Future<void> _saveTodayStats(SharedPreferences prefs) async {
+    await prefs.setString(_todayStatsDateKey, _todayStatsDate);
+    await prefs.setInt(_todayTotalMatchesKey, _todayTotalMatches);
+    await prefs.setInt(_todayTotalWinsKey, _todayTotalWins);
+    await prefs.setInt(_todayTotalLossesKey, _todayTotalLosses);
+    await prefs.setInt(_todayClearedBallsKey, _todayClearedBalls);
+    await prefs.setInt(
+      _todayNormalClearedBallsKey,
+      _todayNormalClearedBalls,
+    );
+    await prefs.setInt(_todayMaxChainKey, _todayMaxChain);
+    await prefs.setInt(
+      _todayHighestEndlessScoreKey,
+      _todayHighestEndlessScore,
+    );
+    await prefs.setInt(_todayRankedMatchesKey, _todayRankedMatches);
+    await prefs.setInt(_todayRankedWinsKey, _todayRankedWins);
+    await prefs.setInt(_todayRankedLossesKey, _todayRankedLosses);
+    final ratingStart = _todayRankedRatingStart;
+    final ratingCurrent = _todayRankedRatingCurrent;
+    if (ratingStart == null) {
+      await prefs.remove(_todayRankedRatingStartKey);
+    } else {
+      await prefs.setInt(_todayRankedRatingStartKey, ratingStart);
+    }
+    if (ratingCurrent == null) {
+      await prefs.remove(_todayRankedRatingCurrentKey);
+    } else {
+      await prefs.setInt(_todayRankedRatingCurrentKey, ratingCurrent);
+    }
+    await prefs.setString(_todayWazaCountsKey, jsonEncode(_todayWazaCounts));
+    await prefs.setString(
+      _todayModePlayCountsKey,
+      jsonEncode(_todayModePlayCounts),
+    );
   }
 
   Future<String?> consumePendingLevelUpRewardLog() async {
@@ -993,6 +1425,214 @@ class PlayerDataManager {
     return true;
   }
 
+  bool _ensureTodayStatsDate(String today) {
+    if (_todayStatsDate == today) {
+      return false;
+    }
+    _todayStatsDate = today;
+    _todayTotalMatches = 0;
+    _todayTotalWins = 0;
+    _todayTotalLosses = 0;
+    _todayClearedBalls = 0;
+    _todayNormalClearedBalls = 0;
+    _todayMaxChain = 0;
+    _todayHighestEndlessScore = 0;
+    _todayRankedMatches = 0;
+    _todayRankedWins = 0;
+    _todayRankedLosses = 0;
+    _todayRankedRatingStart = null;
+    _todayRankedRatingCurrent = null;
+    _todayWazaCounts = {
+      'straight': 0,
+      'pyramid': 0,
+      'hexagon': 0,
+    };
+    _todayModePlayCounts = {
+      'RANKED': 0,
+      'ARENA': 0,
+      'CPU': 0,
+      'SOLO': 0,
+      'FRIEND': 0,
+    };
+    return true;
+  }
+
+  void _recordTodayMatchResult({
+    required bool isWin,
+    required String mode,
+    required Map<String, int> wazaCounts,
+    required int clearedBalls,
+    required int normalClearedBalls,
+    required int maxChain,
+    int? score,
+    int? ratingAfter,
+    int? ratingDelta,
+  }) {
+    _todayTotalMatches++;
+    if (isWin) {
+      _todayTotalWins++;
+    } else {
+      _todayTotalLosses++;
+    }
+    _todayClearedBalls += max(0, clearedBalls);
+    _todayNormalClearedBalls += max(0, normalClearedBalls);
+    _todayMaxChain = max(_todayMaxChain, maxChain);
+    if (mode == 'SOLO' && score != null) {
+      _todayHighestEndlessScore = max(_todayHighestEndlessScore, score);
+    }
+    _todayModePlayCounts[mode] = (_todayModePlayCounts[mode] ?? 0) + 1;
+    for (final entry in wazaCounts.entries) {
+      _todayWazaCounts[entry.key] =
+          (_todayWazaCounts[entry.key] ?? 0) + entry.value;
+    }
+    if (mode == 'RANKED') {
+      _todayRankedMatches++;
+      if (isWin) {
+        _todayRankedWins++;
+      } else {
+        _todayRankedLosses++;
+      }
+      if (ratingAfter != null) {
+        _todayRankedRatingCurrent = ratingAfter;
+        _todayRankedRatingStart ??=
+            ratingDelta == null ? _currentRating : ratingAfter - ratingDelta;
+      } else {
+        _todayRankedRatingStart ??= _currentRating;
+        _todayRankedRatingCurrent = _currentRating;
+      }
+    }
+  }
+
+  Map<String, dynamic> _recordSummaryPayload(String uid) {
+    final ratingStart = _todayRankedRatingStart;
+    final ratingCurrent = _todayRankedRatingCurrent;
+    final ownedItems = _ownedItems.map((item) => item.toJson()).toList();
+    return {
+      'schemaVersion': _recordSummarySchemaVersion,
+      'uid': uid,
+      'publicId': _playerId,
+      'displayName': displayPlayerName,
+      'recordDate': _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate,
+      'overall': {
+        'totalMatches': _totalMatches,
+        'totalWins': _totalWins,
+        'totalLosses': _totalLosses,
+        'totalClearedBalls': _totalClearedBalls,
+        'totalNormalClearedBalls': _totalNormalClearedBalls,
+        'maxChain': _maxChain,
+        'averageChain': double.parse(averageChain.toStringAsFixed(2)),
+        'totalLoginDays': _totalLoginDays,
+        'accountCreatedAt': _accountCreatedAt.toIso8601String(),
+        'accountCreatedAtText': _formatDateTimeForDatabase(_accountCreatedAt),
+        'lastLoginDate': _lastLoginDate,
+        'lastLoginDateText': _lastLoginDate.isEmpty
+            ? ''
+            : _formatDateKeyForDatabase(_lastLoginDate),
+      },
+      'economy': {
+        'coins': _coins,
+        'level': level,
+        'exp': _exp,
+        'currentLevelExp': currentLevelExp,
+        'nextLevelRequiredExp': nextLevelRequiredExp,
+        'gachaTickets': _gachaTickets,
+        'cyberScrap': _cyberScrap,
+      },
+      'collection': {
+        'ownedItemCount': ownedItems.length,
+        'ownedItems': ownedItems,
+        'ownedItemIds': _ownedItems.map((item) => item.id).toList(),
+        'ownedStampIds': _ownedItems
+            .where((item) => item.type == ItemType.stamp)
+            .map((item) => item.id)
+            .toList(),
+        'ownedSkinIds': _ownedItems
+            .where((item) => item.type == ItemType.skin)
+            .map((item) => item.id)
+            .toList(),
+        'ownedIconIds': _ownedItems
+            .where((item) => item.type == ItemType.icon)
+            .map((item) => item.id)
+            .toList(),
+        'equippedBallSkinId': _equippedBallSkinId,
+        'equippedPlayerIconId': _equippedPlayerIconId,
+        'equippedBadgeIds': List<String>.from(_equippedBadgeIds),
+        'unlockedBadgeIds': unlockedBadgeIds,
+        'seasonRankBadges':
+            _seasonRankBadges.map((badge) => badge.toJson()).toList(),
+      },
+      'ranked': {
+        'wins': _rankedWins,
+        'currentRating': _currentRating,
+        'highestRating': _highestRating,
+        'currentWinStreak': _rankedCurrentWinStreak,
+        'maxWinStreak': _rankedMaxWinStreak,
+        'bestRankedRank': _bestRankedRank,
+      },
+      'arena': {
+        'maxWins': _maxArenaWins,
+        'challengeCount': _arenaChallengeCount,
+        'perfectClearCount': _arenaPerfectClearCount,
+      },
+      'endless': {
+        'playCount': _modePlayCounts['SOLO'] ?? 0,
+        'highestScore': _highestEndlessScore,
+      },
+      'wazaCounts': Map<String, int>.from(_wazaCounts),
+      'modePlayCounts': Map<String, int>.from(_modePlayCounts),
+      'today': {
+        'date': _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate,
+        'totalMatches': _todayTotalMatches,
+        'totalWins': _todayTotalWins,
+        'totalLosses': _todayTotalLosses,
+        'totalClearedBalls': _todayClearedBalls,
+        'totalNormalClearedBalls': _todayNormalClearedBalls,
+        'maxChain': _todayMaxChain,
+        'highestEndlessScore': _todayHighestEndlessScore,
+        'modePlayCounts': Map<String, int>.from(_todayModePlayCounts),
+        'ranked': {
+          'matches': _todayRankedMatches,
+          'wins': _todayRankedWins,
+          'losses': _todayRankedLosses,
+          'ratingStart': ratingStart ?? _currentRating,
+          'ratingCurrent': ratingCurrent ?? _currentRating,
+          'ratingDelta': ratingStart != null && ratingCurrent != null
+              ? ratingCurrent - ratingStart
+              : 0,
+        },
+        'wazaCounts': Map<String, int>.from(_todayWazaCounts),
+      },
+    };
+  }
+
+  String _formatDateTimeForDatabase(DateTime value) {
+    final local = value.toLocal();
+    return '${local.year.toString().padLeft(4, '0')}/'
+        '${local.month.toString().padLeft(2, '0')}/'
+        '${local.day.toString().padLeft(2, '0')}/'
+        '${local.hour.toString().padLeft(2, '0')}:'
+        '${local.minute.toString().padLeft(2, '0')}:'
+        '${local.second.toString().padLeft(2, '0')}';
+  }
+
+  String _formatDateKeyForDatabase(String dateKey) {
+    final parsed = _parseDateKey(dateKey);
+    if (parsed == null) {
+      return dateKey.replaceAll('-', '/');
+    }
+    return '${parsed.year.toString().padLeft(4, '0')}/'
+        '${parsed.month.toString().padLeft(2, '0')}/'
+        '${parsed.day.toString().padLeft(2, '0')}';
+  }
+
+  String _nameLookupKey(String name) {
+    final normalized = name.trim().toLowerCase();
+    final key = normalized
+        .replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_');
+    return key.isEmpty ? 'player' : key;
+  }
+
   Future<void> _storePendingLevelUpRewardLog({
     required int previousLevel,
     required int currentLevel,
@@ -1032,14 +1672,26 @@ class PlayerDataManager {
     _lastLoginDate = today;
     _totalLoginDays++;
 
-    if (_loginStreak > 0 && _loginStreak % 7 == 0) {
-      await addCoins(5000);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        _pendingLoginBonusLogKey,
-        '連続ログイン$_loginStreak日達成！\n5000を獲得しました。',
-      );
+    return true;
+  }
+
+  Future<bool> _grantLoginBonusIfEligible() async {
+    final eligibleStreak = (_loginStreak ~/ 7) * 7;
+    if (eligibleStreak <= 0) {
+      return false;
     }
+    if (_lastLoginBonusStreak >= eligibleStreak) {
+      return false;
+    }
+
+    _lastLoginBonusStreak = eligibleStreak;
+    _coins += 5000;
+    await _saveEconomy();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _pendingLoginBonusLogKey,
+      '連続ログイン$eligibleStreak日達成！\n5000を獲得しました。',
+    );
     return true;
   }
 
@@ -1093,6 +1745,29 @@ class PlayerDataManager {
     return [];
   }
 
+  List<SeasonRankBadge> _seasonRankBadgesFromJson(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return [];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map(
+              (entry) => SeasonRankBadge.fromJson(
+                Map<String, dynamic>.from(entry),
+              ),
+            )
+            .where((badge) => badge.seasonId.isNotEmpty && badge.rank > 0)
+            .toList();
+      }
+    } catch (_) {
+      return [];
+    }
+    return [];
+  }
+
   Map<String, int> _intMapFromJson(String? raw) {
     if (raw == null || raw.isEmpty) {
       return {};
@@ -1125,7 +1800,6 @@ class PlayerDataManager {
                 Map<String, dynamic>.from(entry),
               ),
             )
-            .take(30)
             .toList();
       }
     } catch (_) {

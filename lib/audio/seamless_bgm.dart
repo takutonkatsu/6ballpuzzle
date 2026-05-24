@@ -6,27 +6,33 @@ class SeamlessBgm {
   SeamlessBgm._();
 
   static final SeamlessBgm instance = SeamlessBgm._();
-  static const Duration _homeLoopLeadTime = Duration(milliseconds: 30);
-  static const Duration _battleLoopLeadTime = Duration(milliseconds: 32);
+  static const Duration _homeLoopLeadTime = Duration(milliseconds: 140);
+  static const Duration _battleLoopLeadTime = Duration(milliseconds: 140);
+  static const Duration _recoveryWatchdogInterval = Duration(seconds: 2);
 
   final AudioPlayer _playerA = AudioPlayer();
   final AudioPlayer _playerB = AudioPlayer();
   Timer? _loopTimer;
+  Timer? _recoveryWatchdogTimer;
   String? _assetPath;
+  Object? _owner;
   Duration? _trackDuration;
   double _baseVolume = 1;
   double _masterVolume = 1;
   bool _usingA = true;
   bool _isPlaying = false;
+  int _suspendCount = 0;
   int _generation = 0;
   Future<void> _operation = Future<void>.value();
 
   bool get isPlaying => _isPlaying;
+  bool get isSuspended => _suspendCount > 0;
 
   Future<void> play({
     required String assetPath,
     required Duration duration,
     required double volume,
+    Object? owner,
     bool forceRestart = false,
   }) {
     return _enqueue(
@@ -34,13 +40,22 @@ class SeamlessBgm {
         assetPath: assetPath,
         duration: duration,
         volume: volume,
+        owner: owner,
         forceRestart: forceRestart,
       ),
     );
   }
 
-  Future<void> stop() {
-    return _enqueue(_stopNow);
+  Future<void> stop({Object? owner}) {
+    return _enqueue(() => _stopNow(owner: owner));
+  }
+
+  Future<void> suspendForExternalAudio() {
+    return _enqueue(_suspendForExternalAudioNow);
+  }
+
+  Future<void> resumeFromExternalAudio() {
+    return _enqueue(_resumeFromExternalAudioNow);
   }
 
   Future<void> setMasterVolume(double volume) {
@@ -59,10 +74,12 @@ class SeamlessBgm {
     required String assetPath,
     required Duration duration,
     required double volume,
+    required Object? owner,
     required bool forceRestart,
   }) async {
     if (_isPlaying &&
         !forceRestart &&
+        _owner == owner &&
         _assetPath == assetPath &&
         _trackDuration == duration) {
       return;
@@ -71,6 +88,7 @@ class SeamlessBgm {
     await _stopNow();
     _generation++;
     _assetPath = assetPath;
+    _owner = owner;
     _trackDuration = duration;
     _baseVolume = volume;
     _usingA = true;
@@ -78,15 +96,27 @@ class SeamlessBgm {
 
     await _prepare(_playerA, assetPath, _effectiveVolume);
     await _prepare(_playerB, assetPath, 0);
+    if (isSuspended) {
+      _startRecoveryWatchdog();
+      return;
+    }
     await _playerA.resume();
     _scheduleNext(_generation);
+    _startRecoveryWatchdog();
   }
 
-  Future<void> _stopNow() async {
+  Future<void> _stopNow({Object? owner}) async {
+    if (owner != null && _owner != owner) {
+      return;
+    }
     _generation++;
     _isPlaying = false;
     _loopTimer?.cancel();
     _loopTimer = null;
+    _stopRecoveryWatchdog();
+    _owner = null;
+    _assetPath = null;
+    _trackDuration = null;
     await Future.wait([
       _playerA.stop(),
       _playerB.stop(),
@@ -131,10 +161,50 @@ class SeamlessBgm {
     ]);
   }
 
+  Future<void> _suspendForExternalAudioNow() async {
+    _suspendCount++;
+    if (_suspendCount > 1) {
+      return;
+    }
+    _generation++;
+    _loopTimer?.cancel();
+    _loopTimer = null;
+    if (!_isPlaying) {
+      return;
+    }
+    await Future.wait([
+      _playerA.pause(),
+      _playerB.pause(),
+    ]);
+  }
+
+  Future<void> _resumeFromExternalAudioNow() async {
+    if (_suspendCount == 0) {
+      return;
+    }
+    _suspendCount--;
+    if (_suspendCount > 0 || !_isPlaying) {
+      return;
+    }
+    final assetPath = _assetPath;
+    final duration = _trackDuration;
+    if (assetPath == null || duration == null) {
+      return;
+    }
+
+    _generation++;
+    _usingA = true;
+    await _prepare(_playerA, assetPath, _effectiveVolume);
+    await _prepare(_playerB, assetPath, 0);
+    await _playerA.resume();
+    _scheduleNext(_generation);
+    _startRecoveryWatchdog();
+  }
+
   void _scheduleNext(int generation) {
     final duration = _trackDuration;
     final assetPath = _assetPath;
-    if (!_isPlaying || duration == null || assetPath == null) {
+    if (!_isPlaying || isSuspended || duration == null || assetPath == null) {
       return;
     }
 
@@ -142,7 +212,7 @@ class SeamlessBgm {
     _loopTimer?.cancel();
     final wait = duration > loopLeadTime ? duration - loopLeadTime : duration;
     _loopTimer = Timer(wait, () {
-      if (!_isPlaying || generation != _generation) {
+      if (!_isPlaying || isSuspended || generation != _generation) {
         return;
       }
       unawaited(_swapToStandby(generation));
@@ -150,7 +220,7 @@ class SeamlessBgm {
   }
 
   Future<void> _swapToStandby(int generation) async {
-    if (!_isPlaying || generation != _generation) {
+    if (!_isPlaying || isSuspended || generation != _generation) {
       return;
     }
 
@@ -163,10 +233,47 @@ class SeamlessBgm {
     await next.resume();
     _scheduleNext(generation);
     await Future<void>.delayed(_loopLeadTimeFor(_assetPath));
-    if (!_isPlaying || generation != _generation) {
+    if (!_isPlaying || isSuspended || generation != _generation) {
       return;
     }
     await _resetStandby(current);
+  }
+
+  void _startRecoveryWatchdog() {
+    _recoveryWatchdogTimer ??= Timer.periodic(
+      _recoveryWatchdogInterval,
+      (_) => unawaited(
+        _enqueue(_recoverInterruptedPlaybackNow),
+      ),
+    );
+  }
+
+  void _stopRecoveryWatchdog() {
+    _recoveryWatchdogTimer?.cancel();
+    _recoveryWatchdogTimer = null;
+  }
+
+  Future<void> _recoverInterruptedPlaybackNow() async {
+    final assetPath = _assetPath;
+    final duration = _trackDuration;
+    if (!_isPlaying || isSuspended || assetPath == null || duration == null) {
+      return;
+    }
+
+    final current = _usingA ? _playerA : _playerB;
+    if (current.state == PlayerState.playing) {
+      return;
+    }
+
+    _generation++;
+    _usingA = true;
+    await _prepare(_playerA, assetPath, _effectiveVolume);
+    await _prepare(_playerB, assetPath, 0);
+    if (!_isPlaying || isSuspended || _assetPath != assetPath) {
+      return;
+    }
+    await _playerA.resume();
+    _scheduleNext(_generation);
   }
 
   Duration _loopLeadTimeFor(String? assetPath) {

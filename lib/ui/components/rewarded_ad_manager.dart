@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../ads/app_ad_service.dart';
+import '../../audio/seamless_bgm.dart';
 
 class RewardedAdManager {
   RewardedAdManager._internal();
@@ -14,7 +15,11 @@ class RewardedAdManager {
 
   RewardedAd? _cachedAd;
   bool _isLoading = false;
+  Completer<void>? _loadingCompleter;
   Timer? _retryTimer;
+
+  bool get isReady => _cachedAd != null;
+  bool get isLoading => _isLoading;
 
   Future<void> warmUp() async {
     try {
@@ -28,7 +33,9 @@ class RewardedAdManager {
 
   Future<bool> showDoubleRewardAd() async {
     try {
-      await _ensureLoaded().timeout(_loadTimeout);
+      if (_cachedAd == null) {
+        await _ensureLoaded().timeout(_loadTimeout);
+      }
     } on TimeoutException {
       return false;
     }
@@ -41,23 +48,28 @@ class RewardedAdManager {
 
     final completer = Completer<bool>();
     var rewarded = false;
+    Future<void> finishAd(RewardedAd ad, bool result) async {
+      ad.dispose();
+      try {
+        await SeamlessBgm.instance.resumeFromExternalAudio();
+      } finally {
+        if (!completer.isCompleted) {
+          completer.complete(result);
+        }
+        unawaited(warmUp());
+      }
+    }
+
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (ad) {
-        ad.dispose();
-        if (!completer.isCompleted) {
-          completer.complete(rewarded);
-        }
-        unawaited(warmUp());
+        unawaited(finishAd(ad, rewarded));
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
-        ad.dispose();
-        if (!completer.isCompleted) {
-          completer.complete(false);
-        }
-        unawaited(warmUp());
+        unawaited(finishAd(ad, false));
       },
     );
     try {
+      await SeamlessBgm.instance.suspendForExternalAudio();
       ad.show(
         onUserEarnedReward: (_, __) {
           rewarded = true;
@@ -67,19 +79,25 @@ class RewardedAdManager {
       debugPrint('Rewarded ad show threw: $error');
       debugPrintStack(stackTrace: stackTrace);
       ad.dispose();
-      if (!completer.isCompleted) {
-        completer.complete(false);
+      try {
+        await SeamlessBgm.instance.resumeFromExternalAudio();
+      } finally {
+        if (!completer.isCompleted) {
+          completer.complete(false);
+        }
+        unawaited(warmUp());
       }
-      unawaited(warmUp());
     }
     return completer.future;
   }
 
   Future<void> _ensureLoaded() async {
-    if (_cachedAd != null || _isLoading) {
-      while (_isLoading) {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-      }
+    if (_cachedAd != null) {
+      return;
+    }
+    final loadingCompleter = _loadingCompleter;
+    if (_isLoading && loadingCompleter != null) {
+      await loadingCompleter.future;
       return;
     }
     if (!AppAdService.instance.canRequestAds) {
@@ -90,15 +108,15 @@ class RewardedAdManager {
       return;
     }
 
-    final initialized = await AppAdService.instance.ensureInitialized();
-    if (!initialized || !AppAdService.instance.canRequestAds) {
-      _scheduleRetry();
-      return;
-    }
-
     _isLoading = true;
-    final completer = Completer<void>();
+    _loadingCompleter = Completer<void>();
+    final loadCompleter = Completer<void>();
     try {
+      final initialized = await AppAdService.instance.ensureInitialized();
+      if (!initialized || !AppAdService.instance.canRequestAds) {
+        _scheduleRetry();
+        return;
+      }
       await RewardedAd.load(
         adUnitId: adUnitId,
         request: const AdRequest(),
@@ -107,8 +125,8 @@ class RewardedAdManager {
             _retryTimer?.cancel();
             _disposeCachedAd();
             _cachedAd = ad;
-            if (!completer.isCompleted) {
-              completer.complete();
+            if (!loadCompleter.isCompleted) {
+              loadCompleter.complete();
             }
           },
           onAdFailedToLoad: (error) {
@@ -117,19 +135,24 @@ class RewardedAdManager {
               '(code=${error.code}, domain=${error.domain}): ${error.message}',
             );
             _scheduleRetry();
-            if (!completer.isCompleted) {
-              completer.complete();
+            if (!loadCompleter.isCompleted) {
+              loadCompleter.complete();
             }
           },
         ),
       );
-      await completer.future;
+      await loadCompleter.future;
     } catch (error, stackTrace) {
       debugPrint('Rewarded ad load threw: $error');
       debugPrintStack(stackTrace: stackTrace);
       _scheduleRetry();
     } finally {
       _isLoading = false;
+      if (_loadingCompleter case final loadingCompleter?
+          when !loadingCompleter.isCompleted) {
+        loadingCompleter.complete();
+      }
+      _loadingCompleter = null;
     }
   }
 

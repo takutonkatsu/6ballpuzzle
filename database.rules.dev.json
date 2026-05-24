@@ -1,0 +1,76 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      ".read": true,
+      ".write": true
+    },
+    "matchmaking": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["rating", "timestamp", "joinedAt"]
+    },
+    "arena_matchmaking": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["wins", "timestamp", "joinedAt"]
+    },
+    "rooms": {
+      ".read": true,
+      ".write": true
+    },
+    "rankings": {
+      "global": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"]
+      }
+    },
+    "rankedSeasons": {
+      ".read": true,
+      ".write": true,
+      "seasons": {
+        "$seasonId": {
+          "rankings": {
+            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"]
+          }
+        }
+      }
+    },
+    "rankedSeasonBadges": {
+      ".read": true,
+      ".write": true
+    },
+    "serverTimePings": {
+      ".read": true,
+      ".write": true
+    },
+    "appConfig": {
+      ".read": true,
+      ".write": true
+    },
+    "playerRecordSummaries": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["publicId", "displayName", "updatedAt", "recordDate"]
+    },
+    "playerNameLookup": {
+      ".read": true,
+      ".write": true
+    },
+    "reports": {
+      ".read": false,
+      ".write": true,
+      ".indexOn": ["reportedUid", "createdAt"]
+    },
+    "giftCodes": {
+      "adRemoval": {
+        ".read": false,
+        "$code": {
+          ".write": false
+        }
+      }
+    }
+  }
+}

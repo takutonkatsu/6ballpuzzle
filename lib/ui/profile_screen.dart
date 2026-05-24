@@ -9,6 +9,7 @@ import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/season_rank_badge_icon.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -99,8 +100,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildIdentityCard() {
     final equippedBadges = _playerData.equippedBadgeIds
-        .map(BadgeCatalog.findById)
-        .whereType<BadgeItem>()
+        .map(_badgeDisplayForId)
+        .whereType<_BadgeDisplay>()
         .toList();
 
     return Container(
@@ -305,7 +306,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildBadgeSlot(BadgeItem? badge) {
+  _BadgeDisplay? _badgeDisplayForId(String id) {
+    final seasonBadge = SeasonRankBadge.fromId(id);
+    if (seasonBadge != null) {
+      return _BadgeDisplay(
+        label: seasonBadge.label,
+        color: Colors.amberAccent,
+        icon: SeasonRankBadgeIcon(rank: seasonBadge.rank, size: 30),
+      );
+    }
+    final badge = BadgeCatalog.findById(id);
+    if (badge == null) {
+      return null;
+    }
+    return _BadgeDisplay(
+      label: badge.label,
+      color: badge.frameColor,
+      icon: Icon(badge.icon, color: badge.frameColor, size: 24),
+    );
+  }
+
+  Widget _buildBadgeSlot(_BadgeDisplay? badge) {
     return Container(
       height: 82,
       padding: const EdgeInsets.all(10),
@@ -327,7 +348,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           : Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(badge.icon, color: badge.frameColor, size: 24),
+                badge.icon,
                 const SizedBox(height: 8),
                 Text(
                   badge.label,
@@ -509,6 +530,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _ => Icons.person,
     };
   }
+}
+
+class _BadgeDisplay {
+  const _BadgeDisplay({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
+
+  final String label;
+  final Color color;
+  final Widget icon;
 }
 
 class _ProfilePageTitle extends StatelessWidget {

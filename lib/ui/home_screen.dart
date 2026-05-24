@@ -16,7 +16,9 @@ import '../game/mission_catalog.dart';
 import '../game/mission_manager.dart';
 import '../data/models/game_item.dart';
 import '../network/multiplayer_manager.dart';
+import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
+import '../network/server_time_manager.dart';
 import '../purchases/ad_removal_purchase_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
@@ -39,6 +41,7 @@ class HomeBootstrapData {
     required this.rating,
     this.pendingLevelUpRewardLog,
     this.pendingLoginBonusLog,
+    this.pendingRankedSeasonResultLog,
     this.abandonedMatchMessage,
   });
 
@@ -46,7 +49,50 @@ class HomeBootstrapData {
   final int rating;
   final String? pendingLevelUpRewardLog;
   final String? pendingLoginBonusLog;
+  final String? pendingRankedSeasonResultLog;
   final String? abandonedMatchMessage;
+}
+
+class _SeasonResultViewData {
+  const _SeasonResultViewData({
+    required this.seasonName,
+    required this.rating,
+    required this.rank,
+    required this.record,
+    required this.winRate,
+  });
+
+  final String seasonName;
+  final String rating;
+  final String rank;
+  final String record;
+  final String winRate;
+
+  factory _SeasonResultViewData.fromLog(String log) {
+    final lines = log
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    String valueAfter(String prefix, String fallback) {
+      final line = lines.cast<String?>().firstWhere(
+            (line) => line?.startsWith(prefix) ?? false,
+            orElse: () => null,
+          );
+      if (line == null) {
+        return fallback;
+      }
+      return line.substring(prefix.length).trim();
+    }
+
+    return _SeasonResultViewData(
+      seasonName: lines.isEmpty ? '前シーズン 結果' : lines.first,
+      rating: valueAfter('最終レート:', '-'),
+      rank: valueAfter('最終順位:', '圏外'),
+      record: valueAfter('勝敗:', '-'),
+      winRate: valueAfter('勝率:', '-'),
+    );
+  }
 }
 
 const Duration _homeBootstrapOnlineTimeout = Duration(seconds: 4);
@@ -61,21 +107,18 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
 
   try {
     savedName = await _readSavedPlayerNameForBootstrap();
-    multiplayerManager.setPlayerName(savedName);
-    await _withHomeBootstrapTimeout(
-      playerDataManager.setPlayerName(savedName),
-      label: 'player profile bootstrap',
-    );
-
+    if (savedName.trim().isNotEmpty) {
+      multiplayerManager.setPlayerName(savedName);
+      await _withHomeBootstrapTimeout(
+        playerDataManager.setPlayerName(savedName),
+        label: 'player profile bootstrap',
+      );
+    }
     var rating = multiplayerManager.currentRating;
     try {
       rating = await _withHomeBootstrapTimeout(
         multiplayerManager.initializeUser(name: savedName),
         label: 'user bootstrap',
-      );
-      await _withHomeBootstrapTimeout(
-        rankingManager.updateMyRating(rating: rating),
-        label: 'ranking bootstrap',
       );
     } catch (_) {
       rating = multiplayerManager.currentRating;
@@ -84,6 +127,24 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
       playerDataManager.setCurrentRating(rating),
       label: 'rating bootstrap',
     );
+    try {
+      await _withHomeBootstrapTimeout(
+        rankingManager.syncSeasonStateForCurrentPlayer(),
+        label: 'season bootstrap',
+      );
+      await _withHomeBootstrapTimeout(
+        playerDataManager.load(),
+        label: 'season profile reload',
+      );
+      rating = playerDataManager.currentRating;
+      multiplayerManager.currentRating = rating;
+      await _withHomeBootstrapTimeout(
+        rankingManager.updateMyRating(rating: rating),
+        label: 'ranking bootstrap',
+      );
+    } catch (_) {
+      // シーズン/ランキング同期の失敗でホーム起動を止めない。
+    }
 
     await _loadHomeEconomyForBootstrap(
       playerDataManager: playerDataManager,
@@ -133,12 +194,15 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
         await playerDataManager.consumePendingLevelUpRewardLog();
     final pendingLoginBonusLog =
         await playerDataManager.consumePendingLoginBonusLog();
+    final pendingRankedSeasonResultLog =
+        await playerDataManager.consumePendingRankedSeasonResultLog();
 
     return HomeBootstrapData(
       playerName: savedName,
       rating: rating,
       pendingLevelUpRewardLog: pendingLevelUpRewardLog,
       pendingLoginBonusLog: pendingLoginBonusLog,
+      pendingRankedSeasonResultLog: pendingRankedSeasonResultLog,
       abandonedMatchMessage: abandonedMatchMessage,
     );
   } catch (_) {
@@ -282,11 +346,14 @@ class _ArenaRecordTransition {
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static const Object _bgmOwner = 'home_screen';
+
   static const _playerNameKey = 'player_name';
+  static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
   static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
   static const bool _debugControlsEnabled = AppReviewConfig.debugMenuEnabled;
   static const bool _adGiftCodeIssuerEnabled =
-      AppReviewConfig.adRemovalGiftCodeEnabled;
+      AppReviewConfig.adRemovalGiftCodeIssuerEnabled;
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final RankingManager _rankingManager = RankingManager.instance;
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
@@ -303,15 +370,23 @@ class _HomeScreenState extends State<HomeScreen>
   int _claimableMissionCount = 0;
   int _completedMissionCount = 0;
   int _todayRankedWins = 0;
+  String _currentSeasonName = 'シーズン--';
   String _seasonRankLabel = '圏外';
   String _dailyWinRankLabel = '圏外';
   bool _isLoadingProfile = true;
   late AnimationController _animController;
   bool _isHomeBgmPlaying = false;
+  bool _homeBgmSuspendedByLifecycle = false;
   bool _isInitialNamePromptVisible = false;
+  Timer? _seasonStateTimer;
+  bool _isSyncingRankedSeason = false;
 
   // ignore: unused_element
   bool get _isArenaComingSoon => true;
+
+  bool get _showsSettingsAdRemovalActions =>
+      !(Theme.of(context).platform == TargetPlatform.iOS &&
+          AppReviewConfig.isProdFlavor);
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -410,12 +485,16 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat();
+    unawaited(_refreshCurrentSeasonName());
+    _startSeasonStateMonitor();
+    unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_startHomeBgm());
   }
 
   @override
   void dispose() {
     unawaited(_stopHomeBgm());
+    _seasonStateTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _animController.dispose();
     _playerNameController.dispose();
@@ -425,12 +504,85 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_startHomeBgm(forceRestart: true));
+      unawaited(_resumeHomeBgmFromLifecycle());
+      unawaited(_refreshCurrentSeasonName(forceRefresh: true));
+      unawaited(_checkRankedSeasonBoundary(showResultLog: true));
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(_suspendHomeBgmForLifecycle());
+    }
+  }
+
+  Future<void> _suspendHomeBgmForLifecycle() async {
+    if (_homeBgmSuspendedByLifecycle) {
+      return;
+    }
+    _homeBgmSuspendedByLifecycle = true;
+    await SeamlessBgm.instance.suspendForExternalAudio();
+  }
+
+  Future<void> _resumeHomeBgmFromLifecycle() async {
+    if (_homeBgmSuspendedByLifecycle) {
+      _homeBgmSuspendedByLifecycle = false;
+      await SeamlessBgm.instance.resumeFromExternalAudio();
+    }
+    await _startHomeBgm(forceRestart: !SeamlessBgm.instance.isPlaying);
+  }
+
+  void _startSeasonStateMonitor() {
+    _seasonStateTimer?.cancel();
+    _seasonStateTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(_checkRankedSeasonBoundary(showResultLog: true)),
+    );
+  }
+
+  Future<void> _refreshCurrentSeasonName({bool forceRefresh = false}) async {
+    try {
+      final nowJst =
+          await ServerTimeManager.instance.nowJst(forceRefresh: forceRefresh);
+      final seasonId =
+          RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _currentSeasonName = RankedSeasonManager.seasonName(seasonId);
+      });
+    } catch (_) {
+      // サーバー時刻取得失敗時だけ一時表示のままにする。
+    }
+  }
+
+  Future<void> _checkRankedSeasonBoundary({bool showResultLog = false}) async {
+    if (_isSyncingRankedSeason) {
+      return;
+    }
+    try {
+      await _playerDataManager.load();
+      final savedSeasonId = _playerDataManager.rankedSeasonId;
+      final nowJst = await ServerTimeManager.instance.nowJst();
+      final currentSeasonId =
+          RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+      if (mounted) {
+        setState(() {
+          _currentSeasonName = RankedSeasonManager.seasonName(currentSeasonId);
+        });
+      }
+      if (savedSeasonId.isNotEmpty && savedSeasonId != currentSeasonId) {
+        await _syncRankedSeasonState(showResultLog: showResultLog);
+      }
+    } catch (_) {
+      // シーズン監視の失敗でホーム画面は止めない。
     }
   }
 
   Future<void> _startHomeBgm({bool forceRestart = false}) async {
-    if (_isHomeBgmPlaying && !forceRestart) {
+    if (_isHomeBgmPlaying && SeamlessBgm.instance.isPlaying && !forceRestart) {
       return;
     }
     try {
@@ -442,6 +594,7 @@ class _HomeScreenState extends State<HomeScreen>
         assetPath: 'audio/home_screen_bgm01.wav',
         duration: _homeBgmDuration,
         volume: 0.576,
+        owner: _bgmOwner,
         forceRestart: forceRestart,
       );
     } catch (_) {
@@ -455,7 +608,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _isHomeBgmPlaying = false;
     try {
-      await SeamlessBgm.instance.stop();
+      await SeamlessBgm.instance.stop(owner: _bgmOwner);
     } catch (_) {
       // BGM停止失敗で画面遷移や破棄を止めない。
     }
@@ -467,7 +620,7 @@ class _HomeScreenState extends State<HomeScreen>
     _rating = bootstrapData.rating;
     _isLoadingProfile = false;
     _syncPlayerEconomyState();
-    unawaited(_refreshRankingSummary(forceRefresh: true));
+    unawaited(_syncRankedSeasonState(showResultLog: true));
 
     final pendingLevelUpRewardLog = bootstrapData.pendingLevelUpRewardLog;
     if (pendingLevelUpRewardLog != null && pendingLevelUpRewardLog.isNotEmpty) {
@@ -496,6 +649,24 @@ class _HomeScreenState extends State<HomeScreen>
             context,
             '連続ログインボーナス',
             pendingLoginBonusLog,
+          ),
+        );
+      });
+    }
+
+    final pendingRankedSeasonResultLog =
+        bootstrapData.pendingRankedSeasonResultLog;
+    if (pendingRankedSeasonResultLog != null &&
+        pendingRankedSeasonResultLog.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(
+          _showAlert(
+            context,
+            'シーズン結果',
+            pendingRankedSeasonResultLog,
           ),
         );
       });
@@ -599,9 +770,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _refreshRankingSummary({bool forceRefresh = false}) async {
     try {
-      final summary = await _rankingManager.fetchMySummary(
-        forceRefresh: forceRefresh,
-      );
+      final summary = await _rankingManager
+          .fetchMySummary(
+            forceRefresh: forceRefresh,
+          )
+          .timeout(_nameRegistrationSyncTimeout);
       if (!mounted) {
         return;
       }
@@ -609,9 +782,65 @@ class _HomeScreenState extends State<HomeScreen>
         _todayRankedWins = summary.dailyWins;
         _seasonRankLabel = summary.ratingRankLabel;
         _dailyWinRankLabel = summary.dailyWinRankLabel;
+        if (_playerDataManager.rankedSeasonId.isNotEmpty) {
+          _currentSeasonName = RankedSeasonManager.seasonName(
+            _playerDataManager.rankedSeasonId,
+          );
+        }
       });
     } catch (_) {
       // ランキング取得失敗はホーム表示を止めない。
+    }
+  }
+
+  Future<void> _syncRankedSeasonState({bool showResultLog = false}) async {
+    if (_isSyncingRankedSeason) {
+      return;
+    }
+    _isSyncingRankedSeason = true;
+    try {
+      await _rankingManager
+          .syncSeasonStateForCurrentPlayer()
+          .timeout(_nameRegistrationSyncTimeout);
+      await _playerDataManager.load();
+      final seasonRating = _playerDataManager.currentRating;
+      _multiplayerManager.currentRating = seasonRating;
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rating = seasonRating;
+        _currentSeasonName = RankedSeasonManager.seasonName(
+          _playerDataManager.rankedSeasonId,
+        );
+      });
+      if (showResultLog) {
+        final log =
+            await _playerDataManager.consumePendingRankedSeasonResultLog();
+        if (log != null && log.isNotEmpty && mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) {
+              return;
+            }
+            unawaited(_showAlert(context, 'シーズン結果', log));
+          });
+        }
+      }
+      try {
+        await _rankingManager
+            .updateMyRating(
+              rating: seasonRating,
+              displayName: _playerDataManager.displayPlayerName,
+            )
+            .timeout(_nameRegistrationSyncTimeout);
+      } catch (_) {
+        // 新シーズンのランキング行作成に失敗しても結果ログは表示する。
+      }
+      unawaited(_refreshRankingSummary(forceRefresh: true));
+    } catch (_) {
+      unawaited(_refreshRankingSummary(forceRefresh: true));
+    } finally {
+      _isSyncingRankedSeason = false;
     }
   }
 
@@ -644,16 +873,32 @@ class _HomeScreenState extends State<HomeScreen>
     await _playerDataManager.setPlayerName(trimmed);
     _multiplayerManager.setPlayerName(trimmed);
     _playerNameController.text = _playerDataManager.displayPlayerName;
-    await _multiplayerManager.updateUserName(_playerDataManager.playerName);
-    await _rankingManager.updateMyRating(
-      rating: _rating,
-      displayName: _playerDataManager.displayPlayerName,
-    );
+    unawaited(_syncPlayerNameOnline());
     if (!mounted) {
       return;
     }
     setState(() {});
     unawaited(_refreshRankingSummary(forceRefresh: true));
+  }
+
+  Future<void> _syncPlayerNameOnline() async {
+    try {
+      await _multiplayerManager
+          .updateUserName(_playerDataManager.playerName)
+          .timeout(_nameRegistrationSyncTimeout);
+    } catch (_) {
+      // 名前はローカルに保存済みなので、オンライン同期の遅延で登録画面を止めない。
+    }
+    try {
+      await _rankingManager
+          .updateMyRating(
+            rating: _rating,
+            displayName: _playerDataManager.displayPlayerName,
+          )
+          .timeout(_nameRegistrationSyncTimeout);
+    } catch (_) {
+      // ランキング同期失敗で名前登録を巻き戻さない。
+    }
   }
 
   Future<void> _showInitialNameRegistrationDialog() async {
@@ -672,6 +917,9 @@ class _HomeScreenState extends State<HomeScreen>
           return StatefulBuilder(
             builder: (context, setDialogState) {
               Future<void> submit() async {
+                if (isSubmitting) {
+                  return;
+                }
                 final nextName = controller.text.trim();
                 if (nextName.isEmpty) {
                   setDialogState(() {
@@ -717,7 +965,7 @@ class _HomeScreenState extends State<HomeScreen>
                       TextField(
                         controller: controller,
                         autofocus: true,
-                        maxLength: 12,
+                        maxLength: 10,
                         textInputAction: TextInputAction.done,
                         onSubmitted: (_) => unawaited(submit()),
                         style: const TextStyle(color: Colors.white),
@@ -788,7 +1036,7 @@ class _HomeScreenState extends State<HomeScreen>
                             const spacing = 8.0;
                             final modeHeight =
                                 (constraints.maxHeight - ballHeight - spacing)
-                                    .clamp(170.0, 280.0);
+                                    .clamp(120.0, 280.0);
 
                             return Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -1098,12 +1346,15 @@ class _HomeScreenState extends State<HomeScreen>
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('シーズン 0',
-                          style: TextStyle(
-                              color: Colors.cyanAccent,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.2)),
+                      Text(
+                        _currentSeasonName,
+                        style: const TextStyle(
+                          color: Colors.cyanAccent,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1987,11 +2238,12 @@ class _HomeScreenState extends State<HomeScreen>
             () => unawaited(_showDailyMissionsDialog(context)),
             badgeCount: _claimableMissionCount,
           ),
-          _buildBottomTextButton(
-            Icons.block,
-            '広告削除',
-            () => unawaited(_showAdRemovalDialog(context)),
-          ),
+          if (AdRemovalPurchaseManager.isSupportedPlatform)
+            _buildBottomTextButton(
+              Icons.block,
+              '広告削除',
+              () => unawaited(_showAdRemovalDialog(context)),
+            ),
         ],
       ),
     );
@@ -2107,77 +2359,33 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _showAdRemovalDialog(BuildContext context) async {
+    if (!AdRemovalPurchaseManager.isSupportedPlatform) {
+      await _showAdRemovalGiftCodeDialog(context);
+      return;
+    }
     await _playerDataManager.load();
     await AdRemovalPurchaseManager.instance.initialize();
     final product = AdRemovalPurchaseManager.instance.product;
     final priceLabel = product?.price;
-    final giftCodeController = TextEditingController();
     if (!context.mounted) {
       return;
     }
 
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return _buildCyberDialog(
-            accentColor: Colors.cyanAccent,
-            title: '広告削除',
-            child: ValueListenableBuilder<bool>(
-              valueListenable: AppSettings.instance.adsRemoved,
-              builder: (context, adsRemoved, child) {
-                if (adsRemoved) {
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        '広告削除は有効です。',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildAdRemovalBenefitLine('広告の完全削除'),
-                      _buildAdRemovalBenefitLine('毎日1回の無料ガチャ'),
-                      _buildAdRemovalBenefitLine('対戦後のコイン報酬が毎回3倍に'),
-                      _buildAdRemovalBenefitLine('デイリーミッションのコイン獲得量が2倍に'),
-                      const SizedBox(height: 16),
-                      _buildCyberDialogButton(
-                        label: '広告を再度つける',
-                        accentColor: Colors.lightBlueAccent,
-                        onPressed: () =>
-                            unawaited(_enableAdsFromAdRemovalDialog(
-                          dialogContext,
-                        )),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildCyberDialogButton(
-                        label: '閉じる',
-                        accentColor: Colors.white54,
-                        onPressed: () => Navigator.of(dialogContext).pop(),
-                      ),
-                    ],
-                  );
-                }
-
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.cyanAccent,
+          title: '広告削除',
+          child: ValueListenableBuilder<bool>(
+            valueListenable: AppSettings.instance.adsRemoved,
+            builder: (context, adsRemoved, child) {
+              if (adsRemoved) {
                 return Column(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      priceLabel == null ? '価格を取得中...' : '価格 $priceLabel',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.cyanAccent,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
                     const Text(
-                      '購入すると、以下の特典が有効になります。',
+                      '広告削除は有効です。',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white70,
@@ -2190,88 +2398,14 @@ class _HomeScreenState extends State<HomeScreen>
                     _buildAdRemovalBenefitLine('対戦後のコイン報酬が毎回3倍に'),
                     _buildAdRemovalBenefitLine('デイリーミッションのコイン獲得量が2倍に'),
                     const SizedBox(height: 16),
-                    if (AppReviewConfig.hasAdRemovalProduct) ...[
-                      _buildCyberDialogButton(
-                        label: priceLabel == null
-                            ? '広告削除を購入する'
-                            : '広告削除を購入する $priceLabel',
-                        accentColor: Colors.cyanAccent,
-                        onPressed: () async {
-                          final started =
-                              await AdRemovalPurchaseManager.instance.buy();
-                          if (!started && mounted) {
-                            final detail = AdRemovalPurchaseManager
-                                .instance.lastInitializationError;
-                            await _showAlert(
-                              this.context,
-                              '購入エラー',
-                              detail == null || detail.isEmpty
-                                  ? '購入を開始できませんでした。しばらくしてからお試しください。'
-                                  : '購入を開始できませんでした。\n$detail',
-                            );
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 10),
-                      _buildCyberDialogButton(
-                        label: '購入を復元',
-                        accentColor: Colors.white54,
-                        onPressed: () => unawaited(
-                          AdRemovalPurchaseManager.instance.restore(),
-                        ),
-                      ),
-                    ] else
-                      const Text(
-                        '広告削除の購入は現在準備中です。',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    if (_adGiftCodeIssuerEnabled) ...[
-                      const SizedBox(height: 18),
-                      TextField(
-                        controller: giftCodeController,
-                        textCapitalization: TextCapitalization.characters,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          labelText: 'ギフトコード',
-                          labelStyle: const TextStyle(color: Colors.white70),
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: Colors.cyanAccent.withValues(alpha: 0.42),
-                            ),
-                          ),
-                          focusedBorder: const OutlineInputBorder(
-                            borderSide: BorderSide(color: Colors.cyanAccent),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _buildCyberDialogButton(
-                        label: 'コードを使う',
-                        accentColor: Colors.cyanAccent,
-                        onPressed: () async {
-                          final redeemed = await AppSettings.instance
-                              .redeemAdRemovalGiftCode(
-                            code: giftCodeController.text,
-                          );
-                          if (dialogContext.mounted) {
-                            Navigator.of(dialogContext).pop();
-                          }
-                          if (!mounted) {
-                            return;
-                          }
-                          await _showAlert(
-                            this.context,
-                            redeemed ? '広告削除' : 'コードエラー',
-                            redeemed ? 'ギフトコードを適用しました。' : 'このコードは無効、または使用済みです。',
-                          );
-                        },
-                      ),
-                    ],
-                    const SizedBox(height: 14),
+                    _buildCyberDialogButton(
+                      label: '広告を再度つける',
+                      accentColor: Colors.lightBlueAccent,
+                      onPressed: () => unawaited(_enableAdsFromAdRemovalDialog(
+                        dialogContext,
+                      )),
+                    ),
+                    const SizedBox(height: 12),
                     _buildCyberDialogButton(
                       label: '閉じる',
                       accentColor: Colors.white54,
@@ -2279,7 +2413,168 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ],
                 );
-              },
+              }
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    priceLabel == null ? '価格を取得中...' : '価格 $priceLabel',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.cyanAccent,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    '購入すると、以下の特典が有効になります。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildAdRemovalBenefitLine('広告の完全削除'),
+                  _buildAdRemovalBenefitLine('毎日1回の無料ガチャ'),
+                  _buildAdRemovalBenefitLine('対戦後のコイン報酬が毎回3倍に'),
+                  _buildAdRemovalBenefitLine('デイリーミッションのコイン獲得量が2倍に'),
+                  const SizedBox(height: 16),
+                  if (AdRemovalPurchaseManager.instance.isConfigured) ...[
+                    _buildCyberDialogButton(
+                      label: priceLabel == null
+                          ? '広告削除を購入する'
+                          : '広告削除を購入する $priceLabel',
+                      accentColor: Colors.cyanAccent,
+                      onPressed: () async {
+                        final started =
+                            await AdRemovalPurchaseManager.instance.buy();
+                        if (!started && mounted) {
+                          final detail = AdRemovalPurchaseManager
+                              .instance.lastInitializationError;
+                          await _showAlert(
+                            this.context,
+                            '購入エラー',
+                            detail == null || detail.isEmpty
+                                ? '購入を開始できませんでした。しばらくしてからお試しください。'
+                                : '購入を開始できませんでした。\n$detail',
+                          );
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: '購入を復元',
+                      accentColor: Colors.white54,
+                      onPressed: () => unawaited(
+                        AdRemovalPurchaseManager.instance.restore(),
+                      ),
+                    ),
+                  ] else
+                    const Text(
+                      '広告削除の購入は現在準備中です。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  const SizedBox(height: 14),
+                  _buildCyberDialogButton(
+                    label: '閉じる',
+                    accentColor: Colors.white54,
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showAdRemovalGiftCodeDialog(BuildContext context) async {
+    final giftCodeController = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return _buildCyberDialog(
+            accentColor: Colors.cyanAccent,
+            title: 'ギフトコード',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable: AppSettings.instance.adsRemoved,
+                  builder: (context, adsRemoved, child) {
+                    if (!adsRemoved) {
+                      return const SizedBox.shrink();
+                    }
+                    return const Padding(
+                      padding: EdgeInsets.only(bottom: 14),
+                      child: Text(
+                        '広告削除は有効です。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.cyanAccent,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                TextField(
+                  controller: giftCodeController,
+                  textCapitalization: TextCapitalization.characters,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'ギフトコード',
+                    labelStyle: const TextStyle(color: Colors.white70),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(
+                        color: Colors.cyanAccent.withValues(alpha: 0.42),
+                      ),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.cyanAccent),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                _buildCyberDialogButton(
+                  label: 'コードを使う',
+                  accentColor: Colors.cyanAccent,
+                  onPressed: () async {
+                    final redeemed =
+                        await AppSettings.instance.redeemAdRemovalGiftCode(
+                      code: giftCodeController.text,
+                    );
+                    if (dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop();
+                    }
+                    if (!mounted) {
+                      return;
+                    }
+                    await _showAlert(
+                      this.context,
+                      redeemed ? '広告削除' : 'コードエラー',
+                      redeemed ? 'ギフトコードを適用しました。' : 'このコードは無効、または使用済みです。',
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+                _buildCyberDialogButton(
+                  label: '閉じる',
+                  accentColor: Colors.white54,
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+              ],
             ),
           );
         },
@@ -2720,11 +3015,12 @@ class _HomeScreenState extends State<HomeScreen>
                     reward,
                   );
                 }
-                await _missionManager.completeRewardedAdMission(index);
+                await _missionManager.completeRewardedAdMissionById(missionId);
                 await onClaimed(0);
                 return;
               }
-              final amount = await _missionManager.claimMissionReward(index);
+              final amount =
+                  await _missionManager.claimMissionRewardById(missionId);
               await onClaimed(amount);
             },
       borderRadius: BorderRadius.circular(10),
@@ -2831,7 +3127,7 @@ class _HomeScreenState extends State<HomeScreen>
                             }
                           }
                           try {
-                            await _missionManager.rerollMission(index);
+                            await _missionManager.rerollMissionById(missionId);
                             await onClaimed(0);
                           } catch (error) {
                             if (mounted) {
@@ -3293,22 +3589,26 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _playerNameController.text = savedName;
     });
-    _multiplayerManager.setPlayerName(savedName);
-    await _playerDataManager.setPlayerName(savedName);
+    if (savedName.trim().isNotEmpty) {
+      _multiplayerManager.setPlayerName(savedName);
+      await _playerDataManager.setPlayerName(savedName);
+    }
 
     try {
-      final rating = await _multiplayerManager.initializeUser(name: savedName);
-      unawaited(_rankingManager.updateMyRating(rating: rating));
+      final rating = await _multiplayerManager
+          .initializeUser(name: savedName)
+          .timeout(_nameRegistrationSyncTimeout);
       unawaited(_playerDataManager.setCurrentRating(rating));
+      await _syncRankedSeasonState(showResultLog: true)
+          .timeout(_nameRegistrationSyncTimeout);
       if (!mounted) {
         return;
       }
       setState(() {
-        _rating = rating;
+        _rating = _playerDataManager.currentRating;
         _isLoadingProfile = false;
       });
       _scheduleInitialNameRegistrationIfNeeded();
-      unawaited(_refreshRankingSummary(forceRefresh: true));
     } catch (_) {
       if (!mounted) {
         return;
@@ -3319,7 +3619,7 @@ class _HomeScreenState extends State<HomeScreen>
       });
       _scheduleInitialNameRegistrationIfNeeded();
       unawaited(_playerDataManager.setCurrentRating(_rating));
-      unawaited(_refreshRankingSummary(forceRefresh: true));
+      unawaited(_syncRankedSeasonState(showResultLog: true));
     }
   }
 
@@ -3458,6 +3758,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                   ),
+                  const _RankedMatchmakingEstimate(),
                   const SizedBox(height: 24),
                   _buildCyberDialogButton(
                     label: 'キャンセル',
@@ -3734,6 +4035,7 @@ class _HomeScreenState extends State<HomeScreen>
     String title,
     String message,
   ) {
+    final isSeasonResult = title == 'シーズン結果';
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -3741,27 +4043,133 @@ class _HomeScreenState extends State<HomeScreen>
         return _buildCyberDialog(
           accentColor: Colors.cyanAccent,
           title: title,
+          child: isSeasonResult
+              ? _buildSeasonResultLog(message, dialogContext)
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      message,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        height: 1.5,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    _buildCyberDialogButton(
+                      label: 'OK',
+                      accentColor: Colors.cyanAccent,
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSeasonResultLog(String message, BuildContext dialogContext) {
+    final result = _SeasonResultViewData.fromLog(message);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: Colors.cyanAccent.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.cyanAccent.withValues(alpha: 0.42),
+              width: 1.2,
+            ),
+          ),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                message,
+                result.seasonName,
                 style: const TextStyle(
                   color: Colors.white70,
-                  height: 1.5,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
                 ),
-                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 20),
-              _buildCyberDialogButton(
-                label: 'OK',
-                accentColor: Colors.cyanAccent,
-                onPressed: () => Navigator.of(dialogContext).pop(),
+              const SizedBox(height: 6),
+              HexagonTrophyAmount(
+                int.tryParse(result.rating) ?? 0,
+                color: Colors.amberAccent,
+                iconSize: 30,
+                fontSize: 34,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'FINAL RATE',
+                style: TextStyle(
+                  color: Colors.cyanAccent.withValues(alpha: 0.78),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2,
+                ),
               ),
             ],
           ),
-        );
-      },
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(child: _buildSeasonResultMetric('RANK', result.rank)),
+            const SizedBox(width: 8),
+            Expanded(child: _buildSeasonResultMetric('RECORD', result.record)),
+            const SizedBox(width: 8),
+            Expanded(
+                child: _buildSeasonResultMetric('WIN RATE', result.winRate)),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _buildCyberDialogButton(
+          label: 'OK',
+          accentColor: Colors.cyanAccent,
+          onPressed: () => Navigator.of(dialogContext).pop(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSeasonResultMetric(String label, String value) {
+    return Container(
+      height: 62,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.26),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 9,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3905,6 +4313,28 @@ class _HomeScreenState extends State<HomeScreen>
                       _openOnboardingFromSettings(dialogContext),
                     ),
                   ),
+                  if (_showsSettingsAdRemovalActions &&
+                      AdRemovalPurchaseManager.isSupportedPlatform) ...[
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: '広告削除',
+                      accentColor: Colors.cyanAccent,
+                      onPressed: () => unawaited(
+                        _showAdRemovalDialog(dialogContext),
+                      ),
+                    ),
+                  ],
+                  if (_showsSettingsAdRemovalActions &&
+                      AppReviewConfig.adRemovalGiftCodeEnabled) ...[
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: 'ギフトコード入力',
+                      accentColor: Colors.cyanAccent,
+                      onPressed: () => unawaited(
+                        _showAdRemovalGiftCodeDialog(dialogContext),
+                      ),
+                    ),
+                  ],
                   if (AppReviewConfig.hasPrivacyPolicy) ...[
                     const SizedBox(height: 10),
                     _buildCyberDialogButton(
@@ -4754,6 +5184,69 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       },
+    );
+  }
+}
+
+class _RankedMatchmakingEstimate extends StatefulWidget {
+  const _RankedMatchmakingEstimate();
+
+  @override
+  State<_RankedMatchmakingEstimate> createState() =>
+      _RankedMatchmakingEstimateState();
+}
+
+class _RankedMatchmakingEstimateState
+    extends State<_RankedMatchmakingEstimate> {
+  static const int _visibleAfterSeconds = 5;
+  static const int _estimatedBotMatchSeconds = 15;
+
+  late final DateTime _startedAt;
+  Timer? _timer;
+  int _elapsedSeconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startedAt = DateTime.now();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _tick() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _elapsedSeconds = DateTime.now().difference(_startedAt).inSeconds;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_elapsedSeconds < _visibleAfterSeconds) {
+      return const SizedBox(height: 0);
+    }
+
+    final remaining =
+        (_estimatedBotMatchSeconds - _elapsedSeconds).clamp(0, 10);
+    return Padding(
+      padding: const EdgeInsets.only(top: 14),
+      child: Text(
+        'マッチング推定$remaining秒',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.pinkAccent.withValues(alpha: 0.92),
+          fontSize: 13,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.2,
+        ),
+      ),
     );
   }
 }
