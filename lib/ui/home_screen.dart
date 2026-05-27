@@ -18,6 +18,7 @@ import '../data/models/game_item.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
+import '../network/realtime_connection_guard.dart';
 import '../network/server_time_manager.dart';
 import '../purchases/ad_removal_purchase_manager.dart';
 import '../game/game_models.dart';
@@ -299,7 +300,9 @@ String _buildAbandonedMatchMessageForBootstrap(
           ? 'ランク戦'
           : 'フレンド対戦';
   final buffer = StringBuffer(
-    '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
+    resolution.wasOfflineDisconnect
+        ? '前回$modeLabel中にデータ通信に接続できなかったため不戦敗となりました。'
+        : '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
   );
   final oldRating = resolution.oldRating;
   final newRating = resolution.newRating;
@@ -397,6 +400,27 @@ class _HomeScreenState extends State<HomeScreen>
       'icon_bolt' => Icons.bolt,
       'icon_star' => Icons.star,
       'icon_gamepad' => Icons.sports_esports,
+      'icon_sword' => Icons.gavel,
+      'icon_hexagon' => Icons.hexagon,
+      'icon_trophy' => Icons.emoji_events,
+      'icon_medal' => Icons.military_tech,
+      'icon_crown' => Icons.workspace_premium,
+      'icon_diamond' => Icons.diamond,
+      'icon_fire' => Icons.local_fire_department,
+      'icon_water' => Icons.water_drop,
+      'icon_moon' => Icons.dark_mode,
+      'icon_visibility' => Icons.visibility,
+      'icon_rocket' => Icons.rocket_launch,
+      'icon_shield' => Icons.shield,
+      'icon_terminal' => Icons.terminal,
+      'icon_smile' => Icons.sentiment_satisfied_alt,
+      'icon_ribbon' => Icons.workspace_premium,
+      'icon_heart' => Icons.favorite,
+      'icon_music' => Icons.music_note,
+      'icon_cafe' => Icons.coffee,
+      'icon_flower' => Icons.local_florist,
+      'icon_bell' => Icons.notifications,
+      'icon_skull' => Icons.dangerous,
       _ => Icons.person,
     };
   }
@@ -1945,7 +1969,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildArenaGridButton(Color accentColor, VoidCallback? onTap,
       {Alignment alignment = Alignment.center}) {
-    const disabledArenaColor = Color(0xFF8B96A3);
+    const disabledArenaColor = Color(0xFF676D76);
 
     return InkWell(
       onTap: onTap == null
@@ -1960,18 +1984,14 @@ class _HomeScreenState extends State<HomeScreen>
           color: disabledArenaColor.withValues(alpha: 0.18),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: disabledArenaColor.withValues(alpha: 0.72),
-            width: 2,
+            color: disabledArenaColor.withValues(alpha: 0.42),
+            width: 1.2,
           ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.18),
               blurRadius: 12,
               spreadRadius: 1,
-            ),
-            BoxShadow(
-              color: disabledArenaColor.withValues(alpha: 0.08),
-              blurRadius: 22,
             ),
           ],
         ),
@@ -2325,15 +2345,10 @@ class _HomeScreenState extends State<HomeScreen>
     return ValueListenableBuilder<bool>(
       valueListenable: AppSettings.instance.adsRemoved,
       builder: (context, adsRemoved, child) {
-        if (adsRemoved) {
-          return const SizedBox.shrink();
-        }
-        return Container(
+        return SizedBox(
           width: double.infinity,
           height: 50,
-          color: Colors.black,
-          alignment: Alignment.center,
-          child: const BannerAdWidget(),
+          child: adsRemoved ? const SizedBox.shrink() : const BannerAdWidget(),
         );
       },
     );
@@ -2639,25 +2654,29 @@ class _HomeScreenState extends State<HomeScreen>
         label: '弱い',
         subtitle: 'ゆっくり考えて、よく迷う',
         difficulty: CPUDifficulty.easy,
-        color: Colors.greenAccent
+        color: Colors.greenAccent,
+        level: '入門'
       ),
       (
         label: '普通',
-        subtitle: 'ほどよく考える標準CPU',
+        subtitle: 'ほどよく考える標準コンピュータ',
         difficulty: CPUDifficulty.normal,
-        color: Colors.cyanAccent
+        color: Colors.cyanAccent,
+        level: '標準'
       ),
       (
         label: '強い',
         subtitle: '速く読んでミスが少ない',
         difficulty: CPUDifficulty.hard,
-        color: Colors.yellowAccent
+        color: Colors.yellowAccent,
+        level: '上級'
       ),
       (
         label: '鬼',
         subtitle: '最速でほぼ最適解を狙う',
         difficulty: CPUDifficulty.oni,
-        color: Colors.redAccent
+        color: Colors.redAccent,
+        level: '最強'
       ),
     ];
 
@@ -2675,6 +2694,7 @@ class _HomeScreenState extends State<HomeScreen>
                   label: option.label,
                   subtitle: option.subtitle,
                   accentColor: option.color,
+                  level: option.level,
                   onTap: () {
                     Navigator.of(dialogContext).pop();
                     _startGame(
@@ -2697,6 +2717,7 @@ class _HomeScreenState extends State<HomeScreen>
     required String label,
     required String subtitle,
     required Color accentColor,
+    required String level,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -2707,15 +2728,15 @@ class _HomeScreenState extends State<HomeScreen>
       borderRadius: BorderRadius.circular(10),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         decoration: BoxDecoration(
-          color: accentColor.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: accentColor.withValues(alpha: 0.55)),
+          color: const Color(0xFF101827).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: accentColor.withValues(alpha: 0.48)),
           boxShadow: [
             BoxShadow(
-              color: accentColor.withValues(alpha: 0.16),
-              blurRadius: 12,
+              color: accentColor.withValues(alpha: 0.15),
+              blurRadius: 16,
             ),
           ],
         ),
@@ -2725,15 +2746,47 @@ class _HomeScreenState extends State<HomeScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: accentColor,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.4,
-                      shadows: [Shadow(color: accentColor, blurRadius: 8)],
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: accentColor,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
+                            shadows: [
+                              Shadow(color: accentColor, blurRadius: 8),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.16),
+                          ),
+                        ),
+                        child: Text(
+                          level,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -2829,9 +2882,7 @@ class _HomeScreenState extends State<HomeScreen>
 
             final dialogMissions = _playerDataManager.currentMissions;
             final adsRemoved = AppSettings.instance.adsRemoved.value;
-            final showAllClearBonus = !adsRemoved &&
-                (_missionManager.allMissionsComplete ||
-                    _missionManager.isAllClearBonusClaimed);
+            final showAllClearBonus = !adsRemoved && dialogMissions.isNotEmpty;
             final canClaimAllClearBonus = showAllClearBonus &&
                 _missionManager.allMissionsComplete &&
                 !_missionManager.isAllClearBonusClaimed;
@@ -3410,6 +3461,15 @@ class _HomeScreenState extends State<HomeScreen>
 
     var dialogOpen = false;
     try {
+      if (!await _ensureRealtimeConnectionForMatchmaking(
+        context,
+        title: 'アリーナマッチ失敗',
+      )) {
+        return;
+      }
+      if (!context.mounted) {
+        return;
+      }
       await _arenaManager.load();
       if (!_arenaManager.isArenaActive) {
         if (_hasArenaFinishedRun) {
@@ -3632,6 +3692,22 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Future<bool> _ensureRealtimeConnectionForMatchmaking(
+    BuildContext context, {
+    required String title,
+  }) async {
+    final connected = await RealtimeConnectionGuard.waitForConnected(
+      timeout: const Duration(seconds: 3),
+    );
+    if (connected) {
+      return true;
+    }
+    if (context.mounted) {
+      await _showAlert(context, title, 'データ通信に接続できません。通信状況を確認してください。');
+    }
+    return false;
+  }
+
   Future<void> _createRoom(BuildContext context) async {
     setState(() {
       _isBusy = true;
@@ -3726,7 +3802,17 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     var dialogOpen = false;
+    var cancelledByUser = false;
     try {
+      if (!await _ensureRealtimeConnectionForMatchmaking(
+        context,
+        title: 'ランク戦に失敗しました',
+      )) {
+        return;
+      }
+      if (!context.mounted) {
+        return;
+      }
       dialogOpen = true;
       unawaited(
         showDialog<void>(
@@ -3764,6 +3850,7 @@ class _HomeScreenState extends State<HomeScreen>
                     label: 'キャンセル',
                     accentColor: Colors.pinkAccent,
                     onPressed: () {
+                      cancelledByUser = true;
                       unawaited(_multiplayerManager.cancelMatchmaking());
                       Navigator.of(dialogContext).pop();
                     },
@@ -3778,9 +3865,19 @@ class _HomeScreenState extends State<HomeScreen>
       );
 
       await Future<void>.delayed(Duration.zero);
+      if (cancelledByUser) {
+        return;
+      }
       await _missionManager.recordEvent('start_ranked_match');
+      if (cancelledByUser) {
+        return;
+      }
       final roomId = await _multiplayerManager.startRandomMatch(_rating);
       if (!context.mounted) {
+        return;
+      }
+      if (cancelledByUser) {
+        await _multiplayerManager.cancelMatchmaking();
         return;
       }
 
@@ -3893,7 +3990,9 @@ class _HomeScreenState extends State<HomeScreen>
             ? 'ランク戦'
             : 'フレンド対戦';
     final buffer = StringBuffer(
-      '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
+      resolution.wasOfflineDisconnect
+          ? '前回$modeLabel中にデータ通信に接続できなかったため不戦敗となりました。'
+          : '前回$modeLabel中にアプリを終了したため試合放棄となりました。',
     );
     final oldRating = resolution.oldRating;
     final newRating = resolution.newRating;
@@ -4036,6 +4135,7 @@ class _HomeScreenState extends State<HomeScreen>
     String message,
   ) {
     final isSeasonResult = title == 'シーズン結果';
+    final isLevelUp = title == 'レベルアップ';
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -4048,14 +4148,16 @@ class _HomeScreenState extends State<HomeScreen>
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      message,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        height: 1.5,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
+                    isLevelUp
+                        ? _buildLevelUpAlertMessage(message)
+                        : Text(
+                            message,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              height: 1.5,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                     const SizedBox(height: 20),
                     _buildCyberDialogButton(
                       label: 'OK',
@@ -4066,6 +4168,60 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
         );
       },
+    );
+  }
+
+  Widget _buildLevelUpAlertMessage(String message) {
+    final lines = message.split('\n');
+    final rewardLine = lines.length > 1 ? lines.sublist(1).join('\n') : '';
+    final match = RegExp(
+      r'^レベルアップ報酬として(合計 )?(\d+) を獲得しました。$',
+    ).firstMatch(rewardLine.trim());
+    if (match == null) {
+      return Text(
+        message,
+        style: const TextStyle(color: Colors.white70, height: 1.5),
+        textAlign: TextAlign.center,
+      );
+    }
+    final amount = int.tryParse(match.group(2) ?? '') ?? 0;
+    final prefix = match.group(1) == null ? '' : '合計 ';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          lines.first,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            Text(
+              'レベルアップ報酬として$prefix',
+              style: const TextStyle(color: Colors.white70, height: 1.5),
+            ),
+            _buildCoinAmount(
+              amount,
+              iconSize: 18,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+            const Text(
+              'を獲得しました。',
+              style: TextStyle(color: Colors.white70, height: 1.5),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -4469,110 +4625,6 @@ class _HomeScreenState extends State<HomeScreen>
           },
         );
       },
-    );
-  }
-
-  // ignore: unused_element
-  Future<void> _showHowToPlayDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
-          title: '遊び方',
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 460),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildHowToSection(
-                    title: '基本ルール',
-                    lines: const [
-                      '落ちてくる2個1組のボールを六角形ボードに積みます。',
-                      '同じ色をつないで消し、相手より先に生き残れば勝利です。',
-                      '自分の盤面が上まで埋まると敗北になります。',
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _buildHowToSection(
-                    title: '操作方法',
-                    lines: const [
-                      '左右ボタンで移動、回転ボタンで向きを変更します。',
-                      '盤面をタップすると一気に落とせます。',
-                      '設定の「操作設定」からボタン配置を変更できます。',
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _buildHowToSection(
-                    title: '勝つコツ',
-                    lines: const [
-                      '小さく消して盤面を整え、連鎖の形を作るのが大切です。',
-                      '技が決まると強いおじゃま攻撃につながります。',
-                      '無理に高く積まず、中央に余裕を残すと立て直しやすいです。',
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _buildHowToSection(
-                    title: 'モード',
-                    lines: const [
-                      'エンドレスはスコア更新を目指す1人用モードです。',
-                      'コンピュータ対戦は難易度ごとに思考速度と強さが変わります。',
-                      'オンライン対戦ではレート戦やフレンド対戦を楽しめます。',
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  _buildCyberDialogButton(
-                    label: '閉じる',
-                    accentColor: Colors.white54,
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildHowToSection({
-    required String title,
-    required List<String> lines,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.16)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.cyanAccent,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.0,
-            ),
-          ),
-          const SizedBox(height: 8),
-          for (final line in lines) ...[
-            Text(
-              '・$line',
-              style: const TextStyle(
-                color: Colors.white70,
-                height: 1.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (line != lines.last) const SizedBox(height: 4),
-          ],
-        ],
-      ),
     );
   }
 
@@ -5260,7 +5312,7 @@ class _ModeButtonBorderOverlayPainter extends CustomPainter {
     Colors.greenAccent,
     Colors.redAccent,
     Colors.yellowAccent,
-    Colors.lightBlueAccent,
+    const Color(0xFF8B96A3),
   ];
 
   @override

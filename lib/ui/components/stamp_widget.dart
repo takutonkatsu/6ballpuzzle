@@ -97,7 +97,8 @@ class _StampWidgetState extends State<StampWidget>
     final text = widget.item.text ?? '...';
     final color = widget.colorOverride ?? Colors.white;
     final glowColor = _getColor(widget.item.colorName);
-    final iconData = _getIcon(widget.item.iconName);
+    final iconName = widget.item.iconName;
+    final iconData = iconName == null ? null : _getIcon(iconName);
 
     final double scale = widget.forceLarge ? 2.0 : 1.0;
 
@@ -118,7 +119,7 @@ class _StampWidgetState extends State<StampWidget>
       );
     }
 
-    // Lv 2: Color text + Glow
+    // Lv 2: 色付き文字 + 軽い発光
     if (widget.level == 2) {
       return Text(
         text,
@@ -136,33 +137,46 @@ class _StampWidgetState extends State<StampWidget>
       );
     }
 
-    // Lv 3 and Lv 4: Icon + Text + Glow + Animation
-    final content = Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(
-          iconData,
-          color: color,
-          size: 20 * scale,
-          shadows: [Shadow(color: glowColor, blurRadius: 12 * scale)],
-        ),
-        SizedBox(width: 8 * scale),
-        Text(
-          text,
-          softWrap: false,
-          style: TextStyle(
-            color: color,
-            fontSize: 18 * scale,
-            fontFamily: 'Courier',
-            fontWeight: FontWeight.w900,
-            shadows: [
-              Shadow(color: glowColor, blurRadius: 12 * scale),
-              Shadow(color: Colors.white, blurRadius: 2 * scale),
-            ],
+    // Lv 3: 枠付きの強調テキスト。テキストのみのスタンプにはアイコンを出さない。
+    final content = Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: 8 * scale,
+        vertical: 3 * scale,
+      ),
+      decoration: BoxDecoration(
+        color: glowColor.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8 * scale),
+        border: Border.all(color: glowColor.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (iconData != null) ...[
+            Icon(
+              iconData,
+              color: color,
+              size: 20 * scale,
+              shadows: [Shadow(color: glowColor, blurRadius: 12 * scale)],
+            ),
+            SizedBox(width: 8 * scale),
+          ],
+          Text(
+            text,
+            softWrap: false,
+            style: TextStyle(
+              color: color,
+              fontSize: 18 * scale,
+              fontFamily: 'Courier',
+              fontWeight: FontWeight.w900,
+              shadows: [
+                Shadow(color: glowColor, blurRadius: 12 * scale),
+                Shadow(color: Colors.white, blurRadius: 2 * scale),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
 
     if (widget.level == 3) {

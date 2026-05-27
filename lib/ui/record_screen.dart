@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 
 import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
+import '../firebase_database_provider.dart';
 import '../network/ranking_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/hexagon_grid_background.dart';
+import 'profile_screen.dart';
 
 class RecordScreen extends StatefulWidget {
   const RecordScreen({super.key});
@@ -199,7 +201,7 @@ class _RecordScreenState extends State<RecordScreen> {
       _score(straightAvg, 3),
       _score(normalClearAvg, 100),
       _score(averageChain, 5),
-      _score(dailyPlayAvg, 50),
+      _score(dailyPlayAvg, 100),
     ];
     const labels = [
       'ヘキサゴン',
@@ -215,7 +217,7 @@ class _RecordScreenState extends State<RecordScreen> {
       '${straightAvg.toStringAsFixed(1)} / 3.0',
       '${normalClearAvg.toStringAsFixed(0)} / 100',
       '${averageChain.toStringAsFixed(1)} / 5.0',
-      '${dailyPlayAvg.toStringAsFixed(1)} / 50',
+      '${dailyPlayAvg.toStringAsFixed(1)} / 100',
     ];
 
     return Container(
@@ -410,56 +412,154 @@ class _RecordScreenState extends State<RecordScreen> {
   Widget _historyTile(MatchHistoryEntry entry) {
     final color = _modeColor(entry.mode);
     final title = entry.mode == 'SOLO' ? 'エンドレス' : entry.opponentName;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: _panelDecoration(color).copyWith(
-        color: color.withValues(alpha: 0.12),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            alignment: Alignment.center,
-            child: entry.mode == 'SOLO'
-                ? const SizedBox.shrink()
-                : Text(
-                    _resultLabel(entry),
-                    style: TextStyle(
-                      color:
-                          entry.isWin ? Colors.cyanAccent : Colors.pinkAccent,
+    final canOpenProfile = _canOpenOpponentProfile(entry);
+    return InkWell(
+      onTap: canOpenProfile ? () => _openOpponentProfile(entry) : null,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: _panelDecoration(color).copyWith(
+          color: color.withValues(alpha: 0.12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 58,
+              alignment: Alignment.center,
+              child: entry.mode == 'SOLO'
+                  ? const SizedBox.shrink()
+                  : Text(
+                      _resultLabel(entry),
+                      style: TextStyle(
+                        color:
+                            entry.isWin ? Colors.cyanAccent : Colors.pinkAccent,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
+                  const SizedBox(height: 4),
+                  Text(
+                    '${_localizedMode(entry.mode)}  ${_formatDateTime(entry.playedAt)}',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_localizedMode(entry.mode)}  ${_formatDateTime(entry.playedAt)}',
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          if (entry.mode == 'SOLO' && entry.score != null)
-            _scoreSummary(entry.score!)
-          else if (entry.ratingAfter != null)
-            _ratingSummary(entry),
-        ],
+            const SizedBox(width: 10),
+            if (entry.mode == 'SOLO' && entry.score != null)
+              _scoreSummary(entry.score!)
+            else if (entry.ratingAfter != null)
+              _ratingSummary(entry),
+          ],
+        ),
       ),
     );
+  }
+
+  bool _canOpenOpponentProfile(MatchHistoryEntry entry) {
+    if (_isRankedCpuHistory(entry)) {
+      return false;
+    }
+    return entry.mode == 'RANKED' ||
+        entry.mode == 'FRIEND' ||
+        entry.mode == 'ARENA';
+  }
+
+  bool _isRankedCpuHistory(MatchHistoryEntry entry) {
+    if (entry.mode != 'RANKED') {
+      return false;
+    }
+    final hasOpponentId = entry.opponentUid.trim().isNotEmpty ||
+        entry.opponentPublicId.trim().isNotEmpty;
+    if (hasOpponentId) {
+      return false;
+    }
+    final name = entry.opponentName.trim();
+    return name == 'Player' ||
+        name.startsWith('ランクBot') ||
+        name.startsWith('CPU') ||
+        name.startsWith('コンピュータ');
+  }
+
+  Future<void> _openOpponentProfile(MatchHistoryEntry entry) async {
+    AppSfx.playUiTap();
+    var uid = entry.opponentUid.trim();
+    var publicId = entry.opponentPublicId.trim();
+    var displayName = entry.opponentName.trim();
+    var rating = entry.ratingAfter ?? 1000;
+
+    if (uid.isEmpty) {
+      try {
+        final key = _nameLookupKey(displayName);
+        final snapshot = await AppFirebaseDatabase.ref()
+            .child('playerNameLookup/$key')
+            .get();
+        final raw = snapshot.value;
+        if (raw is Map && raw.isNotEmpty) {
+          final first = raw.entries.first;
+          final data = first.value is Map
+              ? Map<dynamic, dynamic>.from(first.value as Map)
+              : <dynamic, dynamic>{};
+          uid = data['uid']?.toString() ?? first.key.toString();
+          publicId = data['publicId']?.toString() ?? publicId;
+          displayName = data['displayName']?.toString() ?? displayName;
+          rating = _intValue(data['currentRating']) ?? rating;
+        }
+      } catch (_) {
+        uid = '';
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+    if (uid.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('プロフィールを取得できませんでした')),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          playerUid: uid,
+          initialEntry: RankingEntry(
+            uid: uid,
+            displayName: displayName.isEmpty ? 'Player' : displayName,
+            rating: rating,
+            publicId: publicId,
+          ),
+        ),
+      ),
+    );
+  }
+
+  int? _intValue(Object? value) {
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse('$value');
+  }
+
+  String _nameLookupKey(String name) {
+    final normalized = name.trim().toLowerCase();
+    final key = normalized
+        .replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_');
+    return key.isEmpty ? 'player' : key;
   }
 
   Widget _scoreSummary(int score) {
@@ -656,6 +756,7 @@ class _RecordNeonTabBar extends StatelessWidget {
         ],
       ),
       child: TabBar(
+        onTap: (_) => AppSfx.playUiTap(),
         dividerColor: Colors.transparent,
         indicatorSize: TabBarIndicatorSize.tab,
         indicator: BoxDecoration(

@@ -6,7 +6,6 @@ import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
 import 'components/hexagon_grid_background.dart';
-import 'components/season_rank_badge_icon.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -63,27 +62,14 @@ class _CollectionScreenState extends State<CollectionScreen>
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [
-                  Color(0x3325F4FF),
-                  Color(0x00000000),
-                ],
+                colors: [Color(0x3325F4FF), Color(0x00000000)],
               ),
             ),
           ),
-          title: const _PageTitle(
-            title: 'コレクション',
-            subtitle: 'COLLECTION',
-          ),
+          title: const _PageTitle(title: 'コレクション', subtitle: 'COLLECTION'),
           bottom: const PreferredSize(
             preferredSize: Size.fromHeight(62),
-            child: _NeonTabBar(
-              tabs: [
-                'スタンプ',
-                'バッジ',
-                'ボール',
-                'アイコン',
-              ],
-            ),
+            child: _NeonTabBar(tabs: ['スタンプ', 'バッジ', 'ボール', 'アイコン']),
           ),
         ),
         body: Stack(
@@ -112,21 +98,48 @@ class _CollectionScreenState extends State<CollectionScreen>
   }
 
   Widget _buildStampsTab() {
-    final stamps = _playerData.ownedItems.where((item) => item.isStamp).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-    if (stamps.isEmpty) {
-      return _emptyState('まだスタンプを持っていません');
-    }
+    final ownedStampsById = {
+      for (final item in _playerData.ownedItems.where((item) => item.isStamp))
+        item.id: item,
+    };
+    final stampCatalog = GameItemCatalog.allItems
+        .where((item) => item.isStamp)
+        .map((item) => item.copyWith(level: ownedStampsById[item.id]?.level))
+        .toList();
+    final ownedStampIds = ownedStampsById.keys.toSet();
+    final equipped = _playerData.equippedStampIds.toSet();
     return _grid(
       children: [
-        for (final stamp in stamps)
+        for (final stamp in stampCatalog)
           _simpleCard(
             title: stamp.name,
-            subtitle: '所持中  Lv.${stamp.level}',
+            subtitle: !ownedStampIds.contains(stamp.id)
+                ? '未所持'
+                : equipped.contains(stamp.id)
+                    ? '装備中 ${equipped.length} / 6  Lv.${stamp.level}'
+                    : 'タップで装備  Lv.${stamp.level}',
             icon: _iconForStamp(stamp.iconName),
-            selected: false,
-            available: true,
-            onTap: null,
+            selected: equipped.contains(stamp.id),
+            available: ownedStampIds.contains(stamp.id),
+            onTap: ownedStampIds.contains(stamp.id)
+                ? () async {
+                    _playUiTap();
+                    final next = equipped.toList();
+                    if (next.contains(stamp.id)) {
+                      next.remove(stamp.id);
+                    } else if (next.length < 6) {
+                      next.add(stamp.id);
+                    } else {
+                      next.removeAt(0);
+                      next.add(stamp.id);
+                    }
+                    await _playerData.setEquippedStampIds(next);
+                    if (!mounted) {
+                      return;
+                    }
+                    setState(() {});
+                  }
+                : null,
           ),
       ],
     );
@@ -175,40 +188,6 @@ class _CollectionScreenState extends State<CollectionScreen>
                   }
                 : null,
           ),
-        for (final badge in _playerData.seasonRankBadges)
-          _simpleCard(
-            title: badge.label,
-            subtitle: equipped.contains(badge.id)
-                ? '装備中 / ${badge.detailLabel}'
-                : 'タップで装備 / ${badge.detailLabel}',
-            icon: Icons.leaderboard,
-            leading: SeasonRankBadgeIcon(rank: badge.rank, size: 28),
-            accentColor: Colors.amberAccent,
-            replaceSelectedIcon: false,
-            selected: equipped.contains(badge.id),
-            available: true,
-            onTap: () async {
-              _playUiTap();
-              final next = equipped.toSet();
-              if (next.contains(badge.id)) {
-                next.remove(badge.id);
-              } else if (next.length < 2) {
-                next.add(badge.id);
-              } else {
-                final first = next.first;
-                next.remove(first);
-                next.add(badge.id);
-              }
-              await _playerData.setEquippedBadgeIds(next.toList());
-              await _multiplayerManager.updateUserName(
-                _playerData.playerName,
-              );
-              if (!mounted) {
-                return;
-              }
-              setState(() {});
-            },
-          ),
       ],
     );
   }
@@ -218,22 +197,17 @@ class _CollectionScreenState extends State<CollectionScreen>
     required Set<String> unlocked,
     required Set<String> equipped,
   }) {
-    final status = equipped.contains(badge.id)
-        ? '装備中'
-        : unlocked.contains(badge.id)
-            ? 'タップで装備'
-            : '未解放';
     final nextBadge = BadgeCatalog.nextEvolutionBadgeFor(badge);
     if (badge.evolutionGroup == null) {
-      return '$status / ${badge.unlockedCondition.description}';
+      return badge.unlockedCondition.description;
     }
     if (!unlocked.contains(badge.id)) {
-      return '$status / ${badge.unlockedCondition.description}';
+      return badge.unlockedCondition.description;
     }
     if (nextBadge == null) {
-      return '$status / 最高Lv達成';
+      return '${badge.unlockedCondition.description}\n最高Lv達成';
     }
-    return '$status / 次Lv.${nextBadge.level}: ${nextBadge.unlockedCondition.description}';
+    return '${badge.unlockedCondition.description}\n次Lv.${nextBadge.level}: ${nextBadge.unlockedCondition.description}';
   }
 
   Widget _buildSkinsTab() {
@@ -248,8 +222,9 @@ class _CollectionScreenState extends State<CollectionScreen>
       children: [
         for (final skin in [
           const (id: 'default', label: 'デフォルト'),
-          ...GameItemCatalog.ballSkins
-              .map((item) => (id: item.id, label: item.name)),
+          ...GameItemCatalog.ballSkins.map(
+            (item) => (id: item.id, label: item.name),
+          ),
         ])
           _simpleCard(
             title: skin.label,
@@ -294,9 +269,7 @@ class _CollectionScreenState extends State<CollectionScreen>
           onTap: () async {
             _playUiTap();
             await _playerData.setEquippedPlayerIconId('default');
-            await _multiplayerManager.updateUserName(
-              _playerData.playerName,
-            );
+            await _multiplayerManager.updateUserName(_playerData.playerName);
             if (!mounted) {
               return;
             }
@@ -406,11 +379,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                   const Positioned(
                     right: -4,
                     bottom: -4,
-                    child: Icon(
-                      Icons.lock,
-                      size: 12,
-                      color: Colors.white54,
-                    ),
+                    child: Icon(Icons.lock, size: 12, color: Colors.white54),
                   ),
               ],
             ),
@@ -431,19 +400,14 @@ class _CollectionScreenState extends State<CollectionScreen>
                     ),
                   ),
                   const SizedBox(height: 3),
-                  Text(
+                  ..._responsiveSubtitleLines(
                     subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: selected
-                          ? accent
-                          : muted
-                              ? Colors.white38
-                              : Colors.white54,
-                      fontSize: 11,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                    ),
+                    color: selected
+                        ? accent
+                        : muted
+                            ? Colors.white38
+                            : Colors.white54,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
                   ),
                 ],
               ),
@@ -454,13 +418,38 @@ class _CollectionScreenState extends State<CollectionScreen>
     );
   }
 
-  Widget _emptyState(String text) {
-    return Center(
-      child: Text(
-        text,
-        style: const TextStyle(color: Colors.white60),
-      ),
-    );
+  List<Widget> _responsiveSubtitleLines(
+    String subtitle, {
+    required Color color,
+    required FontWeight fontWeight,
+  }) {
+    return subtitle
+        .split('\n')
+        .where((line) => line.trim().isNotEmpty)
+        .take(2)
+        .map(
+          (line) => SizedBox(
+            width: double.infinity,
+            height: 13,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  line,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    fontWeight: fontWeight,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+        .toList();
   }
 
   IconData _iconForStamp(String? iconName) {
@@ -492,6 +481,48 @@ class _CollectionScreenState extends State<CollectionScreen>
         return Icons.star;
       case 'gamepad':
         return Icons.sports_esports;
+      case 'sword':
+        return Icons.gavel;
+      case 'hexagon':
+        return Icons.hexagon;
+      case 'trophy':
+        return Icons.emoji_events;
+      case 'medal':
+        return Icons.military_tech;
+      case 'crown':
+        return Icons.workspace_premium;
+      case 'diamond':
+        return Icons.diamond;
+      case 'fire':
+        return Icons.local_fire_department;
+      case 'water':
+        return Icons.water_drop;
+      case 'moon':
+        return Icons.dark_mode;
+      case 'visibility':
+        return Icons.visibility;
+      case 'rocket':
+        return Icons.rocket_launch;
+      case 'shield':
+        return Icons.shield;
+      case 'terminal':
+        return Icons.terminal;
+      case 'smile':
+        return Icons.sentiment_satisfied_alt;
+      case 'ribbon':
+        return Icons.workspace_premium;
+      case 'heart':
+        return Icons.favorite;
+      case 'music':
+        return Icons.music_note;
+      case 'cafe':
+        return Icons.coffee;
+      case 'flower':
+        return Icons.local_florist;
+      case 'bell':
+        return Icons.notifications;
+      case 'skull':
+        return Icons.dangerous;
       default:
         return Icons.person;
     }
@@ -499,10 +530,7 @@ class _CollectionScreenState extends State<CollectionScreen>
 }
 
 class _PageTitle extends StatelessWidget {
-  const _PageTitle({
-    required this.title,
-    required this.subtitle,
-  });
+  const _PageTitle({required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
@@ -527,9 +555,7 @@ class _PageTitle extends StatelessWidget {
             color: Colors.white,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
-            shadows: [
-              Shadow(color: Colors.cyanAccent, blurRadius: 12),
-            ],
+            shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 12)],
           ),
         ),
       ],
@@ -559,6 +585,7 @@ class _NeonTabBar extends StatelessWidget {
         ],
       ),
       child: TabBar(
+        onTap: (_) => AppSfx.playUiTap(),
         dividerColor: Colors.transparent,
         indicatorSize: TabBarIndicatorSize.tab,
         indicator: BoxDecoration(
@@ -582,9 +609,7 @@ class _NeonTabBar extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
-        tabs: [
-          for (final tab in tabs) Tab(text: tab),
-        ],
+        tabs: [for (final tab in tabs) Tab(text: tab)],
       ),
     );
   }

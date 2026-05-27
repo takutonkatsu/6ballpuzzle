@@ -10,6 +10,7 @@ import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
 import '../network/server_time_manager.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'profile_screen.dart';
 
 class RankingScreen extends StatefulWidget {
   const RankingScreen({super.key});
@@ -76,6 +77,7 @@ class _RankingScreenState extends State<RankingScreen> {
   List<RankingEntry> _entries = const [];
   String? _errorMessage;
   _RankingTab _selectedTab = _RankingTab.currentSeason;
+  int _rankingLoadSerial = 0;
   Timer? _remainingTimer;
   String _remainingLabel = '残り--';
   String _dailyRemainingLabel = '残り--';
@@ -104,21 +106,20 @@ class _RankingScreenState extends State<RankingScreen> {
   }
 
   Future<void> _loadRankings() async {
-    if (_isLoading) {
-      return;
-    }
+    final requestTab = _selectedTab;
+    final requestSerial = ++_rankingLoadSerial;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      await (switch (_selectedTab) {
+      await (switch (requestTab) {
         _RankingTab.endless => _syncEndlessBeforeLoad(),
         _ => _syncCurrentSeasonBeforeLoad(),
       })
           .timeout(_rankingOperationTimeout);
-      final entries = switch (_selectedTab) {
+      final entries = switch (requestTab) {
         _RankingTab.currentSeason => await _rankingManager
             .fetchTopRankings(forceRefresh: true)
             .timeout(_rankingOperationTimeout),
@@ -133,6 +134,11 @@ class _RankingScreenState extends State<RankingScreen> {
         return;
       }
       final nowJst = await ServerTimeManager.instance.nowJst();
+      if (!mounted ||
+          requestSerial != _rankingLoadSerial ||
+          requestTab != _selectedTab) {
+        return;
+      }
       final loadedSeasonId =
           RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
       setState(() {
@@ -145,6 +151,9 @@ class _RankingScreenState extends State<RankingScreen> {
       });
     } catch (error) {
       if (!mounted) {
+        return;
+      }
+      if (requestSerial != _rankingLoadSerial || requestTab != _selectedTab) {
         return;
       }
       setState(() {
@@ -500,6 +509,8 @@ class _RankingScreenState extends State<RankingScreen> {
     _playUiTap();
     setState(() {
       _selectedTab = tab;
+      _entries = const [];
+      _errorMessage = null;
     });
     unawaited(_loadRankings());
   }
@@ -563,55 +574,73 @@ class _RankingScreenState extends State<RankingScreen> {
       _ => Colors.white.withValues(alpha: 0.04),
     };
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.2),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: rank <= 3 ? 0.18 : 0.08),
-            blurRadius: rank <= 3 ? 18 : 10,
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 32,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
+    return InkWell(
+      onTap: () => _openPlayerProfile(entry, rank, tab),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.2),
+          boxShadow: [
+            BoxShadow(
               color: accent.withValues(alpha: rank <= 3 ? 0.18 : 0.08),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: accent.withValues(alpha: rank <= 3 ? 0.72 : 0.38),
-                width: 1.2,
+              blurRadius: rank <= 3 ? 18 : 10,
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 32,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: rank <= 3 ? 0.18 : 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: accent.withValues(alpha: rank <= 3 ? 0.72 : 0.38),
+                  width: 1.2,
+                ),
+              ),
+              child: Text(
+                '$rank',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color:
+                      rank <= 3 ? accent : Colors.white.withValues(alpha: 0.76),
+                  fontSize: rank <= 3 ? 16 : null,
+                  fontWeight: rank <= 3 ? FontWeight.w900 : FontWeight.bold,
+                ),
               ),
             ),
-            child: Text(
-              '$rank',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color:
-                    rank <= 3 ? accent : Colors.white.withValues(alpha: 0.76),
-                fontSize: rank <= 3 ? 16 : null,
-                fontWeight: rank <= 3 ? FontWeight.w900 : FontWeight.bold,
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildResponsiveRankingNameText(
+                entry.displayName,
+                color: Colors.white.withValues(alpha: 0.92),
+                maxFontSize: 16,
               ),
             ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: _buildResponsiveRankingNameText(
-              entry.displayName,
-              color: Colors.white.withValues(alpha: 0.92),
-              maxFontSize: 16,
-            ),
-          ),
-          const SizedBox(width: 12),
-          _buildRankingValue(entry, accent, tab),
-        ],
+            const SizedBox(width: 12),
+            _buildRankingValue(entry, accent, tab),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openPlayerProfile(RankingEntry entry, int rank, _RankingTab tab) {
+    _playUiTap();
+    final rankLabel = tab == _RankingTab.currentSeason ? '$rank位' : null;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          playerUid: entry.uid,
+          initialEntry: entry,
+          initialRankLabel: rankLabel,
+        ),
       ),
     );
   }
@@ -640,7 +669,7 @@ class _RankingScreenState extends State<RankingScreen> {
         );
       case _RankingTab.endless:
         return Text(
-          '${entry.highestEndlessScore}点',
+          '${entry.highestEndlessScore}',
           style: TextStyle(
             color: accent,
             fontSize: 16,
@@ -722,7 +751,48 @@ class _RankingScreenState extends State<RankingScreen> {
       children: [
         _buildRemainingPill(_dailyRemainingLabel),
         const Spacer(),
+        _buildFooterActionButton(
+          label: '昨日の勝利数',
+          onTap: _showYesterdayDailyRankingDialog,
+        ),
       ],
+    );
+  }
+
+  Widget _buildFooterActionButton({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: () {
+        _playUiTap();
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.32),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: Colors.amberAccent.withValues(alpha: 0.38),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.amberAccent.withValues(alpha: 0.08),
+              blurRadius: 14,
+            ),
+          ],
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.amberAccent,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
     );
   }
 
@@ -785,6 +855,65 @@ class _RankingScreenState extends State<RankingScreen> {
                       );
                     },
                   ),
+            actions: [
+              _buildSeasonDialogButton(
+                label: '閉じる',
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showYesterdayDailyRankingDialog() async {
+    final nowJst = await ServerTimeManager.instance.nowJst();
+    final yesterday = nowJst.subtract(const Duration(days: 1));
+    final dateLabel =
+        '${yesterday.month}/${yesterday.day} ${RankedSeasonManager.seasonName(
+      RankedSeasonManager.currentSeasonId(nowJstOverride: yesterday),
+    )}';
+    final entries = await _rankingManager
+        .fetchYesterdayDailyWinRankings()
+        .timeout(_rankingOperationTimeout);
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: _buildSeasonDialogFrame(
+            title: '昨日の勝利数ランキング',
+            width: 390,
+            child: SizedBox(
+              height: 420,
+              child: entries.isEmpty
+                  ? Center(
+                      child: Text(
+                        '$dateLabel のランキングデータがありません',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: entries.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final entry = entries[index];
+                        return _buildRankingRow(
+                          entry,
+                          _displayDailyRankForEntries(entries, index),
+                          _isCurrentPlayer(entry),
+                          tab: _RankingTab.dailyWins,
+                        );
+                      },
+                    ),
+            ),
             actions: [
               _buildSeasonDialogButton(
                 label: '閉じる',
@@ -1070,6 +1199,16 @@ class _RankingScreenState extends State<RankingScreen> {
   }
 
   int _displayRankForEntries(int index) {
+    return index + 1;
+  }
+
+  int _displayDailyRankForEntries(List<RankingEntry> entries, int index) {
+    if (index <= 0) {
+      return 1;
+    }
+    if (entries[index].dailyWins == entries[index - 1].dailyWins) {
+      return _displayDailyRankForEntries(entries, index - 1);
+    }
     return index + 1;
   }
 

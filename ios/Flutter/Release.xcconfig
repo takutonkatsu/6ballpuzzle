@@ -1,3 +1,4 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
 GAD_APPLICATION_IDENTIFIER=ca-app-pub-5703232072169520~4353803852
+APP_DISPLAY_NAME=ヘキサゴン

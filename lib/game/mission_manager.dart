@@ -94,6 +94,7 @@ class MissionManager {
     }
     final missionId = missions[index]['id']?.toString() ?? '';
     if (MissionCatalog.isRewardedAdMissionId(missionId) ||
+        missionId == MissionCatalog.requiredEndlessMissionId ||
         MissionCatalog.isLoginRewardMissionId(missionId)) {
       throw StateError('このミッションはチェンジできません。');
     }
@@ -106,6 +107,7 @@ class MissionManager {
         .where(
           (mission) =>
               !MissionCatalog.isRewardedAdMissionId(mission.id) &&
+              mission.id != MissionCatalog.requiredEndlessMissionId &&
               !currentIds.contains(mission.id),
         )
         .toList();
@@ -278,6 +280,7 @@ class MissionManager {
       throw StateError('ミッションが見つかりません。');
     }
     if (MissionCatalog.isRewardedAdMissionId(missionId) ||
+        missionId == MissionCatalog.requiredEndlessMissionId ||
         MissionCatalog.isLoginRewardMissionId(missionId)) {
       throw StateError('このミッションはチェンジできません。');
     }
@@ -290,6 +293,7 @@ class MissionManager {
         .where(
           (mission) =>
               !MissionCatalog.isRewardedAdMissionId(mission.id) &&
+              mission.id != MissionCatalog.requiredEndlessMissionId &&
               !currentIds.contains(mission.id),
         )
         .toList();

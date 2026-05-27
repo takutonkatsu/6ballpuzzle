@@ -20,12 +20,13 @@ import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
 import '../network/multiplayer_manager.dart';
+import '../network/game_activity_presence.dart';
 import '../network/ranking_manager.dart';
+import '../network/realtime_connection_guard.dart';
 import 'components/banner_ad_widget.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/interstitial_ad_manager.dart';
 import 'components/rewarded_ad_manager.dart';
-import 'components/season_rank_badge_icon.dart';
 import 'components/stamp_widget.dart';
 import 'home_screen.dart';
 
@@ -129,10 +130,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _readySubmitting = false;
   String? _onlineResultMessage;
   bool _onlineResultWasForfeit = false;
+  bool _onlineResultWasOfflineForfeit = false;
   bool _isWaitingForRematch = false;
   bool _opponentUnavailableForRematch = false;
   bool _isDisconnectDialogVisible = false;
   bool _isReturningToHome = false;
+  bool _isCheckingHomeReturnConnection = false;
   bool? _cpuBattlePlayerWon;
   bool _rankedRatingApplied = false;
   RankedRatingChange? _rankedRatingChange;
@@ -140,6 +143,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   bool _battleIntroLocked = false;
   Timer? _rankedAutoStartTimer;
   bool _rankedAutoStartScheduled = false;
+  bool _opponentGameOverVerificationPending = false;
   bool _matchingSfxPlayed = false;
   bool _autoReadyRequested = false;
   bool _pendingPreBattleForfeitWin = false;
@@ -178,6 +182,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Timer? _opponentStampTimer;
   Timer? _stampCooldownTimer;
   Timer? _tutorialTimer;
+  StreamSubscription<bool>? _realtimeConnectionSubscription;
+  bool _realtimeConnected = true;
+  bool _rankedOfflineForfeitStarted = false;
+  DateTime? _lastRealtimeOfflineMessageAt;
   _TutorialPhase? _tutorialPhase;
   double? _tutorialStep1StartX;
   double? _tutorialStep2StartX;
@@ -224,7 +232,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (widget.isRankedMode) {
         return widget.rankedBotName;
       }
-      return 'CPU${_cpuDifficultyLabel(widget.cpuDifficulty)}';
+      return 'コンピュータ${_cpuDifficultyLabel(widget.cpuDifficulty)}';
     }
     if (_isOnlineMode) {
       return _displayNameForRole(_multiplayerManager.opponentRoleId) ??
@@ -333,6 +341,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(_enterGameActivityPresence());
     unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_arenaManager.load().then((_) {
       if (mounted) {
@@ -382,7 +391,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         wallColor: Colors.redAccent,
       );
       _cpuGame!.onDeathLineCrossed = () {
-        _triggerResultAudio(playerWon: true);
+        unawaited(_verifyOpponentDeathLineBeforeResult());
       };
     }
 
@@ -398,10 +407,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _multiplayerManager.onOpponentGameOver = _handleOpponentGameOver;
       _multiplayerManager.onOpponentDisconnected = _handleOpponentDisconnected;
       _multiplayerManager.onRematchStarted = _handleRematchStarted;
+      _startRealtimeConnectionWatch();
       if (_isOnlineMode) {
-        unawaited(_multiplayerManager.saveActiveSession(
-          isArenaMode: widget.isArenaMode,
-        ));
+        _sendServerAction(
+          () => _multiplayerManager.saveActiveSession(
+            isArenaMode: widget.isArenaMode,
+          ),
+        );
       }
       if (_room?.bothPlayersReady ?? false) {
         _onlineGameStarted = true;
@@ -414,6 +426,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           unawaited(_attemptAutoReady());
         });
       }
+    }
+
+    if (_isRankedBotMode) {
+      _startRealtimeConnectionWatch();
     }
 
     if (widget.isCpuMode && !widget.isTutorialMode) {
@@ -439,14 +455,17 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _playerGame.onBoardUpdated = (boardData) {
       if (_isOnlineMode && _onlineGameStarted) {
-        unawaited(_multiplayerManager.sendBoardState(boardData));
+        _sendServerAction(
+          () => _multiplayerManager.sendBoardState(boardData),
+          forfeitRankedOnOffline: widget.isRankedMode,
+        );
       }
     };
     _playerGame.onActivePieceChanged =
         (action, x, y, rotation, colors, dropSeed) {
       if (_isOnlineMode && _onlineGameStarted) {
-        unawaited(
-          _multiplayerManager.sendActivePiece(
+        _sendServerAction(
+          () => _multiplayerManager.sendActivePiece(
             x,
             y,
             rotation,
@@ -460,12 +479,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             _playerGame.isMovingRight,
             _playerGame.activePieceContactSlideDirection,
           ),
+          forfeitRankedOnOffline: widget.isRankedMode,
         );
       }
     };
     _playerGame.onOjamaSpawned = (ojamaData, dropSeed) {
       if (_isOnlineMode && _onlineGameStarted) {
-        unawaited(_multiplayerManager.sendOjamaSpawn(ojamaData, dropSeed));
+        _sendServerAction(
+          () => _multiplayerManager.sendOjamaSpawn(ojamaData, dropSeed),
+          forfeitRankedOnOffline: widget.isRankedMode,
+        );
       }
     };
     _playerGame.onGameOverTriggered = () {
@@ -475,7 +498,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         return;
       }
       if (_isOnlineMode) {
-        unawaited(_multiplayerManager.declareGameOver());
+        _sendServerAction(
+          _multiplayerManager.declareGameOver,
+          forfeitRankedOnOffline: widget.isRankedMode,
+        );
         unawaited(_presentBattleResult(
             playerWon: false, opponentCrossedDeathLine: false));
       } else {
@@ -711,10 +737,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
       unawaited(_suspendBattleBgmForLifecycle());
+      unawaited(GameActivityPresence.instance.exit());
       return;
     }
     if (state == AppLifecycleState.resumed) {
       unawaited(_resumeBattleBgmFromLifecycle());
+      if (!_isReturningToHome) {
+        unawaited(_enterGameActivityPresence());
+      }
     }
   }
 
@@ -739,12 +769,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(GameActivityPresence.instance.exit());
     _clearAllPendingAttacks();
     _rankedAutoStartTimer?.cancel();
     _myStampTimer?.cancel();
     _opponentStampTimer?.cancel();
     _stampCooldownTimer?.cancel();
     _tutorialTimer?.cancel();
+    _realtimeConnectionSubscription?.cancel();
     _shutdownBattleGames();
     unawaited(SfxPlayer.resetTransientAudio());
     if (!_isReturningToHome) {
@@ -760,6 +792,32 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   void _shutdownBattleGames() {
     _playerGame.freezeToBoardOnly();
     _cpuGame?.freezeToBoardOnly();
+  }
+
+  Future<void> _enterGameActivityPresence() async {
+    if (widget.isTutorialMode) {
+      return;
+    }
+    await GameActivityPresence.instance.enter(
+      mode: _activityMode,
+      roomId: widget.roomId,
+    );
+  }
+
+  GameActivityMode get _activityMode {
+    if (widget.isArenaMode) {
+      return GameActivityMode.arena;
+    }
+    if (widget.isRankedMode) {
+      return GameActivityMode.ranked;
+    }
+    if (widget.isOnlineMultiplayer) {
+      return GameActivityMode.friend;
+    }
+    if (widget.isCpuMode) {
+      return GameActivityMode.cpu;
+    }
+    return GameActivityMode.endless;
   }
 
   void _handleOpponentStampReceived(String stampId) {
@@ -785,7 +843,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     AppSfx.playUiTap();
     if (_isOnlineMode) {
-      unawaited(_multiplayerManager.sendStamp(stamp.id));
+      _sendServerAction(() => _multiplayerManager.sendStamp(stamp.id));
     }
 
     setState(() {
@@ -813,10 +871,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   void _showStampGrid() {
-    final ownedStamps = PlayerDataManager.instance.ownedItems
-        .where((item) => item.isStamp)
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    final ownedStampsById = {
+      for (final item in PlayerDataManager.instance.ownedItems
+          .where((item) => item.isStamp))
+        item.id: item,
+    };
+    final equippedStamps = PlayerDataManager.instance.equippedStampIds
+        .map((id) => ownedStampsById[id] ?? GameItemCatalog.byId(id))
+        .whereType<GameItem>()
+        .toList();
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -841,11 +904,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 ),
               ),
               const SizedBox(height: 20),
-              if (ownedStamps.isEmpty)
+              if (equippedStamps.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 12),
                   child: Text(
-                    'スタンプをまだ持っていません。\nショップのガチャから入手できます。',
+                    '装備中のスタンプがありません。\nコレクションから最大6つ装備できます。',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, height: 1.5),
                   ),
@@ -855,7 +918,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   spacing: 12,
                   runSpacing: 12,
                   alignment: WrapAlignment.center,
-                  children: ownedStamps.map((stamp) {
+                  children: equippedStamps.map((stamp) {
                     return InkWell(
                       onTap: () {
                         Navigator.pop(context);
@@ -914,17 +977,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ValueListenableBuilder<bool>(
                     valueListenable: AppSettings.instance.adsRemoved,
                     builder: (context, adsRemoved, child) {
-                      if (adsRemoved) {
-                        return const SizedBox.shrink();
-                      }
-                      return const Column(
+                      return Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          SizedBox(height: 12),
+                          const SizedBox(height: 12),
                           SizedBox(
                             height: 50.0,
                             width: double.infinity,
-                            child: BannerAdWidget(),
+                            child: adsRemoved
+                                ? const SizedBox.shrink()
+                                : const BannerAdWidget(),
                           ),
                         ],
                       );
@@ -944,7 +1006,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   left: 8,
                   child: _buildBattleSettingsButton(),
                 ),
-              if (widget.isTutorialMode) _buildTutorialSkipButton(),
               if (widget.isTutorialMode) _buildTutorialOverlay(),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
               if (_currentFloatingStamp != null)
@@ -967,6 +1028,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     isOpponent: true,
                   ),
                 ),
+              if (widget.isTutorialMode) _buildTutorialSkipButton(),
             ],
           ),
         ),
@@ -986,7 +1048,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       label: 'stamp',
       child: IgnorePointer(
         child: Container(
-          width: compact ? _compactStampWidth * normalizedScale : null,
+          width: compact ? _compactStampWidth * normalizedScale : 260,
+          constraints: compact
+              ? null
+              : const BoxConstraints(
+                  minHeight: 74,
+                ),
           padding: compact
               ? EdgeInsets.symmetric(
                   horizontal: 12 * normalizedScale,
@@ -1019,7 +1086,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ),
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
+            alignment: Alignment.center,
             child: StampWidget(
               item: stamp,
               level: stamp.level,
@@ -1356,16 +1423,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
+                          _buildResponsiveResultNameText(name),
                           const SizedBox(height: 6),
                           _buildBadgeIconRow(badgeIds),
                         ],
@@ -1418,6 +1476,29 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildResponsiveResultNameText(String name) {
+    return SizedBox(
+      width: double.infinity,
+      height: 24,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            name,
+            maxLines: 1,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2003,24 +2084,23 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _buildBadgeIconRow(List<String> badgeIds) {
     final badges = badgeIds.map(_badgeIconForId).whereType<Widget>().take(2);
     if (badges.isEmpty) {
-      return const SizedBox.shrink();
+      return const SizedBox(height: 24);
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (final badge in badges) badge,
-      ],
+    return SizedBox(
+      height: 24,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final badge in badges) badge,
+        ],
+      ),
     );
   }
 
   Widget? _badgeIconForId(String id) {
-    final seasonBadge = SeasonRankBadge.fromId(id);
-    if (seasonBadge != null) {
-      return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 2),
-        child: SeasonRankBadgeIcon(rank: seasonBadge.rank, size: 24),
-      );
+    if (SeasonRankBadge.isSeasonRankBadgeId(id)) {
+      return null;
     }
     final badge = BadgeCatalog.findById(id);
     if (badge == null) {
@@ -2211,7 +2291,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     final win = _onlineResultMessage == 'YOU WIN!!';
     final textColor = win ? Colors.cyanAccent : Colors.pinkAccent;
-    final title = win && _onlineResultWasForfeit ? '不戦勝' : (win ? '勝ち' : '負け');
+    final title = win && _onlineResultWasForfeit
+        ? '不戦勝'
+        : _onlineResultWasOfflineForfeit
+            ? '不戦敗'
+            : (win ? '勝ち' : '負け');
 
     return Positioned.fill(
       child: _buildUnifiedResultSheet(
@@ -2861,21 +2945,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 if (showBadgesInSubLabelSlot)
                   _buildBadgeIconRow(badgeIds)
                 else
-                  _buildLobbySubLabelText(
-                    !isOccupied ? '-' : (subLabel ?? '-'),
+                  SizedBox(
+                    height: 24,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: _buildLobbySubLabelText(
+                        !isOccupied ? '-' : (subLabel ?? '-'),
+                      ),
+                    ),
                   ),
-                if (isOccupied &&
-                    badgeIds.isNotEmpty &&
-                    !isReady &&
-                    !showBadgesInSubLabelSlot) ...[
-                  const SizedBox(height: 6),
-                  _buildBadgeIconRow(badgeIds),
-                ],
               ],
             ),
           ),
           if (isOccupied &&
-              isReady &&
               badgeIds.isNotEmpty &&
               !showBadgesInSubLabelSlot) ...[
             const SizedBox(width: 12),
@@ -2995,6 +3077,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
 
     try {
+      final connected = await _ensureServerConnection();
+      if (!connected) {
+        return;
+      }
       await _multiplayerManager.setReady();
     } catch (error) {
       if (!mounted) {
@@ -3090,6 +3176,135 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     await HapticFeedback.vibrate();
   }
 
+  void _startRealtimeConnectionWatch() {
+    if (_realtimeConnectionSubscription != null) {
+      return;
+    }
+
+    _realtimeConnectionSubscription =
+        RealtimeConnectionGuard.connectedChanges().listen((connected) {
+      if (!mounted) {
+        return;
+      }
+      _realtimeConnected = connected;
+      if (connected) {
+        return;
+      }
+      _showRealtimeOfflineMessage();
+      _forfeitRankedMatchForOfflineIfNeeded();
+    });
+  }
+
+  void _showRealtimeOfflineMessage() {
+    if (!mounted) {
+      return;
+    }
+    final now = DateTime.now();
+    final lastShown = _lastRealtimeOfflineMessageAt;
+    if (lastShown != null && now.difference(lastShown).inSeconds < 3) {
+      return;
+    }
+    _lastRealtimeOfflineMessageAt = now;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      const SnackBar(
+        content: Text(RealtimeConnectionGuard.offlineMessage),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  bool get _isRankedBattleCurrentlyPlaying {
+    if (!widget.isRankedMode || widget.isArenaMode) {
+      return false;
+    }
+    if (_resultRevealPending || _onlineResultMessage != null) {
+      return false;
+    }
+    if (widget.isCpuMode && !_isRankedBotMode) {
+      return false;
+    }
+    if (_isOnlineMode && !_onlineGameStarted) {
+      return false;
+    }
+    return _playerGame.gameStateWrapper.value == GameState.playing;
+  }
+
+  void _forfeitRankedMatchForOfflineIfNeeded() {
+    if (_rankedOfflineForfeitStarted || !_isRankedBattleCurrentlyPlaying) {
+      return;
+    }
+    _rankedOfflineForfeitStarted = true;
+    unawaited(
+      _multiplayerManager.saveActiveSession(
+        isArenaMode: widget.isArenaMode,
+        snapshot: const {'abandonReason': 'offline'},
+      ),
+    );
+    unawaited(
+      _presentBattleResult(
+        playerWon: false,
+        opponentCrossedDeathLine: false,
+        resultWasForfeit: true,
+        resultWasOfflineForfeit: true,
+      ),
+    );
+  }
+
+  bool _canSendServerAction({bool forfeitRankedOnOffline = false}) {
+    if (_realtimeConnected) {
+      return true;
+    }
+    _showRealtimeOfflineMessage();
+    if (forfeitRankedOnOffline) {
+      _forfeitRankedMatchForOfflineIfNeeded();
+    }
+    return false;
+  }
+
+  void _sendServerAction(
+    Future<void> Function() action, {
+    bool forfeitRankedOnOffline = false,
+  }) {
+    if (!_canSendServerAction(
+      forfeitRankedOnOffline: forfeitRankedOnOffline,
+    )) {
+      return;
+    }
+    unawaited(
+      action().catchError((Object _) {
+        if (!mounted) {
+          return;
+        }
+        _showRealtimeOfflineMessage();
+        if (forfeitRankedOnOffline) {
+          _forfeitRankedMatchForOfflineIfNeeded();
+        }
+      }),
+    );
+  }
+
+  Future<bool> _ensureServerConnection({
+    bool forfeitRankedOnOffline = false,
+  }) async {
+    if (_realtimeConnected) {
+      return true;
+    }
+    final connected = await RealtimeConnectionGuard.waitForConnected(
+      timeout: const Duration(milliseconds: 800),
+    );
+    _realtimeConnected = connected;
+    if (connected) {
+      return true;
+    }
+    _showRealtimeOfflineMessage();
+    if (forfeitRankedOnOffline) {
+      _forfeitRankedMatchForOfflineIfNeeded();
+    }
+    return false;
+  }
+
   Future<void> _attemptAutoReady() async {
     final room = _room;
     if (room == null || !room.bothPlayersJoined || _onlineGameStarted) {
@@ -3107,6 +3322,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _autoReadyRequested = true;
     try {
+      final connected = await _ensureServerConnection();
+      if (!connected) {
+        _autoReadyRequested = false;
+        return;
+      }
       await _multiplayerManager.setReady();
     } catch (_) {
       _autoReadyRequested = false;
@@ -3840,6 +4060,27 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       'icon_bolt' => Icons.bolt,
       'icon_star' => Icons.star,
       'icon_gamepad' => Icons.sports_esports,
+      'icon_sword' => Icons.gavel,
+      'icon_hexagon' => Icons.hexagon,
+      'icon_trophy' => Icons.emoji_events,
+      'icon_medal' => Icons.military_tech,
+      'icon_crown' => Icons.workspace_premium,
+      'icon_diamond' => Icons.diamond,
+      'icon_fire' => Icons.local_fire_department,
+      'icon_water' => Icons.water_drop,
+      'icon_moon' => Icons.dark_mode,
+      'icon_visibility' => Icons.visibility,
+      'icon_rocket' => Icons.rocket_launch,
+      'icon_shield' => Icons.shield,
+      'icon_terminal' => Icons.terminal,
+      'icon_smile' => Icons.sentiment_satisfied_alt,
+      'icon_ribbon' => Icons.workspace_premium,
+      'icon_heart' => Icons.favorite,
+      'icon_music' => Icons.music_note,
+      'icon_cafe' => Icons.coffee,
+      'icon_flower' => Icons.local_florist,
+      'icon_bell' => Icons.notifications,
+      'icon_skull' => Icons.dangerous,
       _ => Icons.person,
     };
   }
@@ -3984,12 +4225,52 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     if (_resultRevealPending || _onlineResultMessage != null) {
       return;
     }
+    _opponentGameOverVerificationPending = false;
     unawaited(
       _presentBattleResult(
         playerWon: true,
         opponentCrossedDeathLine: true,
       ),
     );
+  }
+
+  Future<void> _verifyOpponentDeathLineBeforeResult() async {
+    if (!_isOnlineMode ||
+        _opponentGameOverVerificationPending ||
+        _resultRevealPending ||
+        _onlineResultMessage != null) {
+      return;
+    }
+    _opponentGameOverVerificationPending = true;
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+    if (!mounted || _resultRevealPending || _onlineResultMessage != null) {
+      _opponentGameOverVerificationPending = false;
+      return;
+    }
+
+    final opponentRoleId = _multiplayerManager.opponentRoleId;
+    final opponentStatus =
+        _multiplayerManager.currentRoom?.players[opponentRoleId]?.status;
+    if (opponentStatus == 'dead') {
+      _handleOpponentGameOver();
+      return;
+    }
+
+    final roomId = _multiplayerManager.currentRoomId;
+    if (roomId != null) {
+      try {
+        final snapshot = await _multiplayerManager.loadRoomBattleSnapshot(
+          roomId: roomId,
+          roleId: opponentRoleId,
+        );
+        if (snapshot != null && mounted) {
+          _cpuGame?.restoreFromSnapshot(snapshot);
+        }
+      } catch (_) {
+        // 最終盤面補正に失敗した場合も、相手のdead通知を待つ。
+      }
+    }
+    _opponentGameOverVerificationPending = false;
   }
 
   Future<void> _applyRankedRatingResult({
@@ -4002,6 +4283,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _rankedRatingApplied = true;
     try {
+      final connected = await _ensureServerConnection();
+      if (!connected) {
+        if (mounted) {
+          setState(() {
+            _rankedRatingChange = null;
+          });
+        }
+        return;
+      }
       final change = await _multiplayerManager.applyRankedResult(
         isWin: isWin,
         applyOpponentResult: applyOpponentResult,
@@ -4031,10 +4321,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       setState(() {
         _rankedRatingChange = change;
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) {
         return;
       }
+      _showRealtimeOfflineMessage();
       setState(() {
         _rankedRatingChange = null;
       });
@@ -4052,6 +4343,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _rankedRatingApplied = true;
     try {
+      final connected = await _ensureServerConnection();
+      if (!connected) {
+        if (mounted) {
+          setState(() {
+            _rankedRatingChange = null;
+          });
+        }
+        return;
+      }
       final change = await _multiplayerManager.applyRankedBotResult(
         isWin: isWin,
         opponentRating: opponentRating,
@@ -4084,6 +4384,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       if (!mounted) {
         return;
       }
+      _showRealtimeOfflineMessage();
       setState(() {
         _rankedRatingChange = null;
       });
@@ -4106,8 +4407,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     _arenaResultApplied = false;
     _arenaMatchResult = null;
     _onlineResultWasForfeit = false;
+    _onlineResultWasOfflineForfeit = false;
     _opponentUnavailableForRematch = false;
     _autoReadyRequested = false;
+    _rankedOfflineForfeitStarted = false;
+    _opponentGameOverVerificationPending = false;
     _tutorialOpponentDefeatQueued = false;
     _resultRevealPending = false;
     _resultAudioStarted = false;
@@ -4303,6 +4607,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Future<void> _applyMatchExpReward({
     required bool isWin,
     bool isForfeitWin = false,
+    bool grantLocalExp = true,
   }) async {
     if (_matchExpApplied) {
       return;
@@ -4310,33 +4615,42 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     _matchExpApplied = true;
     final earnedExp = _calculateMatchExp(isWin: isWin);
+    final displayedExp = grantLocalExp ? earnedExp : 0;
 
     try {
       await _playerDataManager.load();
       final previousLevel = _playerDataManager.level;
-      await _playerDataManager.addExp(earnedExp);
-      await _recordMatchStats(isWin: isWin, isForfeitWin: isForfeitWin);
+      if (grantLocalExp) {
+        await _playerDataManager.addExp(earnedExp);
+      }
       final currentLevel = _playerDataManager.level;
       if (!mounted) {
         return;
       }
       _refreshNewlyUnlockedBadgesFromSnapshot();
       setState(() {
-        _matchExpEarned = earnedExp;
-        if (currentLevel > previousLevel) {
+        _matchExpEarned = displayedExp;
+        if (grantLocalExp && currentLevel > previousLevel) {
           _didLevelUpFromResultExp = true;
           _resultLevelAfterExp = currentLevel;
         }
       });
     } catch (_) {
-      await _recordMatchStats(isWin: isWin, isForfeitWin: isForfeitWin);
       if (!mounted) {
         return;
       }
       _refreshNewlyUnlockedBadgesFromSnapshot();
       setState(() {
-        _matchExpEarned = earnedExp;
+        _matchExpEarned = displayedExp;
       });
+    }
+
+    try {
+      await _recordMatchStats(isWin: isWin, isForfeitWin: isForfeitWin);
+    } catch (_) {
+      if (mounted) {
+        _showRealtimeOfflineMessage();
+      }
     }
   }
 
@@ -4395,10 +4709,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final opponentName = widget.isCpuMode
         ? _opponentDisplayName
         : _displayNameForRole(_multiplayerManager.opponentRoleId) ?? 'UNKNOWN';
+    final opponentPlayer = _room?.players[_multiplayerManager.opponentRoleId] ??
+        _multiplayerManager
+            .currentRoom?.players[_multiplayerManager.opponentRoleId];
     await _playerDataManager.recordMatchResult(
       isWin: isWin,
       mode: mode,
       opponentName: opponentName,
+      opponentUid: widget.isCpuMode ? '' : opponentPlayer?.uid ?? '',
+      opponentPublicId: widget.isCpuMode ? '' : opponentPlayer?.publicId ?? '',
       wazaCounts: {
         'straight': _playerWazaCounts[WazaType.straight] ?? 0,
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
@@ -4450,11 +4769,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final result = await _arenaManager.recordArenaMatch(isWin);
     if (isWin) {
       unawaited(_missionManager.recordEvent('win_arena_match'));
-      unawaited(
-        _rankingManager.updateMyRating(
-          rating: _playerDataManager.currentRating,
-          incrementDailyWin: true,
-        ),
+      _sendServerAction(
+        () => _rankingManager.updateMyRating(
+            rating: _playerDataManager.currentRating, incrementDailyWin: true),
       );
     }
     final currentLevel = _playerDataManager.level;
@@ -4472,10 +4789,41 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _returnHomeAfterMatch() async {
-    if (_isReturningToHome) {
+    if (_isReturningToHome || _isCheckingHomeReturnConnection) {
+      return;
+    }
+    _isCheckingHomeReturnConnection = true;
+    try {
+      var connected = _realtimeConnected;
+      if (connected) {
+        final currentConnected =
+            await RealtimeConnectionGuard.currentConnected();
+        if (currentConnected != null) {
+          connected = currentConnected;
+        } else {
+          connected = await RealtimeConnectionGuard.waitForConnected(
+            timeout: const Duration(milliseconds: 700),
+          );
+        }
+      }
+      _realtimeConnected = connected;
+      if (!connected) {
+        if (mounted) {
+          await _showCyberAlertDialog(
+            'ランク戦に失敗しました',
+            RealtimeConnectionGuard.offlineMessage,
+          );
+        }
+        return;
+      }
+    } finally {
+      _isCheckingHomeReturnConnection = false;
+    }
+    if (!mounted || _isReturningToHome) {
       return;
     }
     _isReturningToHome = true;
+    await GameActivityPresence.instance.exit();
     _shutdownBattleGames();
     _myStampTimer?.cancel();
     _opponentStampTimer?.cancel();
@@ -4564,6 +4912,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       _onlineGameStarted = true;
       _onlineResultMessage = null;
       _onlineResultWasForfeit = false;
+      _onlineResultWasOfflineForfeit = false;
       _opponentUnavailableForRematch = false;
       _isWaitingForRematch = false;
     });
@@ -4572,9 +4921,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       preReadyDelay: const Duration(seconds: 1),
     );
     if (_isOnlineMode) {
-      unawaited(_multiplayerManager.saveActiveSession(
-        isArenaMode: widget.isArenaMode,
-      ));
+      _sendServerAction(
+        () => _multiplayerManager.saveActiveSession(
+          isArenaMode: widget.isArenaMode,
+        ),
+      );
     }
   }
 
@@ -4768,6 +5119,120 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _showCyberAlertDialog(String title, String message) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.cyanAccent,
+          title: title,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              _buildCyberDialogButton(
+                label: 'OK',
+                accentColor: Colors.cyanAccent,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCyberDialog({
+    required String title,
+    required Widget child,
+    required Color accentColor,
+  }) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxWidth: 380),
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          color: const Color(0xFF141421),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: accentColor.withValues(alpha: 0.78),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.35),
+              blurRadius: 24,
+              spreadRadius: 2,
+            ),
+            BoxShadow(
+              color: Colors.purpleAccent.withValues(alpha: 0.18),
+              blurRadius: 40,
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: accentColor,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 2.4,
+                shadows: [Shadow(color: accentColor, blurRadius: 12)],
+              ),
+            ),
+            const SizedBox(height: 18),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCyberDialogButton({
+    required String label,
+    required Color accentColor,
+    required VoidCallback onPressed,
+  }) {
+    return OutlinedButton(
+      onPressed: () {
+        _playUiTap();
+        onPressed();
+      },
+      style: OutlinedButton.styleFrom(
+        foregroundColor: accentColor,
+        side: BorderSide(
+          color: accentColor.withValues(alpha: 0.75),
+          width: 1.4,
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 18),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          letterSpacing: 1.6,
+        ),
+      ),
+    );
+  }
+
   Widget _buildBattleSettingsButton() {
     final canOpen = _canOpenBattleSettings;
     return SafeArea(
@@ -4956,6 +5421,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Future<void> _returnHomeFromSettings() async {
     _isReturningToHome = true;
+    await GameActivityPresence.instance.exit();
     _clearAllPendingAttacks();
     _playerGame.pauseEngine();
     _cpuGame?.pauseEngine();
@@ -4984,6 +5450,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
 
     try {
+      final connected = await _ensureServerConnection();
+      if (!connected) {
+        if (mounted) {
+          setState(() {
+            _isWaitingForRematch = false;
+          });
+        }
+        return;
+      }
       await _multiplayerManager.requestRematch();
     } catch (error) {
       if (!mounted) {
@@ -5023,13 +5498,30 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _applyAttackToOpponent(OjamaTask task) async {
-    await _multiplayerManager.sendAttack(task);
+    final connected = await _ensureServerConnection(
+      forfeitRankedOnOffline: widget.isRankedMode,
+    );
+    if (!connected) {
+      return;
+    }
+    try {
+      await _multiplayerManager.sendAttack(task);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      _showRealtimeOfflineMessage();
+      if (widget.isRankedMode) {
+        _forfeitRankedMatchForOfflineIfNeeded();
+      }
+    }
   }
 
   Future<void> _presentBattleResult({
     required bool playerWon,
     required bool opponentCrossedDeathLine,
     bool resultWasForfeit = false,
+    bool resultWasOfflineForfeit = false,
   }) async {
     if (_resultRevealPending) {
       return;
@@ -5095,7 +5587,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         }
       }
       unawaited(_applyBattleCoinReward(isWin: playerWon));
-      unawaited(_applyMatchExpReward(isWin: playerWon));
+      unawaited(
+        _applyMatchExpReward(
+          isWin: playerWon,
+          grantLocalExp: !widget.isRankedMode,
+        ),
+      );
       unawaited(_applyRankedBotRatingResult(isWin: playerWon));
       setState(() {
         _resultRevealPending = false;
@@ -5119,6 +5616,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _applyMatchExpReward(
           isWin: playerWon,
           isForfeitWin: resultWasForfeit && playerWon,
+          grantLocalExp: !widget.isRankedMode || widget.isArenaMode,
         ),
       );
       unawaited(
@@ -5132,6 +5630,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       setState(() {
         _onlineResultMessage = playerWon ? 'YOU WIN!!' : 'YOU LOSE...';
         _onlineResultWasForfeit = resultWasForfeit;
+        _onlineResultWasOfflineForfeit = resultWasOfflineForfeit;
         _isWaitingForRematch = false;
         _resultRevealPending = false;
       });

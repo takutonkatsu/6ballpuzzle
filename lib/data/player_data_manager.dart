@@ -6,6 +6,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
+import '../app_settings.dart';
 import '../game/mission_catalog.dart';
 import '../moderation/moderation_manager.dart';
 import 'models/badge_item.dart';
@@ -35,6 +36,8 @@ class MatchHistoryEntry {
     required this.opponentName,
     required this.mode,
     required this.playedAt,
+    this.opponentUid = '',
+    this.opponentPublicId = '',
     this.isForfeitWin = false,
     this.wazaCounts = const {},
     this.clearedBalls = 0,
@@ -50,6 +53,8 @@ class MatchHistoryEntry {
   final String opponentName;
   final String mode;
   final DateTime playedAt;
+  final String opponentUid;
+  final String opponentPublicId;
   final bool isForfeitWin;
   final Map<String, int> wazaCounts;
   final int clearedBalls;
@@ -66,6 +71,8 @@ class MatchHistoryEntry {
       'opponentName': opponentName,
       'mode': mode,
       'playedAt': playedAt.toIso8601String(),
+      if (opponentUid.isNotEmpty) 'opponentUid': opponentUid,
+      if (opponentPublicId.isNotEmpty) 'opponentPublicId': opponentPublicId,
       if (isForfeitWin) 'isForfeitWin': true,
       if (hasStyleMetrics) ...{
         'wazaCounts': wazaCounts,
@@ -91,6 +98,8 @@ class MatchHistoryEntry {
       mode: json['mode']?.toString() ?? 'MATCH',
       playedAt: DateTime.tryParse(json['playedAt']?.toString() ?? '') ??
           DateTime.now(),
+      opponentUid: json['opponentUid']?.toString() ?? '',
+      opponentPublicId: json['opponentPublicId']?.toString() ?? '',
       isForfeitWin: json['isForfeitWin'] == true,
       wazaCounts: wazaCounts,
       clearedBalls: _intValue(json['clearedBalls']) ?? 0,
@@ -128,6 +137,7 @@ class PlayerDataManager {
   static const bool _debugControlsEnabled = AppReviewConfig.debugMenuEnabled;
 
   static const int initialCoins = 10000;
+  static const int maxEndlessScore = 99999999;
   static const String _coinsKey = 'player_coins';
   static const String _expKey = 'player_exp';
   static const String _gachaTicketsKey = 'player_gacha_tickets';
@@ -144,6 +154,7 @@ class PlayerDataManager {
   static const String _playerNameKey = 'player_name';
   static const String _playerIdKey = 'player_public_id';
   static const String _equippedBadgeIdsKey = 'player_equipped_badge_ids_json';
+  static const String _equippedStampIdsKey = 'player_equipped_stamp_ids_json';
   static const String _seasonRankBadgesKey = 'player_season_rank_badges_json';
   static const String _rankedSeasonIdKey = 'player_ranked_season_id';
   static const String _seasonRankedWinsKey = 'player_season_ranked_wins';
@@ -172,6 +183,10 @@ class PlayerDataManager {
       'player_ranked_current_win_streak';
   static const String _rankedMaxWinStreakKey = 'player_ranked_max_win_streak';
   static const String _bestRankedRankKey = 'player_best_ranked_rank';
+  static const String _dailyWinRankPlacementsKey =
+      'player_daily_win_rank_placements_json';
+  static const String _dailyWinRankPlacementLastKey =
+      'player_daily_win_rank_placement_last';
   static const String _arenaPerfectClearCountKey =
       'player_arena_perfect_clear_count';
   static const String _recordResetVersionKey = 'player_record_reset_version';
@@ -214,8 +229,8 @@ class PlayerDataManager {
   static const Duration _matchHistoryRetention = Duration(days: 8);
   static const Duration _recordSummarySyncInterval = Duration(minutes: 1);
   static const Duration _playerNameSyncTimeout = Duration(seconds: 3);
-  static const int _recordSummarySchemaVersion = 2;
-  static const int _currentInventoryRevision = 3;
+  static const int _recordSummarySchemaVersion = 4;
+  static const int _currentInventoryRevision = 4;
   static const int _currentRecordResetVersion = 1;
   static const int _debugBuildCoins = 1000000;
 
@@ -237,6 +252,7 @@ class PlayerDataManager {
   String _playerName = '';
   String _playerId = '';
   List<String> _equippedBadgeIds = [];
+  List<String> _equippedStampIds = [];
   List<SeasonRankBadge> _seasonRankBadges = [];
   String _rankedSeasonId = '';
   int _seasonRankedWins = 0;
@@ -260,6 +276,7 @@ class PlayerDataManager {
   int _rankedCurrentWinStreak = 0;
   int _rankedMaxWinStreak = 0;
   int _bestRankedRank = 0;
+  Map<String, int> _dailyWinRankPlacements = {};
   int _arenaPerfectClearCount = 0;
   Map<String, int> _wazaCounts = {
     'straight': 0,
@@ -323,6 +340,7 @@ class PlayerDataManager {
       _playerName.trim().isEmpty ? 'プレイヤー' : _playerName.trim();
   String get playerId => _playerId;
   List<String> get equippedBadgeIds => List.unmodifiable(_equippedBadgeIds);
+  List<String> get equippedStampIds => List.unmodifiable(_equippedStampIds);
   List<SeasonRankBadge> get seasonRankBadges =>
       List.unmodifiable(_seasonRankBadges);
   String get rankedSeasonId => _rankedSeasonId;
@@ -349,6 +367,8 @@ class PlayerDataManager {
   int get rankedCurrentWinStreak => _rankedCurrentWinStreak;
   int get rankedMaxWinStreak => _rankedMaxWinStreak;
   int get bestRankedRank => _bestRankedRank;
+  Map<String, int> get dailyWinRankPlacements =>
+      Map.unmodifiable(_dailyWinRankPlacements);
   int get arenaPerfectClearCount => _arenaPerfectClearCount;
   Map<String, int> get wazaCounts => Map.unmodifiable(_wazaCounts);
   List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
@@ -366,7 +386,6 @@ class PlayerDataManager {
         ),
       )
       .map((badge) => badge.id)
-      .followedBy(_seasonRankBadges.map((badge) => badge.id))
       .toList();
 
   Future<List<GameItem>> getOwnedItems() async {
@@ -385,7 +404,7 @@ class PlayerDataManager {
       return;
     }
 
-    await AuthManager.instance.ensureSignedIn();
+    final uid = await AuthManager.instance.ensureSignedIn();
     final prefs = await SharedPreferences.getInstance();
     final inventoryRevision = prefs.getInt(_inventoryRevisionKey) ?? 0;
     _coins = prefs.getInt(_coinsKey) ?? initialCoins;
@@ -451,6 +470,9 @@ class PlayerDataManager {
     _equippedBadgeIds = _stringListFromJson(
       prefs.getString(_equippedBadgeIdsKey),
     ).take(2).toList();
+    _equippedStampIds = _stringListFromJson(
+      prefs.getString(_equippedStampIdsKey),
+    ).take(6).toList();
     _seasonRankBadges = _seasonRankBadgesFromJson(
       prefs.getString(_seasonRankBadgesKey),
     );
@@ -483,11 +505,16 @@ class PlayerDataManager {
     _totalNormalClearedBalls = prefs.getInt(_totalNormalClearedBallsKey) ?? 0;
     _maxChain = prefs.getInt(_maxChainKey) ?? 0;
     _totalChain = prefs.getInt(_totalChainKey) ?? _maxChain;
-    _highestEndlessScore = prefs.getInt(_highestEndlessScoreKey) ?? 0;
+    _highestEndlessScore = (prefs.getInt(_highestEndlessScoreKey) ?? 0)
+        .clamp(0, maxEndlessScore)
+        .toInt();
     _rankedWins = prefs.getInt(_rankedWinsKey) ?? 0;
     _rankedCurrentWinStreak = prefs.getInt(_rankedCurrentWinStreakKey) ?? 0;
     _rankedMaxWinStreak = prefs.getInt(_rankedMaxWinStreakKey) ?? 0;
     _bestRankedRank = prefs.getInt(_bestRankedRankKey) ?? 0;
+    _dailyWinRankPlacements = _intMapFromJson(
+      prefs.getString(_dailyWinRankPlacementsKey),
+    );
     _arenaPerfectClearCount = prefs.getInt(_arenaPerfectClearCountKey) ?? 0;
     _wazaCounts = {
       'straight': 0,
@@ -546,7 +573,13 @@ class PlayerDataManager {
 
     _loaded = true;
 
+    if (await _claimAdminGrants(uid)) {
+      shouldSaveProfile = true;
+    }
+
+    final loadedEquippedBadgeIds = List<String>.from(_equippedBadgeIds);
     _equippedBadgeIds = _equippedBadgeIds
+        .where((id) => !SeasonRankBadge.isSeasonRankBadgeId(id))
         .map((id) => BadgeCatalog.evolvedBadgeIdFor(
               id,
               unlockedBadgeIds.toSet(),
@@ -555,10 +588,37 @@ class PlayerDataManager {
         .toSet()
         .take(2)
         .toList();
+    if (!_stringListsEqual(loadedEquippedBadgeIds, _equippedBadgeIds)) {
+      shouldSaveProfile = true;
+    }
     var shouldSaveItems = false;
     if (inventoryRevision < _currentInventoryRevision) {
       shouldSaveItems = _applyInventoryMigration(inventoryRevision);
       shouldSaveProfile = true;
+    }
+    var shouldSaveEquippedStamps = false;
+    final loadedEquippedStampIds = List<String>.from(_equippedStampIds);
+    final ownedStampIds = _ownedItems
+        .where((item) => item.isStamp)
+        .map((item) => item.id)
+        .toSet();
+    _equippedStampIds = _equippedStampIds
+        .where(ownedStampIds.contains)
+        .toSet()
+        .take(6)
+        .toList();
+    if (_equippedStampIds.isEmpty && ownedStampIds.isNotEmpty) {
+      final defaultOwnedStampIds = GameItemCatalog.defaultStamps
+          .map((stamp) => stamp.id)
+          .where(ownedStampIds.contains)
+          .take(6)
+          .toList();
+      _equippedStampIds = defaultOwnedStampIds.isNotEmpty
+          ? defaultOwnedStampIds
+          : ownedStampIds.take(6).toList();
+    }
+    if (!_stringListsEqual(loadedEquippedStampIds, _equippedStampIds)) {
+      shouldSaveEquippedStamps = true;
     }
     if (!_ownsEquippableItem(_equippedBallSkinId, ItemType.skin)) {
       _equippedBallSkinId = 'default';
@@ -580,8 +640,52 @@ class PlayerDataManager {
     if (shouldSaveProfile) {
       await _savePublicProfile();
     }
+    if (shouldSaveEquippedStamps) {
+      await _saveEquippedStamps();
+    }
     if (shouldSaveStats) {
       await _saveStats();
+    }
+  }
+
+  Future<bool> _claimAdminGrants(String uid) async {
+    try {
+      final grantsRef = AppFirebaseDatabase.ref().child('adminGrants/$uid');
+      final snapshot =
+          await grantsRef.get().timeout(const Duration(seconds: 3));
+      final raw = snapshot.value;
+      if (raw is! Map) {
+        return false;
+      }
+
+      var totalCoins = 0;
+      final processedGrantIds = <String>[];
+      for (final entry in raw.entries) {
+        final grantId = '${entry.key}';
+        final grant = entry.value;
+        if (grant is! Map) {
+          continue;
+        }
+        final coins = _intValue(grant['coins']);
+        if (coins == null || coins <= 0) {
+          continue;
+        }
+        totalCoins += coins;
+        processedGrantIds.add(grantId);
+      }
+
+      if (totalCoins <= 0 || processedGrantIds.isEmpty) {
+        return false;
+      }
+
+      _coins += totalCoins;
+      await _saveEconomy();
+      await grantsRef.update({
+        for (final grantId in processedGrantIds) grantId: null,
+      });
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -609,12 +713,15 @@ class PlayerDataManager {
     final hasSpecialDailyMission =
         missionIds.any(MissionCatalog.isRewardedAdMissionId) ||
             missionIds.any(MissionCatalog.isLoginRewardMissionId);
+    final hasRequiredEndlessMission =
+        missionIds.contains(MissionCatalog.requiredEndlessMissionId);
     final hasTemporarilyDisabledMissions =
         missionIds.any(MissionCatalog.isTemporarilyDisabledMissionId);
 
     if (_lastDailyReset != today ||
         _currentMissions.length != 4 ||
         !hasSpecialDailyMission ||
+        !hasRequiredEndlessMission ||
         hasTemporarilyDisabledMissions ||
         _dailyShopItems.length != 3) {
       _lastDailyReset = today;
@@ -797,12 +904,14 @@ class PlayerDataManager {
     }
     await _savePublicProfile();
     await _saveStats();
+    _syncRecordSummaryInBackground(force: true);
   }
 
   Future<void> setEquippedBadgeIds(List<String> badgeIds) async {
     await load();
     final unlocked = unlockedBadgeIds.toSet();
     _equippedBadgeIds = badgeIds
+        .where((id) => !SeasonRankBadge.isSeasonRankBadgeId(id))
         .map((id) => BadgeCatalog.evolvedBadgeIdFor(id, unlocked))
         .where((id) => unlocked.contains(id))
         .toSet()
@@ -811,15 +920,22 @@ class PlayerDataManager {
     await _savePublicProfile();
   }
 
+  Future<void> setEquippedStampIds(List<String> stampIds) async {
+    await load();
+    final ownedStampIds = _ownedItems
+        .where((item) => item.isStamp)
+        .map((item) => item.id)
+        .toSet();
+    _equippedStampIds =
+        stampIds.where(ownedStampIds.contains).toSet().take(6).toList();
+    await _saveEquippedStamps();
+  }
+
   Future<void> setSeasonRankBadges(List<SeasonRankBadge> badges) async {
     await load();
-    final deduped = <String, SeasonRankBadge>{
-      for (final badge in badges.where((badge) => badge.rank > 0))
-        badge.id: badge,
-    };
-    _seasonRankBadges = deduped.values.toList()
-      ..sort((a, b) => b.seasonId.compareTo(a.seasonId));
+    _seasonRankBadges = [];
     _equippedBadgeIds = _equippedBadgeIds
+        .where((id) => !SeasonRankBadge.isSeasonRankBadgeId(id))
         .map((id) => BadgeCatalog.evolvedBadgeIdFor(
               id,
               unlockedBadgeIds.toSet(),
@@ -896,6 +1012,7 @@ class PlayerDataManager {
     _rankedCurrentWinStreak = 0;
     _rankedMaxWinStreak = 0;
     _bestRankedRank = 0;
+    _dailyWinRankPlacements = {};
     _arenaPerfectClearCount = 0;
     _wazaCounts = {
       'straight': 0,
@@ -917,6 +1034,8 @@ class PlayerDataManager {
     required String mode,
     required String opponentName,
     required Map<String, int> wazaCounts,
+    String opponentUid = '',
+    String opponentPublicId = '',
     int clearedBalls = 0,
     int normalClearedBalls = 0,
     int maxChain = 0,
@@ -938,7 +1057,8 @@ class PlayerDataManager {
     _maxChain = max(_maxChain, maxChain);
     _totalChain += max(0, maxChain);
     if (mode == 'SOLO' && score != null) {
-      _highestEndlessScore = max(_highestEndlessScore, score);
+      _highestEndlessScore =
+          max(_highestEndlessScore, score.clamp(0, maxEndlessScore).toInt());
     }
     if (mode == 'RANKED') {
       if (isWin) {
@@ -976,6 +1096,8 @@ class PlayerDataManager {
         opponentName: opponentName.trim().isEmpty ? 'UNKNOWN' : opponentName,
         mode: mode,
         playedAt: DateTime.now(),
+        opponentUid: opponentUid.trim(),
+        opponentPublicId: opponentPublicId.trim(),
         isForfeitWin: isForfeitWin,
         wazaCounts: Map<String, int>.from(wazaCounts),
         clearedBalls: max(0, clearedBalls),
@@ -991,6 +1113,9 @@ class PlayerDataManager {
     _trimMatchHistory();
     await _savePublicProfile();
     await _saveStats();
+    if (ratingAfter != null) {
+      _syncRecordSummaryInBackground(force: true);
+    }
   }
 
   Future<void> updateLatestRankedHistory({
@@ -1008,6 +1133,8 @@ class PlayerDataManager {
       opponentName: target.opponentName,
       mode: target.mode,
       playedAt: target.playedAt,
+      opponentUid: target.opponentUid,
+      opponentPublicId: target.opponentPublicId,
       isForfeitWin: target.isForfeitWin,
       wazaCounts: target.wazaCounts,
       clearedBalls: target.clearedBalls,
@@ -1025,6 +1152,7 @@ class PlayerDataManager {
     }
     await _savePublicProfile();
     await _saveStats();
+    _syncRecordSummaryInBackground(force: true);
   }
 
   void _trimMatchHistory() {
@@ -1045,6 +1173,25 @@ class PlayerDataManager {
       return;
     }
     _bestRankedRank = rank;
+    await _saveStats();
+  }
+
+  Future<void> recordDailyWinRankingPlacement({
+    required int rank,
+    required int wins,
+  }) async {
+    await load();
+    if (rank <= 0 || wins <= 0) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final placementKey = '${_todayKey()}|$rank|$wins';
+    if (prefs.getString(_dailyWinRankPlacementLastKey) == placementKey) {
+      return;
+    }
+    final key = '$rank位';
+    _dailyWinRankPlacements[key] = (_dailyWinRankPlacements[key] ?? 0) + 1;
+    await prefs.setString(_dailyWinRankPlacementLastKey, placementKey);
     await _saveStats();
   }
 
@@ -1104,6 +1251,7 @@ class PlayerDataManager {
 
   Future<void> syncRecordSummary({bool force = false}) async {
     await load();
+    await AppSettings.instance.load();
     final uid = await AuthManager.instance.ensureSignedIn();
     final prefs = await SharedPreferences.getInstance();
     final summary = _recordSummaryPayload(uid);
@@ -1202,6 +1350,11 @@ class PlayerDataManager {
     _syncRecordSummaryInBackground();
   }
 
+  Future<void> _saveEquippedStamps() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_equippedStampIdsKey, jsonEncode(_equippedStampIds));
+  }
+
   Future<void> _saveSeasonRankBadges() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
@@ -1236,11 +1389,18 @@ class PlayerDataManager {
     await prefs.setInt(_totalNormalClearedBallsKey, _totalNormalClearedBalls);
     await prefs.setInt(_maxChainKey, _maxChain);
     await prefs.setInt(_totalChainKey, _totalChain);
-    await prefs.setInt(_highestEndlessScoreKey, _highestEndlessScore);
+    await prefs.setInt(
+      _highestEndlessScoreKey,
+      _highestEndlessScore.clamp(0, maxEndlessScore).toInt(),
+    );
     await prefs.setInt(_rankedWinsKey, _rankedWins);
     await prefs.setInt(_rankedCurrentWinStreakKey, _rankedCurrentWinStreak);
     await prefs.setInt(_rankedMaxWinStreakKey, _rankedMaxWinStreak);
     await prefs.setInt(_bestRankedRankKey, _bestRankedRank);
+    await prefs.setString(
+      _dailyWinRankPlacementsKey,
+      jsonEncode(_dailyWinRankPlacements),
+    );
     await prefs.setString(_rankedSeasonIdKey, _rankedSeasonId);
     await prefs.setInt(_seasonRankedWinsKey, _seasonRankedWins);
     await prefs.setInt(_seasonRankedLossesKey, _seasonRankedLosses);
@@ -1337,13 +1497,19 @@ class PlayerDataManager {
     final rewardedMission = activeDailyPool.firstWhere(
       (mission) => mission.id == MissionCatalog.rewardedAdMissionIds.first,
     );
+    final endlessMission = activeDailyPool.firstWhere(
+      (mission) => mission.id == MissionCatalog.requiredEndlessMissionId,
+    );
     final pool = activeDailyPool
-        .where((mission) => !MissionCatalog.isRewardedAdMissionId(mission.id))
+        .where((mission) =>
+            !MissionCatalog.isRewardedAdMissionId(mission.id) &&
+            mission.id != MissionCatalog.requiredEndlessMissionId)
         .toList()
       ..shuffle(_random);
     return [
       rewardedMission.toMissionMap(),
-      ...pool.take(3).map((mission) => mission.toMissionMap()),
+      endlessMission.toMissionMap(),
+      ...pool.take(2).map((mission) => mission.toMissionMap()),
     ];
   }
 
@@ -1383,6 +1549,14 @@ class PlayerDataManager {
       if (filteredItems.length != _ownedItems.length) {
         _ownedItems = filteredItems;
         changed = true;
+      }
+    }
+    if (revision < 4) {
+      for (final stamp in GameItemCatalog.defaultStamps) {
+        if (_ownedItems.every((item) => item.id != stamp.id)) {
+          _ownedItems.add(stamp.copyWith(level: 1));
+          changed = true;
+        }
       }
     }
     final allowedItemIds =
@@ -1478,7 +1652,8 @@ class PlayerDataManager {
     _todayNormalClearedBalls += max(0, normalClearedBalls);
     _todayMaxChain = max(_todayMaxChain, maxChain);
     if (mode == 'SOLO' && score != null) {
-      _todayHighestEndlessScore = max(_todayHighestEndlessScore, score);
+      _todayHighestEndlessScore = max(
+          _todayHighestEndlessScore, score.clamp(0, maxEndlessScore).toInt());
     }
     _todayModePlayCounts[mode] = (_todayModePlayCounts[mode] ?? 0) + 1;
     for (final entry in wazaCounts.entries) {
@@ -1537,6 +1712,7 @@ class PlayerDataManager {
         'nextLevelRequiredExp': nextLevelRequiredExp,
         'gachaTickets': _gachaTickets,
         'cyberScrap': _cyberScrap,
+        'adsRemoved': AppSettings.instance.adsRemoved.value,
       },
       'collection': {
         'ownedItemCount': ownedItems.length,
@@ -1563,11 +1739,19 @@ class PlayerDataManager {
       },
       'ranked': {
         'wins': _rankedWins,
+        'losses': max(0, (_modePlayCounts['RANKED'] ?? 0) - _rankedWins),
+        'matches': _modePlayCounts['RANKED'] ?? 0,
+        'seasonId': _rankedSeasonId,
+        'seasonWins': _seasonRankedWins,
+        'seasonLosses': _seasonRankedLosses,
+        'seasonMatches': _seasonRankedWins + _seasonRankedLosses,
         'currentRating': _currentRating,
         'highestRating': _highestRating,
         'currentWinStreak': _rankedCurrentWinStreak,
         'maxWinStreak': _rankedMaxWinStreak,
         'bestRankedRank': _bestRankedRank,
+        'dailyWinRankPlacements':
+            Map<String, int>.from(_dailyWinRankPlacements),
       },
       'arena': {
         'maxWins': _maxArenaWins,
@@ -1578,8 +1762,14 @@ class PlayerDataManager {
         'playCount': _modePlayCounts['SOLO'] ?? 0,
         'highestScore': _highestEndlessScore,
       },
+      'cpu': _cpuStatsPayload(),
+      'friend': {
+        'matches': _modePlayCounts['FRIEND'] ?? 0,
+      },
       'wazaCounts': Map<String, int>.from(_wazaCounts),
       'modePlayCounts': Map<String, int>.from(_modePlayCounts),
+      'matchHistory':
+          _matchHistory.take(30).map((entry) => entry.toJson()).toList(),
       'today': {
         'date': _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate,
         'totalMatches': _todayTotalMatches,
@@ -1605,11 +1795,34 @@ class PlayerDataManager {
     };
   }
 
+  Map<String, dynamic> _cpuStatsPayload() {
+    final buckets = <String, Map<String, int>>{};
+    for (final entry in _matchHistory.where((entry) => entry.mode == 'CPU')) {
+      final key = entry.opponentName.trim().isEmpty
+          ? 'UNKNOWN'
+          : entry.opponentName.trim();
+      final bucket = buckets.putIfAbsent(
+        key,
+        () => {'matches': 0, 'wins': 0, 'losses': 0},
+      );
+      bucket['matches'] = (bucket['matches'] ?? 0) + 1;
+      if (entry.isWin) {
+        bucket['wins'] = (bucket['wins'] ?? 0) + 1;
+      } else {
+        bucket['losses'] = (bucket['losses'] ?? 0) + 1;
+      }
+    }
+    return {
+      'matches': _modePlayCounts['CPU'] ?? 0,
+      'byDifficulty': buckets,
+    };
+  }
+
   String _formatDateTimeForDatabase(DateTime value) {
     final local = value.toLocal();
-    return '${local.year.toString().padLeft(4, '0')}/'
-        '${local.month.toString().padLeft(2, '0')}/'
-        '${local.day.toString().padLeft(2, '0')}/'
+    return '${local.year.toString().padLeft(4, '0')}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')} '
         '${local.hour.toString().padLeft(2, '0')}:'
         '${local.minute.toString().padLeft(2, '0')}:'
         '${local.second.toString().padLeft(2, '0')}';
@@ -1813,6 +2026,18 @@ class PlayerDataManager {
       return value.toInt();
     }
     return int.tryParse('$value');
+  }
+
+  bool _stringListsEqual(List<String> a, List<String> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   bool _ownsEquippableItem(String id, ItemType type) {

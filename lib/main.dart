@@ -18,22 +18,22 @@ import 'firebase_options_dev.dart' as firebase_dev;
 import 'firebase_options_prod.dart' as firebase_prod;
 import 'network/multiplayer_manager.dart';
 import 'network/ranking_manager.dart';
+import 'network/realtime_connection_guard.dart';
 import 'purchases/ad_removal_purchase_manager.dart';
 import 'ui/game_screen.dart';
 import 'ui/home_screen.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    debugPrint('Flutter error during app runtime: ${details.exception}');
-    if (details.stack != null) {
-      debugPrintStack(stackTrace: details.stack);
-    }
-  };
-
   runZonedGuarded(
     () {
+      WidgetsFlutterBinding.ensureInitialized();
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        debugPrint('Flutter error during app runtime: ${details.exception}');
+        if (details.stack != null) {
+          debugPrintStack(stackTrace: details.stack);
+        }
+      };
       unawaited(
         SystemChrome.setPreferredOrientations([
           DeviceOrientation.portraitUp,
@@ -141,13 +141,11 @@ Future<void> _configureSharedGameAudio() async {
         android: const AudioContextAndroid(
           contentType: AndroidContentType.music,
           usageType: AndroidUsageType.game,
-          audioFocus: AndroidAudioFocus.none,
+          audioFocus: AndroidAudioFocus.gain,
         ),
         iOS: AudioContextIOS(
           category: AVAudioSessionCategory.playback,
-          options: const {
-            AVAudioSessionOptions.mixWithOthers,
-          },
+          options: const {},
         ),
       ),
     );
@@ -254,6 +252,11 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       return;
     }
 
+    await _waitForRealtimeDatabaseConnection();
+    if (!mounted) {
+      return;
+    }
+
     final updateRequirement = await AppUpdateManager.checkRequirement();
     if (!mounted) {
       return;
@@ -345,6 +348,18 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _waitForRealtimeDatabaseConnection() async {
+    while (mounted) {
+      final connected = await RealtimeConnectionGuard.waitForConnected(
+        timeout: const Duration(seconds: 5),
+      );
+      if (connected) {
+        return;
+      }
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
   }
 
   Future<String> _showStartupNameRegistrationDialog({
@@ -608,7 +623,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(34),
                               child: Image.asset(
-                                'assets/images/loading_icon_neon_hex.png',
+                                'assets/images/Hexagon_icon02_1024x1024.png',
                                 width: 184,
                                 height: 184,
                                 fit: BoxFit.cover,

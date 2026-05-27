@@ -34,6 +34,7 @@ class MissionCatalog {
 
   static const List<String> rewardedAdMissionIds = ['watch_rewarded_ad_1'];
   static const List<String> loginRewardMissionIds = ['login_bonus_1'];
+  static const String requiredEndlessMissionId = 'score_endless_10000';
   static const List<String> temporarilyDisabledMissionIds = [
     'win_arena_match_1',
   ];

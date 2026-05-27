@@ -38,6 +38,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = "ヘキサゴン"
         manifestPlaceholders["admobApplicationId"] =
             "ca-app-pub-5703232072169520~5205962936"
     }

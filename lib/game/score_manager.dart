@@ -14,6 +14,8 @@ class ScoreState {
 }
 
 class ScoreManager {
+  static const int maxEndlessScore = 99999999;
+
   final ValueNotifier<ScoreState> state = ValueNotifier(ScoreState(
     score: 0,
     level: 1,
@@ -50,7 +52,7 @@ class ScoreManager {
     _chain = chain is num ? chain.toInt() : 0;
     _maxChain = maxChain is num ? maxChain.toInt() : 0;
     state.value = ScoreState(
-      score: score is num ? score.toInt() : 0,
+      score: score is num ? score.toInt().clamp(0, maxEndlessScore).toInt() : 0,
       level: level is num ? level.toInt() : 1,
       totalClearedBalls:
           totalClearedBalls is num ? totalClearedBalls.toInt() : 0,
@@ -93,7 +95,8 @@ class ScoreManager {
     int newLevel = 1 + (newTotalCleared ~/ 60);
 
     state.value = ScoreState(
-      score: state.value.score + earnedScore,
+      score:
+          (state.value.score + earnedScore).clamp(0, maxEndlessScore).toInt(),
       level: newLevel,
       totalClearedBalls: newTotalCleared,
     );

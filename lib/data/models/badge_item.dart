@@ -240,15 +240,6 @@ class BadgeCatalog {
           threshold: year,
         ),
       ),
-    const BadgeItem(
-      id: 'rank_top_100',
-      label: 'ランク戦TOP100',
-      icon: Icons.leaderboard,
-      unlockedCondition: BadgeUnlockCondition(
-        type: BadgeUnlockType.bestRankedRank,
-        threshold: 100,
-      ),
-    ),
   ];
 
   static List<BadgeItem> _leveledBadges({

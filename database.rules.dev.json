@@ -24,7 +24,7 @@
       "global": {
         ".read": true,
         ".write": true,
-        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"]
+        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"]
       }
     },
     "rankedSeasons": {
@@ -33,7 +33,7 @@
       "seasons": {
         "$seasonId": {
           "rankings": {
-            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"]
+            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"]
           }
         }
       }
@@ -46,7 +46,20 @@
       ".read": true,
       ".write": true
     },
+    "realtimeGameActivity": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["mode", "updatedAt", "enteredAt"]
+    },
     "appConfig": {
+      ".read": true,
+      ".write": true
+    },
+    "adminStats": {
+      ".read": true,
+      ".write": true
+    },
+    "adminGrants": {
       ".read": true,
       ".write": true
     },

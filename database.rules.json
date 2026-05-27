@@ -31,7 +31,7 @@
     "rankings": {
       "global": {
         ".read": "auth != null",
-        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"],
+        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"],
         "$uid": {
           ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('publicId').exists() && data.child('publicId').val() === root.child('rankings/global/' + auth.uid + '/publicId').val()))"
         }
@@ -45,7 +45,7 @@
       "seasons": {
         "$seasonId": {
           "rankings": {
-            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "highestEndlessScore"],
+            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"],
             "$uid": {
               ".write": "auth != null && auth.uid === $uid"
             }
@@ -74,9 +74,28 @@
         ".write": "auth != null && auth.uid === $uid"
       }
     },
+    "realtimeGameActivity": {
+      ".read": "auth != null",
+      ".indexOn": ["mode", "updatedAt", "enteredAt"],
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
     "appConfig": {
       ".read": true,
       ".write": false
+    },
+    "adminStats": {
+      ".read": false,
+      ".write": false
+    },
+    "adminGrants": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$grantId": {
+          ".write": "auth != null && auth.uid === $uid && !newData.exists()"
+        }
+      }
     },
     "playerRecordSummaries": {
       ".read": "auth != null",

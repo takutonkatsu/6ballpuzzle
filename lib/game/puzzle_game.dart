@@ -162,6 +162,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   int? _lastGhostRotation;
   bool _hasRemoteOjamaInFlight = false;
   DateTime? _remoteOjamaSpawnedAt;
+  int _spectatorBoardEffectVersion = 0;
+  bool _isApplyingRemoteHardDrop = false;
+  Map<HexCoordinate, BallColor>? _pendingSpectatorBoardState;
   async.Timer? _deferredRemoteBoardTimer;
   Map<String, dynamic>? _deferredRemoteBoardState;
   static const Duration _minimumRemoteOjamaVisibleDuration =
@@ -1527,6 +1530,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
           if (isGameOver) {
             onDeathLineCrossed?.call();
+            if (isRemotePlayerMode) {
+              return;
+            }
             gameOver();
             return;
           }
@@ -1558,6 +1564,15 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         syncDropRng = null;
       }
       _isProcessingGravity = false;
+      if (isRemotePlayerMode && !_isApplyingRemoteHardDrop) {
+        final pendingBoard = _pendingSpectatorBoardState;
+        _pendingSpectatorBoardState = null;
+        if (pendingBoard != null &&
+            gameStateWrapper.value == GameState.playing) {
+          _spectatorBoardEffectVersion++;
+          _mergeRemoteBoardState(pendingBoard);
+        }
+      }
       if (stopwatch != null) {
         PerfMonitor.logDuration('board.process', stopwatch, warnMs: 20);
       }
@@ -1569,15 +1584,112 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       return;
     }
 
-    final preserveAutonomousPreviewPiece =
-        isRemotePlayerMode && _autonomousRemotePreviewEnabled;
-    _clearLockedBalls();
-    _clearHints();
-    if (!preserveAutonomousPreviewPiece) {
-      clearRemoteActivePiece();
-    }
-    _clearActiveOjamaBlocks();
+    _spectatorBoardEffectVersion++;
+    _replaceRemoteBoardState(_parseRemoteBoardState(boardData));
+  }
 
+  void applyRemoteBoardStateWithSpectatorEffects(
+    Map<String, dynamic> boardData,
+  ) {
+    if (_shouldDeferRemoteBoardState(boardData)) {
+      return;
+    }
+
+    final nextBoard = _parseRemoteBoardState(boardData);
+    if (_isApplyingRemoteHardDrop ||
+        _isProcessingGravity ||
+        activePiece != null) {
+      _pendingSpectatorBoardState = nextBoard;
+      return;
+    }
+    if (grid.lockedBalls.isEmpty) {
+      _spectatorBoardEffectVersion++;
+      _replaceRemoteBoardState(nextBoard);
+      return;
+    }
+
+    final removedHexes = <HexCoordinate>{};
+    for (final entry in grid.lockedBalls.entries) {
+      if (nextBoard[entry.key] != entry.value.ballColor) {
+        removedHexes.add(entry.key);
+      }
+    }
+
+    if (removedHexes.isEmpty) {
+      _spectatorBoardEffectVersion++;
+      _mergeRemoteBoardState(nextBoard);
+      return;
+    }
+
+    final matchResults = grid
+        .findMatchesAndWazas()
+        .where((result) => result.targets.any(removedHexes.contains))
+        .toList();
+    final version = ++_spectatorBoardEffectVersion;
+    unawaited(_applySpectatorBoardTransition(
+      nextBoard: nextBoard,
+      removedHexes: removedHexes,
+      matchResults: matchResults,
+      version: version,
+    ));
+  }
+
+  Future<void> _applySpectatorBoardTransition({
+    required Map<HexCoordinate, BallColor> nextBoard,
+    required Set<HexCoordinate> removedHexes,
+    required List<MatchResult> matchResults,
+    required int version,
+  }) async {
+    _clearHints();
+    for (final matchResult in matchResults) {
+      if (version != _spectatorBoardEffectVersion) {
+        return;
+      }
+      if (matchResult.highestWaza != WazaType.none &&
+          matchResult.wazaPattern.isNotEmpty) {
+        if (onWazaFired != null) {
+          onWazaFired!(matchResult.highestWaza, matchResult.wazaColor);
+        }
+        await _playWazaAnimation(matchResult);
+      }
+    }
+
+    if (version != _spectatorBoardEffectVersion) {
+      return;
+    }
+    if (_playsBoardSfx) {
+      _playSfx(_clearSfx, volume: 1.0);
+    }
+    for (final hex in removedHexes) {
+      final comp = grid.lockedBalls.remove(hex);
+      if (comp == null) {
+        continue;
+      }
+      add(BallPopRingEffect(
+        position: comp.position.clone(),
+        ringColor: comp.ballColor.glowColor,
+      ));
+      comp.add(ScaleEffect.to(
+        Vector2.zero(),
+        EffectController(duration: 0.15),
+      ));
+      async.Future.delayed(const Duration(milliseconds: 160), () {
+        if (comp.parent != null) {
+          comp.removeFromParent();
+        }
+      });
+    }
+
+    await async.Future.delayed(const Duration(milliseconds: 220));
+    if (version == _spectatorBoardEffectVersion) {
+      _mergeRemoteBoardState(nextBoard);
+    }
+  }
+
+  Map<HexCoordinate, BallColor> _parseRemoteBoardState(
+    Map<String, dynamic> boardData,
+  ) {
+    final parsed = <HexCoordinate, BallColor>{};
     for (final entry in boardData.entries) {
       final key = entry.key.split(',');
       if (key.length != 2) {
@@ -1601,16 +1713,65 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         continue;
       }
 
-      final hex = HexCoordinate(col, row);
+      parsed[HexCoordinate(col, row)] = BallColor.values[colorIndex];
+    }
+    return parsed;
+  }
+
+  void _replaceRemoteBoardState(Map<HexCoordinate, BallColor> boardData) {
+    final preserveAutonomousPreviewPiece =
+        isRemotePlayerMode && _autonomousRemotePreviewEnabled;
+    _clearLockedBalls();
+    _clearHints();
+    if (!preserveAutonomousPreviewPiece) {
+      clearRemoteActivePiece();
+    }
+    _clearActiveOjamaBlocks();
+
+    for (final entry in boardData.entries) {
       final ball = BallComponent(
-        position: grid.hexToPixel(hex),
+        position: grid.hexToPixel(entry.key),
         radius: 15.0,
-        ballColor: BallColor.values[colorIndex],
+        ballColor: entry.value,
       );
       add(ball);
-      grid.lockedBalls[hex] = ball;
+      grid.lockedBalls[entry.key] = ball;
     }
     _markBoardChanged();
+
+    _updateHints();
+  }
+
+  void _mergeRemoteBoardState(Map<HexCoordinate, BallColor> boardData) {
+    _clearHints();
+    _clearActiveOjamaBlocks();
+
+    for (final entry in grid.lockedBalls.entries.toList()) {
+      final color = boardData[entry.key];
+      if (color == entry.value.ballColor) {
+        entry.value.lockTo(grid.hexToPixel(entry.key));
+        continue;
+      }
+      if (entry.value.parent != null) {
+        entry.value.removeFromParent();
+      }
+      grid.lockedBalls.remove(entry.key);
+      _markBoardChanged();
+    }
+
+    for (final entry in boardData.entries) {
+      if (grid.lockedBalls.containsKey(entry.key)) {
+        continue;
+      }
+      final ball = BallComponent(
+        position: grid.hexToPixel(entry.key),
+        radius: 15.0,
+        ballColor: entry.value,
+      );
+      add(ball);
+      grid.lockedBalls[entry.key] = ball;
+      _markBoardChanged();
+    }
 
     _updateHints();
   }
@@ -2510,6 +2671,75 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       }
       _triggerHapticFeedback(HapticFeedback.mediumImpact);
       _notifyActivePieceState(force: true, action: 'hard_drop');
+    }
+  }
+
+  Future<void> applyRemoteHardDrop({
+    double? x,
+    double? y,
+    int? rotation,
+  }) async {
+    if (!isRemotePlayerMode || activePiece == null || activePiece!.isLocked) {
+      return;
+    }
+
+    _isApplyingRemoteHardDrop = true;
+    _pendingSpectatorBoardState = null;
+    _spectatorBoardEffectVersion++;
+    final piece = activePiece!;
+    try {
+      if (rotation != null) {
+        piece.setRotationIndex(rotation, animate: false);
+        ghostPiece?.setRotationIndex(rotation, animate: false);
+      }
+      if (x != null && y != null) {
+        piece.position = Vector2(x, y);
+      } else if (ghostPiece != null) {
+        piece.position = ghostPiece!.position.clone()..y += 5.0;
+      }
+
+      final dropPositions = piece.absoluteBallPositions;
+      final pieceColors = piece.colors.toList(growable: false);
+      for (var i = 0; i < dropPositions.length && i < pieceColors.length; i++) {
+        add(
+          SparkEffect(
+            position: dropPositions[i].clone(),
+            sparkColor: pieceColors[i].glowColor,
+          ),
+        );
+      }
+
+      if (_playsBoardSfx) {
+        _playSfx(_hardDropSfx, volume: 0.85);
+      }
+
+      isMovingLeft = false;
+      isMovingRight = false;
+      _forceLockNextActivePieceContact = false;
+      _activePieceWasSupportedByContact = false;
+      _activePieceContactSlideDirection = 0.0;
+      _remoteTopContactSlideDirection = null;
+      _wallBlockedSlideTime = 0.0;
+      _suppressNextLandingSfx = true;
+
+      if (activePiece?.parent != null) {
+        activePiece!.removeFromParent();
+      }
+      if (ghostPiece?.parent != null) {
+        ghostPiece!.removeFromParent();
+      }
+      activePiece = null;
+      ghostPiece = null;
+
+      await _executeLogicDrop(dropPositions, pieceColors);
+    } finally {
+      _isApplyingRemoteHardDrop = false;
+      final pendingBoard = _pendingSpectatorBoardState;
+      _pendingSpectatorBoardState = null;
+      if (pendingBoard != null && gameStateWrapper.value == GameState.playing) {
+        _spectatorBoardEffectVersion++;
+        _mergeRemoteBoardState(pendingBoard);
+      }
     }
   }
 
