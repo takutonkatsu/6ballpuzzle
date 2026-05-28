@@ -162,7 +162,6 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   int? _lastGhostRotation;
   bool _hasRemoteOjamaInFlight = false;
   DateTime? _remoteOjamaSpawnedAt;
-  int _spectatorBoardEffectVersion = 0;
   bool _isApplyingRemoteHardDrop = false;
   Map<HexCoordinate, BallColor>? _pendingSpectatorBoardState;
   async.Timer? _deferredRemoteBoardTimer;
@@ -1569,7 +1568,6 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         _pendingSpectatorBoardState = null;
         if (pendingBoard != null &&
             gameStateWrapper.value == GameState.playing) {
-          _spectatorBoardEffectVersion++;
           _mergeRemoteBoardState(pendingBoard);
         }
       }
@@ -1584,106 +1582,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       return;
     }
 
-    _spectatorBoardEffectVersion++;
     _replaceRemoteBoardState(_parseRemoteBoardState(boardData));
   }
 
   void applyRemoteBoardStateWithSpectatorEffects(
     Map<String, dynamic> boardData,
   ) {
-    if (_shouldDeferRemoteBoardState(boardData)) {
-      return;
-    }
-
-    final nextBoard = _parseRemoteBoardState(boardData);
-    if (_isApplyingRemoteHardDrop ||
-        _isProcessingGravity ||
-        activePiece != null) {
-      _pendingSpectatorBoardState = nextBoard;
-      return;
-    }
-    if (grid.lockedBalls.isEmpty) {
-      _spectatorBoardEffectVersion++;
-      _replaceRemoteBoardState(nextBoard);
-      return;
-    }
-
-    final removedHexes = <HexCoordinate>{};
-    for (final entry in grid.lockedBalls.entries) {
-      if (nextBoard[entry.key] != entry.value.ballColor) {
-        removedHexes.add(entry.key);
-      }
-    }
-
-    if (removedHexes.isEmpty) {
-      _spectatorBoardEffectVersion++;
-      _mergeRemoteBoardState(nextBoard);
-      return;
-    }
-
-    final matchResults = grid
-        .findMatchesAndWazas()
-        .where((result) => result.targets.any(removedHexes.contains))
-        .toList();
-    final version = ++_spectatorBoardEffectVersion;
-    unawaited(_applySpectatorBoardTransition(
-      nextBoard: nextBoard,
-      removedHexes: removedHexes,
-      matchResults: matchResults,
-      version: version,
-    ));
-  }
-
-  Future<void> _applySpectatorBoardTransition({
-    required Map<HexCoordinate, BallColor> nextBoard,
-    required Set<HexCoordinate> removedHexes,
-    required List<MatchResult> matchResults,
-    required int version,
-  }) async {
-    _clearHints();
-    for (final matchResult in matchResults) {
-      if (version != _spectatorBoardEffectVersion) {
-        return;
-      }
-      if (matchResult.highestWaza != WazaType.none &&
-          matchResult.wazaPattern.isNotEmpty) {
-        if (onWazaFired != null) {
-          onWazaFired!(matchResult.highestWaza, matchResult.wazaColor);
-        }
-        await _playWazaAnimation(matchResult);
-      }
-    }
-
-    if (version != _spectatorBoardEffectVersion) {
-      return;
-    }
-    if (_playsBoardSfx) {
-      _playSfx(_clearSfx, volume: 1.0);
-    }
-    for (final hex in removedHexes) {
-      final comp = grid.lockedBalls.remove(hex);
-      if (comp == null) {
-        continue;
-      }
-      add(BallPopRingEffect(
-        position: comp.position.clone(),
-        ringColor: comp.ballColor.glowColor,
-      ));
-      comp.add(ScaleEffect.to(
-        Vector2.zero(),
-        EffectController(duration: 0.15),
-      ));
-      async.Future.delayed(const Duration(milliseconds: 160), () {
-        if (comp.parent != null) {
-          comp.removeFromParent();
-        }
-      });
-    }
-
-    await async.Future.delayed(const Duration(milliseconds: 220));
-    if (version == _spectatorBoardEffectVersion) {
-      _mergeRemoteBoardState(nextBoard);
-    }
+    applyRemoteBoardState(boardData);
   }
 
   Map<HexCoordinate, BallColor> _parseRemoteBoardState(
@@ -1721,9 +1626,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void _replaceRemoteBoardState(Map<HexCoordinate, BallColor> boardData) {
     final preserveAutonomousPreviewPiece =
         isRemotePlayerMode && _autonomousRemotePreviewEnabled;
+    final preserveRemoteActivePiece = isRemotePlayerMode && activePiece != null;
     _clearLockedBalls();
     _clearHints();
-    if (!preserveAutonomousPreviewPiece) {
+    if (!preserveAutonomousPreviewPiece && !preserveRemoteActivePiece) {
       clearRemoteActivePiece();
     }
     _clearActiveOjamaBlocks();
@@ -2685,7 +2591,6 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
     _isApplyingRemoteHardDrop = true;
     _pendingSpectatorBoardState = null;
-    _spectatorBoardEffectVersion++;
     final piece = activePiece!;
     try {
       if (rotation != null) {
@@ -2737,7 +2642,6 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final pendingBoard = _pendingSpectatorBoardState;
       _pendingSpectatorBoardState = null;
       if (pendingBoard != null && gameStateWrapper.value == GameState.playing) {
-        _spectatorBoardEffectVersion++;
         _mergeRemoteBoardState(pendingBoard);
       }
     }

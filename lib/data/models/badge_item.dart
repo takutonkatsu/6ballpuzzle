@@ -77,7 +77,7 @@ class BadgeUnlockCondition {
       'straight' => 'ストレート',
       'pyramid' => 'ピラミッド',
       'hexagon' => 'ヘキサゴン',
-      _ => 'ワザ',
+      _ => 'フォーメーション',
     };
   }
 }
@@ -101,9 +101,9 @@ class BadgeItem {
 
   Color get frameColor {
     return switch (level) {
-      1 => Colors.white,
+      1 => const Color(0xFF8A7A62),
       2 => const Color(0xFFCD7F32),
-      3 => const Color(0xFFC0C0C0),
+      3 => const Color(0xFFDDE6F0),
       4 => const Color(0xFFFFD54F),
       5 => const Color(0xFFB56CFF),
       _ => Colors.amberAccent,
@@ -115,6 +115,7 @@ class SeasonRankBadge {
   const SeasonRankBadge({
     required this.seasonId,
     required this.rank,
+    this.rating,
   });
 
   static final RegExp _idPattern =
@@ -122,15 +123,18 @@ class SeasonRankBadge {
 
   final String seasonId;
   final int rank;
+  final int? rating;
 
   String get id => idFor(seasonId: seasonId, rank: rank);
   String get label => 'ランク戦 $rank位';
   String get detailLabel => '$rank位　${_seasonName(seasonId)}';
+  String get seasonName => _seasonName(seasonId);
 
   Map<String, dynamic> toJson() {
     return {
       'seasonId': seasonId,
       'rank': rank,
+      if (rating != null) 'rating': rating,
     };
   }
 
@@ -138,6 +142,7 @@ class SeasonRankBadge {
     return SeasonRankBadge(
       seasonId: json['seasonId']?.toString() ?? '',
       rank: _intValue(json['rank']) ?? 0,
+      rating: _intValue(json['rating']),
     );
   }
 

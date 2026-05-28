@@ -209,6 +209,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   bool get _showsOpponentBoard =>
       widget.isCpuMode || _isOnlineMode || _isTutorialStep3;
+  bool get _usesEndlessBattleLayout =>
+      !widget.isTutorialMode &&
+      !_showsOpponentBoard &&
+      !_isOnlineMode &&
+      !widget.isCpuMode;
   bool get _blocksOnlineExit =>
       _isOnlineMode && _onlineGameStarted && _onlineResultMessage == null;
 
@@ -820,12 +825,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return GameActivityMode.endless;
   }
 
-  void _handleOpponentStampReceived(String stampId) {
+  void _handleOpponentStampReceived(String stampId, int level) {
     if (!mounted) return;
     final stamp = GameItemCatalog.byId(stampId);
     if (stamp != null) {
+      final displayedStamp = stamp.copyWith(level: level.clamp(1, 4));
       setState(() {
-        _opponentFloatingStamp = stamp;
+        _opponentFloatingStamp = displayedStamp;
       });
       _opponentStampTimer?.cancel();
       _opponentStampTimer = Timer(const Duration(seconds: 3), () {
@@ -843,7 +849,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
     AppSfx.playUiTap();
     if (_isOnlineMode) {
-      _sendServerAction(() => _multiplayerManager.sendStamp(stamp.id));
+      _sendServerAction(
+        () => _multiplayerManager.sendStamp(
+          stamp.id,
+          level: stamp.level,
+        ),
+      );
     }
 
     setState(() {
@@ -852,7 +863,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
 
     _stampCooldownTimer?.cancel();
-    _stampCooldownTimer = Timer(const Duration(seconds: 5), () {
+    _stampCooldownTimer = Timer(const Duration(seconds: 3), () {
       if (mounted) {
         setState(() {
           _isStampCoolingDown = false;
@@ -1000,13 +1011,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 _buildGlobalOverlay(),
               if (_rankedBotMatchOverlayVisible) _buildRankedBotMatchOverlay(),
               if (widget.isArenaMode) _buildArenaRecordBadge(),
-              if (!_isOnlineMode && !widget.isTutorialMode && !_isRankedBotMode)
+              if (!_isOnlineMode &&
+                  !widget.isTutorialMode &&
+                  !_isRankedBotMode &&
+                  !_usesEndlessBattleLayout)
                 Positioned(
                   top: 8,
                   left: 8,
                   child: _buildBattleSettingsButton(),
                 ),
-              if (widget.isTutorialMode) _buildTutorialOverlay(),
+              if (widget.isTutorialMode) _buildTutorialSkipOverlay(),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
               if (_currentFloatingStamp != null)
                 Positioned(
@@ -1024,11 +1038,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   child: _buildFloatingStampWidget(
                     _opponentFloatingStamp!,
                     compact: true,
-                    scale: 2 / 3,
                     isOpponent: true,
                   ),
                 ),
-              if (widget.isTutorialMode) _buildTutorialSkipButton(),
             ],
           ),
         ),
@@ -1411,7 +1423,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 ),
                 child: Icon(
                   _playerIconData(iconId),
-                  color: accentColor,
+                  color: Colors.white,
                   size: 22,
                 ),
               ),
@@ -1647,101 +1659,152 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Widget _buildScoreWidget(PuzzleGame game) {
     if (widget.isTutorialMode) {
-      return Container(
-        height: 80,
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF101827),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.55)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.cyanAccent.withValues(alpha: 0.16),
-              blurRadius: 16,
-            ),
-          ],
-        ),
-        child: Center(
-          child: Text(
-            _tutorialMessage,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 15,
-              height: 1.32,
-              fontWeight: FontWeight.w900,
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+        child: _buildTutorialMessageCard(
+          child: SizedBox(
+            height: 58,
+            child: Center(
+              child: Text(
+                _tutorialMessage,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  height: 1.32,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ),
         ),
       );
     }
 
-    return Container(
-      height: 80,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    final useEndlessLayout = _usesEndlessBattleLayout;
+    final scorePanel = Container(
+      margin: EdgeInsets.fromLTRB(
+          useEndlessLayout ? 64 : 16, useEndlessLayout ? 18 : 10, 16, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A2E),
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFF101827).withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.cyanAccent.withValues(alpha: 0.42),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.28),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: ValueListenableBuilder(
         valueListenable: game.scoreManager.state,
         builder: (context, state, child) {
-          return Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                Column(
+          return Row(
+            children: [
+              Container(
+                width: 76,
+                padding: const EdgeInsets.symmetric(vertical: 7),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: Colors.amberAccent.withValues(alpha: 0.42),
+                  ),
+                ),
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Text(
                       'レベル',
                       style: TextStyle(
-                        color: Colors.white54,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                        color: Colors.white60,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
+                    const SizedBox(height: 1),
                     Text(
                       '${state.level}',
                       style: const TextStyle(
                         color: Colors.amberAccent,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0,
                       ),
                     ),
                   ],
                 ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'スコア',
-                      style: TextStyle(
-                        color: Colors.white54,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.20),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: Colors.cyanAccent.withValues(alpha: 0.28),
                     ),
-                    Text(
-                      '${state.score}',
-                      style: const TextStyle(
-                        color: Colors.greenAccent,
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'スコア',
+                        style: TextStyle(
+                          color: Colors.white60,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 1),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '${state.score}',
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: Color(0xFFEAF6FF),
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           );
         },
       ),
+    );
+
+    if (!useEndlessLayout) {
+      return scorePanel;
+    }
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        scorePanel,
+        Positioned(
+          left: 16,
+          top: 30,
+          child: _buildBattleSettingsButton(),
+        ),
+      ],
     );
   }
 
@@ -2152,13 +2215,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            'NEXT',
-            style: TextStyle(
-              color: neonColor,
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              shadows: [Shadow(color: neonColor, blurRadius: 2)],
+          SizedBox(
+            width: ballSize * 2 + 4,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                'ネクスト',
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  color: neonColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  shadows: [Shadow(color: neonColor, blurRadius: 2)],
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -2381,18 +2452,34 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _TutorialResultLine(
-              title: 'ワザのおじゃまボール数',
+              title: '基本ルール',
+              body: '同じ色のボールを6つ以上繋げると消えます。盤面を整えながら、消せる場所を増やしていきましょう。',
+            ),
+            SizedBox(height: 12),
+            _TutorialResultLine(
+              title: 'フォーメーションの種類',
+              body: 'ヘキサゴン：同じ色を六角形に並べる\nピラミッド：同じ色を三角形に並べる\nストレート：同じ色を一直線に並べる',
+            ),
+            SizedBox(height: 12),
+            _TutorialResultLine(
+              title: 'フォーメーションの効果',
+              body:
+                  'フォーメーションを決めると、盤面内にある同じ色のボールがすべて消えます。対戦では、さらに相手に妨害ボールを送れます。',
+            ),
+            SizedBox(height: 12),
+            _TutorialResultLine(
+              title: '妨害ボール数',
               body: 'ヘキサゴン 36個\nピラミッド 24個\nストレート 19個',
             ),
             SizedBox(height: 12),
             _TutorialResultLine(
-              title: 'チュートリアル',
-              body: '設定画面から何度でも見れます',
+              title: '操作パネル',
+              body: '操作パネルの配置は、設定画面から変更できます。',
             ),
             SizedBox(height: 12),
             _TutorialResultLine(
-              title: '無料ガチャ',
-              body: '1日3回まで無料',
+              title: 'チュートリアル',
+              body: 'チュートリアルは、設定画面からいつでも見返せます。',
             ),
           ],
         ),
@@ -2628,8 +2715,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         : widget.isRankedMode
                             ? 'ランク戦が成立しました'
                             : isHost
-                                ? 'フレンドバトルの部屋を作成しました'
-                                : 'フレンドバトルに参加しました',
+                                ? 'フレンド対戦の部屋を作成'
+                                : 'フレンド対戦に参加しました',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 22,
@@ -2777,10 +2864,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                         child: const Text(
-                          'CANCEL',
+                          'キャンセル',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
+                            letterSpacing: 0,
                           ),
                         ),
                       ),
@@ -2902,8 +2989,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final nameColor = isOccupied ? Colors.white : Colors.white54;
     final statusText = isOccupied ? '' : '未参加';
     final hasSubLabel = subLabel != null && subLabel.trim().isNotEmpty;
-    final showBadgesInSubLabelSlot =
-        isOccupied && !hasSubLabel && badgeIds.isNotEmpty;
+    final hasBadges = isOccupied && badgeIds.isNotEmpty;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -2927,7 +3013,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             ),
             child: Icon(
               _playerIconData(playerIconId),
-              color: accentColor,
+              color: Colors.white,
               size: 19,
             ),
           ),
@@ -2942,24 +3028,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   maxFontSize: 16,
                 ),
                 const SizedBox(height: 4),
-                if (showBadgesInSubLabelSlot)
-                  _buildBadgeIconRow(badgeIds)
-                else
-                  SizedBox(
-                    height: 24,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: _buildLobbySubLabelText(
-                        !isOccupied ? '-' : (subLabel ?? '-'),
-                      ),
-                    ),
+                SizedBox(
+                  height: 24,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: hasSubLabel
+                        ? _buildLobbySubLabelText(subLabel)
+                        : hasBadges
+                            ? _buildBadgeIconRow(badgeIds)
+                            : const SizedBox.shrink(),
                   ),
+                ),
               ],
             ),
           ),
-          if (isOccupied &&
-              badgeIds.isNotEmpty &&
-              !showBadgesInSubLabelSlot) ...[
+          if (hasBadges && hasSubLabel) ...[
             const SizedBox(width: 12),
             _buildBadgeIconRow(badgeIds),
           ] else if (statusText.isNotEmpty) ...[
@@ -3641,20 +3724,20 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   String get _tutorialMessage {
     return switch (_tutorialPhase) {
-      _TutorialPhase.step1Move => '6つ以上ボールを繋げよう！',
+      _TutorialPhase.step1Move => '同じ色を6つ以上繋げよう！',
       _TutorialPhase.step1Drop => '盤面をタップしてドロップさせよう！',
       _TutorialPhase.step1Clear => 'ナイス！同じ色が繋がって消えたよ！',
-      _TutorialPhase.step2HintIntro => '次はワザを決めてみよう！\n点線でヒントが表示されているよ',
-      _TutorialPhase.step2Move => '次はワザを決めてみよう！\n点線でヒントが表示されているよ',
+      _TutorialPhase.step2HintIntro => '次はフォーメーションを決めてみよう！\n点線でヒントが表示されているよ',
+      _TutorialPhase.step2Move => '次はフォーメーションを決めてみよう！\n点線でヒントが表示されているよ',
       _TutorialPhase.step2Rotate => 'ヒントに赤色ボールを合わせよう！',
       _TutorialPhase.step2Drop => '盤面をタップしてドロップしてみよう！',
-      _TutorialPhase.step2Clear => 'ピラミッド！ワザで同じ色が全て消えました！',
+      _TutorialPhase.step2Clear => 'ピラミッド！フォーメーションで同じ色が全て消えました！',
       _TutorialPhase.step3Incoming => '対戦相手が現れた！',
-      _TutorialPhase.step3OpponentAttack => '相手がおじゃまボールを送ってきた！',
-      _TutorialPhase.step3Move => 'ワザを決めて、相手に反撃しよう！',
-      _TutorialPhase.step3Rotate => 'ワザを決めて、相手に反撃しよう！',
+      _TutorialPhase.step3OpponentAttack => '相手が妨害ボールを送ってきた！',
+      _TutorialPhase.step3Move => 'フォーメーションを決めて、相手に反撃しよう！',
+      _TutorialPhase.step3Rotate => 'フォーメーションを決めて、相手に反撃しよう！',
       _TutorialPhase.step3Drop => '盤面をタップしてドロップしよう！',
-      _TutorialPhase.step3Skill => 'ナイス！おじゃまボールを相手に送ったよ！',
+      _TutorialPhase.step3Skill => 'ナイス！妨害ボールを相手に送ったよ！',
       null => 'チュートリアルを開始します。',
     };
   }
@@ -4092,10 +4175,26 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         DateTime.now().isBefore(ignoreUntil)) {
       return;
     }
+    final opponentGame = _cpuGame;
+    final currentOpponentBoardIsNotEmpty =
+        opponentGame?.exportBoardState().isNotEmpty ?? false;
+    final opponentRoleId = _multiplayerManager.opponentRoleId;
+    final opponentStatus =
+        _multiplayerManager.currentRoom?.players[opponentRoleId]?.status;
+    if (boardData.isEmpty &&
+        currentOpponentBoardIsNotEmpty &&
+        (_resultRevealPending ||
+            _onlineResultMessage != null ||
+            _opponentGameOverVerificationPending ||
+            opponentStatus == 'dead')) {
+      _ignoreEmptyOpponentBoardUntil =
+          DateTime.now().add(const Duration(seconds: 3));
+      return;
+    }
     if (boardData.isNotEmpty) {
       _ignoreEmptyOpponentBoardUntil = null;
     }
-    _cpuGame?.applyRemoteBoardState(boardData);
+    opponentGame?.applyRemoteBoardState(boardData);
   }
 
   void _handleOpponentPieceUpdated(Map<String, dynamic> pieceData) {
@@ -5528,6 +5627,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     _resultRevealPending = true;
+    if (widget.isRankedMode && !widget.isArenaMode) {
+      unawaited(
+        _multiplayerManager.markSavedSessionResultKnown(isWin: playerWon),
+      );
+    }
     if (!resultWasForfeit) {
       await Future<void>.delayed(_resultFreezeDelay);
       if (!mounted) {
@@ -5590,7 +5694,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       unawaited(
         _applyMatchExpReward(
           isWin: playerWon,
-          grantLocalExp: !widget.isRankedMode,
+          grantLocalExp: true,
         ),
       );
       unawaited(_applyRankedBotRatingResult(isWin: playerWon));
@@ -5616,7 +5720,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _applyMatchExpReward(
           isWin: playerWon,
           isForfeitWin: resultWasForfeit && playerWon,
-          grantLocalExp: !widget.isRankedMode || widget.isArenaMode,
+          grantLocalExp: true,
         ),
       );
       unawaited(
@@ -5785,24 +5889,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   Widget _buildTutorialStep3Message() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xDD101827),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: Colors.cyanAccent.withValues(alpha: 0.64),
-            width: 1.3,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.cyanAccent.withValues(alpha: 0.14),
-              blurRadius: 16,
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+      child: _buildTutorialMessageCard(
         child: Text(
           _tutorialMessage,
           textAlign: TextAlign.center,
@@ -5817,8 +5905,59 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildTutorialOverlay() {
-    return const SizedBox.shrink();
+  Widget _buildTutorialMessageCard({required Widget child}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xDD101827),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.cyanAccent.withValues(alpha: 0.64),
+          width: 1.3,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.cyanAccent.withValues(alpha: 0.14),
+            blurRadius: 16,
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildTutorialSkipOverlay() {
+    return Positioned(
+      top: 8,
+      right: 8,
+      child: _buildTutorialSkipChip(),
+    );
+  }
+
+  Widget _buildTutorialSkipChip() {
+    return TextButton(
+      onPressed: () => unawaited(_finishTutorial()),
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.white70,
+        backgroundColor: Colors.black.withValues(alpha: 0.72),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      child: const Text(
+        'SKIP',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
   }
 
   Widget _buildTutorialDropTargetOverlay() {
@@ -5882,35 +6021,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTutorialSkipButton() {
-    return Positioned(
-      top: 8,
-      right: 8,
-      child: SafeArea(
-        child: TextButton(
-          onPressed: () => unawaited(_finishTutorial()),
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.white70,
-            backgroundColor: Colors.black.withValues(alpha: 0.52),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.22)),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          child: const Text(
-            'SKIP',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.2,
             ),
           ),
         ),

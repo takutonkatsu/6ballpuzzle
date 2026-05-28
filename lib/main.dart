@@ -332,7 +332,6 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         playerName: registeredName,
         rating: bootstrapData.rating,
         pendingLevelUpRewardLog: bootstrapData.pendingLevelUpRewardLog,
-        pendingLoginBonusLog: bootstrapData.pendingLoginBonusLog,
         abandonedMatchMessage: bootstrapData.abandonedMatchMessage,
       );
     }

@@ -29,6 +29,28 @@ class MissionDefinition {
   }
 }
 
+class RegularMissionDefinition {
+  const RegularMissionDefinition({
+    required this.id,
+    required this.title,
+    required this.progressKey,
+    required this.initialTarget,
+    required this.targetStep,
+    required this.rewardCoins,
+  });
+
+  final String id;
+  final String title;
+  final String progressKey;
+  final int initialTarget;
+  final int targetStep;
+  final int rewardCoins;
+
+  int targetForClaimedCount(int claimedCount) {
+    return initialTarget + targetStep * claimedCount;
+  }
+}
+
 class MissionCatalog {
   MissionCatalog._();
 
@@ -66,7 +88,7 @@ class MissionCatalog {
       'use_pyramid_1' => '対戦中にピラミッドを累計1回決める',
       'use_hexagon_1' => '対戦中にヘキサゴンを累計1回決める',
       'clear_balls_100' => '対戦中にボールを累計100個消す',
-      'use_waza_5' => '対戦中にワザを累計5回決める',
+      'use_waza_5' => '対戦中にフォーメーションを累計5回決める',
       'play_matches_5' => '対戦を累計5回プレイする',
       'win_arena_match_1' => 'アリーナで1勝する',
       'score_endless_10000' => 'エンドレスモードで10000点を達成する',
@@ -144,8 +166,8 @@ class MissionCatalog {
     ),
     MissionDefinition(
       id: 'use_waza_5',
-      title: '対戦中にワザを累計5回決める',
-      description: '対戦中にワザを累計5回決める',
+      title: '対戦中にフォーメーションを累計5回決める',
+      description: '対戦中にフォーメーションを累計5回決める',
       eventKey: 'use_waza',
       target: 5,
       rewardCoins: 500,
@@ -180,6 +202,89 @@ class MissionCatalog {
       description: 'ガチャを1回引く',
       eventKey: 'roll_gacha',
       target: 1,
+      rewardCoins: 500,
+    ),
+  ];
+
+  static const List<RegularMissionDefinition> regularMissions = [
+    RegularMissionDefinition(
+      id: 'regular_ranked_wins',
+      title: 'ランク戦で〇〇勝する',
+      progressKey: 'ranked_wins',
+      initialTarget: 5,
+      targetStep: 5,
+      rewardCoins: 500,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_endless_score',
+      title: 'エンドレスで〇〇点を達成する',
+      progressKey: 'highest_endless_score',
+      initialTarget: 50000,
+      targetStep: 50000,
+      rewardCoins: 1000,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_rewarded_ads',
+      title: '動画広告を〇〇回見る',
+      progressKey: 'rewarded_ad_views',
+      initialTarget: 3,
+      targetStep: 3,
+      rewardCoins: 1000,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_login_days',
+      title: '〇〇日ログインする',
+      progressKey: 'total_login_days',
+      initialTarget: 5,
+      targetStep: 5,
+      rewardCoins: 1000,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_ranked_rating',
+      title: 'ランク戦で〇〇を達成する',
+      progressKey: 'highest_rating',
+      initialTarget: 1500,
+      targetStep: 500,
+      rewardCoins: 1000,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_daily_win_rank_first',
+      title: '今日の勝利数ランキングで〇〇回1位になる',
+      progressKey: 'daily_win_rank_1',
+      initialTarget: 1,
+      targetStep: 1,
+      rewardCoins: 10000,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_hexagon_count',
+      title: 'ヘキサゴンを〇〇回決める',
+      progressKey: 'waza_hexagon',
+      initialTarget: 20,
+      targetStep: 20,
+      rewardCoins: 500,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_pyramid_count',
+      title: 'ピラミッドを〇〇回決める',
+      progressKey: 'waza_pyramid',
+      initialTarget: 20,
+      targetStep: 20,
+      rewardCoins: 500,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_straight_count',
+      title: 'ストレートを〇〇回決める',
+      progressKey: 'waza_straight',
+      initialTarget: 20,
+      targetStep: 20,
+      rewardCoins: 500,
+    ),
+    RegularMissionDefinition(
+      id: 'regular_cleared_balls',
+      title: '累計消去ボール数〇〇個を達成する',
+      progressKey: 'total_cleared_balls',
+      initialTarget: 1000,
+      targetStep: 1000,
       rewardCoins: 500,
     ),
   ];

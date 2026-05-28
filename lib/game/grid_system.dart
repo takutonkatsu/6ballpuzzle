@@ -131,7 +131,7 @@ class GridSystem {
     return start; // Fallback
   }
 
-  /// 連結したボールを消滅させる判定・およびワザの検知
+  /// 連結したボールを消滅させる判定・およびフォーメーションの検知
   List<MatchResult> findMatchesAndWazas() {
     Set<HexCoordinate> visited = {};
     List<MatchResult> results = [];
@@ -166,7 +166,7 @@ class GridSystem {
          WazaType waza = wazaResult.type;
          
          if (waza != WazaType.none) {
-            // ワザ発動: 盤面にある同色ボールをすべて消去対象に
+            // フォーメーション発動: 盤面にある同色ボールをすべて消去対象に
             for (var target in lockedBalls.keys) {
                if (lockedBalls[target]!.ballColor == color) {
                   groupToDestroy.add(target);
@@ -186,7 +186,7 @@ class GridSystem {
       }
     }
     
-    // ワザの優先度降順でソート
+    // フォーメーションの優先度降順でソート
     results.sort((a, b) => b.highestWaza.multiplier.compareTo(a.highestWaza.multiplier));
     
     return results;
@@ -202,7 +202,7 @@ class GridSystem {
      return _WazaResult(WazaType.none, []);
   }
 
-  // ---- パターン順序付きワザ検知メソッド ----
+  // ---- パターン順序付きフォーメーション検知メソッド ----
 
   List<List<HexCoordinate>>? _checkHexagonWithPattern(Set<HexCoordinate> group) {
     // 中心候補を探す
@@ -275,7 +275,7 @@ class GridSystem {
     return null;
   }
 
-  /// ワザまであと1〜2個のヒント: 優先順位(ヘキサゴン>ピラミッド>ストレート)で1ワザのみ表示
+  /// フォーメーションまであと1〜2個のヒント: 優先順位(ヘキサゴン>ピラミッド>ストレート)で1フォーメーションのみ表示
   Map<HexCoordinate, Set<BallColor>> getHintHexes() {
     final Map<HexCoordinate, Set<BallColor>> result = {};
     final Set<BallColor> presentColors = lockedBalls.values.map((b) => b.ballColor).toSet();

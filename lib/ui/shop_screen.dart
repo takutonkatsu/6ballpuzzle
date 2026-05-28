@@ -131,29 +131,7 @@ class _ShopScreenState extends State<ShopScreen> {
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF151723),
-            title: const Text(
-              '購入失敗',
-              style: TextStyle(color: Colors.redAccent),
-            ),
-            content:
-                Text('$error', style: const TextStyle(color: Colors.white70)),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _playUiTap();
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('閉じる'),
-              ),
-            ],
-          );
-        },
-      );
+      await _showShopErrorDialog(title: '購入失敗', error: error);
     } finally {
       if (mounted) {
         setState(() {
@@ -187,29 +165,7 @@ class _ShopScreenState extends State<ShopScreen> {
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF151723),
-            title: const Text(
-              '無料ガチャ失敗',
-              style: TextStyle(color: Colors.redAccent),
-            ),
-            content:
-                Text('$error', style: const TextStyle(color: Colors.white70)),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _playUiTap();
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('閉じる'),
-              ),
-            ],
-          );
-        },
-      );
+      await _showShopErrorDialog(title: '無料ガチャ失敗', error: error);
     } finally {
       if (mounted) {
         setState(() {
@@ -240,29 +196,7 @@ class _ShopScreenState extends State<ShopScreen> {
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF151723),
-            title: const Text(
-              '無料ガチャ失敗',
-              style: TextStyle(color: Colors.redAccent),
-            ),
-            content:
-                Text('$error', style: const TextStyle(color: Colors.white70)),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _playUiTap();
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('閉じる'),
-              ),
-            ],
-          );
-        },
-      );
+      await _showShopErrorDialog(title: '無料ガチャ失敗', error: error);
     } finally {
       if (mounted) {
         setState(() {
@@ -292,29 +226,7 @@ class _ShopScreenState extends State<ShopScreen> {
       if (!mounted) {
         return;
       }
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return AlertDialog(
-            backgroundColor: const Color(0xFF151723),
-            title: const Text(
-              'ガチャ失敗',
-              style: TextStyle(color: Colors.redAccent),
-            ),
-            content:
-                Text('$error', style: const TextStyle(color: Colors.white70)),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  _playUiTap();
-                  Navigator.of(dialogContext).pop();
-                },
-                child: const Text('閉じる'),
-              ),
-            ],
-          );
-        },
-      );
+      await _showShopErrorDialog(title: 'ガチャ失敗', error: error);
     } finally {
       if (mounted) {
         setState(() {
@@ -356,6 +268,9 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   Color _colorFor(GameItem item) {
+    if (item.type == ItemType.frame) {
+      return _colorFromFrameName(item.colorName);
+    }
     return Colors.cyanAccent;
   }
 
@@ -367,6 +282,8 @@ class _ShopScreenState extends State<ShopScreen> {
         return 'ボールスキン';
       case ItemType.icon:
         return 'プレイヤーアイコン';
+      case ItemType.frame:
+        return 'アイコンフレーム';
       case ItemType.vfx:
         return '演出データ';
     }
@@ -381,6 +298,60 @@ class _ShopScreenState extends State<ShopScreen> {
       return '${item.name} が Lv.${item.level} になりました。';
     }
     return '${item.name} はすでに所持しています。';
+  }
+
+  Future<void> _showShopErrorDialog({
+    required String title,
+    required Object error,
+  }) async {
+    final rawMessage = '$error';
+    final message =
+        rawMessage.contains('不足しています') ? 'コインが不足しています。' : rawMessage;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF151723),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: Colors.redAccent.withValues(alpha: 0.55),
+            ),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.redAccent,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(
+              color: Colors.white70,
+              height: 1.5,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _playUiTap();
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text(
+                '閉じる',
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -415,6 +386,12 @@ class _ShopScreenState extends State<ShopScreen> {
           subtitle: 'HEXAGON STORE',
         ),
         centerTitle: true,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(child: _coinBadge()),
+          ),
+        ],
       ),
       body: Stack(
         children: [
@@ -432,57 +409,6 @@ class _ShopScreenState extends State<ShopScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 20, vertical: 16),
                     children: [
-                      // Coins Header
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 14),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Color(0xFF14314A),
-                              _shopPanelColor,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _shopPanelAccent.withValues(alpha: 0.75),
-                            width: 1.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: _shopPanelAccent.withValues(alpha: 0.15),
-                              blurRadius: 18,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const HexagonCoinIcon(size: 28),
-                            const SizedBox(width: 12),
-                            Text(
-                              '$_coins',
-                              style: const TextStyle(
-                                color: _shopPanelAccentStrong,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 22,
-                                letterSpacing: 0.5,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.white24,
-                                    blurRadius: 8,
-                                  )
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-
                       _buildGachaPanel(adsRemoved: adsRemoved),
                       const SizedBox(height: 32),
 
@@ -496,9 +422,6 @@ class _ShopScreenState extends State<ShopScreen> {
                             fontWeight: FontWeight.w900,
                             fontSize: 16,
                             letterSpacing: 1,
-                            shadows: [
-                              Shadow(color: Colors.cyanAccent, blurRadius: 8)
-                            ],
                           ),
                         ),
                       ),
@@ -534,13 +457,6 @@ class _ShopScreenState extends State<ShopScreen> {
           color: accent.withValues(alpha: 0.4),
           width: 1.5,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: accent.withValues(alpha: 0.08),
-            blurRadius: 12,
-            spreadRadius: 1,
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -564,7 +480,6 @@ class _ShopScreenState extends State<ShopScreen> {
                 _iconForItem(item),
                 color: accent,
                 size: 32,
-                shadows: [Shadow(color: accent, blurRadius: 10)],
               ),
             ),
           ),
@@ -575,12 +490,11 @@ class _ShopScreenState extends State<ShopScreen> {
               children: [
                 Text(
                   item.name,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
                     fontSize: 16,
                     letterSpacing: 1.2,
-                    shadows: [Shadow(color: accent, blurRadius: 4)],
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -673,7 +587,6 @@ class _ShopScreenState extends State<ShopScreen> {
               fontWeight: FontWeight.w900,
               fontSize: 16,
               letterSpacing: 1,
-              shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 8)],
             ),
           ),
         ),
@@ -686,13 +599,6 @@ class _ShopScreenState extends State<ShopScreen> {
               color: _shopPanelAccent.withValues(alpha: 0.56),
               width: 1.5,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: _shopPanelAccent.withValues(alpha: 0.12),
-                blurRadius: 20,
-                spreadRadius: -4,
-              ),
-            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -731,7 +637,7 @@ class _ShopScreenState extends State<ShopScreen> {
                         ),
                         SizedBox(height: 5),
                         Text(
-                          'スタンプとプレイヤーアイコンを入手できます',
+                          'スタンプ、アイコン、フレームを入手できます',
                           style: TextStyle(
                             color: Colors.white60,
                             fontSize: 12,
@@ -856,6 +762,8 @@ class _ShopScreenState extends State<ShopScreen> {
           'skull' => Icons.dangerous,
           _ => Icons.person,
         };
+      case ItemType.frame:
+        return Icons.crop_square;
       case ItemType.vfx:
         return Icons.auto_awesome;
       case ItemType.stamp:
@@ -870,6 +778,59 @@ class _ShopScreenState extends State<ShopScreen> {
           _ => Icons.chat_bubble,
         };
     }
+  }
+
+  Widget _coinBadge() {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 78, maxWidth: 96),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          border: Border.all(
+            color: Colors.cyanAccent.withValues(alpha: 0.5),
+          ),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            const HexagonCoinIcon(size: 16),
+            const SizedBox(width: 4),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(
+                  '$_coins',
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Color(0xFFEAF6FF),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _colorFromFrameName(String? colorName) {
+    return switch (colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => Colors.yellowAccent,
+      'lime' => Colors.limeAccent,
+      'green' => Colors.greenAccent,
+      'blue' => Colors.lightBlueAccent,
+      'purple' => Colors.purpleAccent,
+      'black' => Colors.white70,
+      _ => Colors.cyanAccent,
+    };
   }
 }
 
@@ -902,9 +863,6 @@ class _ShopPageTitle extends StatelessWidget {
             color: Colors.white,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
-            shadows: [
-              Shadow(color: Colors.cyanAccent, blurRadius: 12),
-            ],
           ),
         ),
       ],

@@ -421,9 +421,9 @@ class _RankingScreenState extends State<RankingScreen> {
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
       itemCount: _entries.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, index) {
         final entry = _entries[index];
         final rank = _displayRankAt(index);
@@ -565,43 +565,60 @@ class _RankingScreenState extends State<RankingScreen> {
       1 => Colors.amberAccent,
       2 => const Color(0xFFE5E7EB),
       3 => const Color(0xFFCD7F32),
-      _ => Colors.white24,
+      _ => Colors.cyanAccent,
     };
-    final backgroundColor = switch (rank) {
-      1 => const Color(0x33D4AF37),
-      2 => const Color(0x33C0C7D1),
-      3 => const Color(0x33B87333),
-      _ => Colors.white.withValues(alpha: 0.04),
+    final rankIsTop = rank <= 3;
+    final topFillColor = switch (rank) {
+      1 => const Color(0xFF9A7218),
+      2 => const Color(0xFF768394),
+      3 => const Color(0xFF924A24),
+      _ => const Color(0xFF101827),
     };
 
     return InkWell(
       onTap: () => _openPlayerProfile(entry, rank, tab),
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        constraints: const BoxConstraints(minHeight: 58),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.2),
+          color: rankIsTop ? topFillColor.withValues(alpha: 0.96) : null,
+          gradient: rankIsTop
+              ? null
+              : LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    const Color(0xFF101827).withValues(alpha: 0.96),
+                    const Color(0xFF070B14).withValues(alpha: 0.98),
+                  ],
+                ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: accent.withValues(alpha: rankIsTop ? 0.88 : 0.24),
+            width: rankIsTop ? 1.3 : 1,
+          ),
           boxShadow: [
             BoxShadow(
-              color: accent.withValues(alpha: rank <= 3 ? 0.18 : 0.08),
-              blurRadius: rank <= 3 ? 18 : 10,
+              color: Colors.black.withValues(alpha: rankIsTop ? 0.28 : 0.06),
+              blurRadius: rankIsTop ? 12 : 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
         child: Row(
           children: [
             Container(
-              width: 42,
-              height: 32,
+              width: 38,
+              height: 34,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: accent.withValues(alpha: rank <= 3 ? 0.18 : 0.08),
-                borderRadius: BorderRadius.circular(8),
+                color: Colors.black.withValues(alpha: rankIsTop ? 0.28 : 0.20),
+                borderRadius: BorderRadius.circular(9),
                 border: Border.all(
-                  color: accent.withValues(alpha: rank <= 3 ? 0.72 : 0.38),
-                  width: 1.2,
+                  color: accent.withValues(alpha: rankIsTop ? 0.78 : 0.34),
+                  width: rankIsTop ? 1.2 : 1,
                 ),
               ),
               child: Text(
@@ -609,21 +626,21 @@ class _RankingScreenState extends State<RankingScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color:
-                      rank <= 3 ? accent : Colors.white.withValues(alpha: 0.76),
-                  fontSize: rank <= 3 ? 16 : null,
-                  fontWeight: rank <= 3 ? FontWeight.w900 : FontWeight.bold,
+                      rankIsTop ? accent : Colors.white.withValues(alpha: 0.78),
+                  fontSize: rankIsTop ? 14 : 13,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 10),
             Expanded(
               child: _buildResponsiveRankingNameText(
                 entry.displayName,
                 color: Colors.white.withValues(alpha: 0.92),
-                maxFontSize: 16,
+                maxFontSize: 15,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             _buildRankingValue(entry, accent, tab),
           ],
         ),
@@ -652,31 +669,79 @@ class _RankingScreenState extends State<RankingScreen> {
   ) {
     switch (tab) {
       case _RankingTab.currentSeason:
-        return HexagonTrophyAmount(
-          entry.rating,
-          color: Colors.amberAccent,
-          iconSize: 17,
-          fontSize: 16,
+        return _rankingValuePill(
+          child: HexagonTrophyAmount(
+            entry.rating,
+            color: Colors.amberAccent,
+            iconSize: 16,
+            fontSize: 15,
+          ),
+          accent: Colors.amberAccent,
         );
       case _RankingTab.dailyWins:
-        return Text(
-          '${entry.dailyWins}勝',
-          style: TextStyle(
-            color: accent,
-            fontSize: 16,
-            fontWeight: FontWeight.w900,
+        return _rankingValuePill(
+          child: Text(
+            '${entry.dailyWins}勝',
+            style: const TextStyle(
+              color: Color(0xFFEAF6FF),
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
           ),
+          accent: accent,
         );
       case _RankingTab.endless:
-        return Text(
-          '${entry.highestEndlessScore}',
-          style: TextStyle(
-            color: accent,
-            fontSize: 16,
-            fontWeight: FontWeight.w900,
+        return _rankingValuePill(
+          child: Text(
+            '${entry.highestEndlessScore}',
+            style: const TextStyle(
+              color: Color(0xFFEAF6FF),
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+            ),
           ),
+          suffix: '点',
+          accent: accent,
         );
     }
+  }
+
+  Widget _rankingValuePill({
+    required Widget child,
+    required Color accent,
+    String suffix = '',
+  }) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 72, maxWidth: 112),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: accent.withValues(alpha: 0.28)),
+        ),
+        child: Center(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                child,
+                if (suffix.isNotEmpty)
+                  Text(
+                    suffix,
+                    style: const TextStyle(
+                      color: Color(0xFFEAF6FF),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildResponsiveRankingNameText(

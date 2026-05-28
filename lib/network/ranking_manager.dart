@@ -2,6 +2,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
+import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
 import 'multiplayer_manager.dart';
@@ -438,14 +439,6 @@ class RankingManager {
     if (ratingRank != null && ratingRank <= _rankingLimit) {
       await PlayerDataManager.instance.recordBestRankedRank(ratingRank);
     }
-    if (dailyRank != null &&
-        dailyRank <= _rankingLimit &&
-        resolvedDailyWins > 0) {
-      await PlayerDataManager.instance.recordDailyWinRankingPlacement(
-        rank: dailyRank,
-        wins: resolvedDailyWins,
-      );
-    }
     final summary = RankingSummary(
       ratingRankLabel: ratingRank == null || ratingRank > _rankingLimit
           ? '圏外'
@@ -551,7 +544,7 @@ class RankingManager {
               ? entry.value as Map<dynamic, dynamic>
               : const <dynamic, dynamic>{};
           return seasonId != current &&
-              RankedSeasonManager.seasonNumber(seasonId) >
+              RankedSeasonManager.seasonNumber(seasonId) >=
                   RankedSeasonManager.baseSeasonNumber &&
               data['finalized'] == true;
         })
@@ -645,7 +638,71 @@ class RankingManager {
   }
 
   Future<void> syncSeasonRankBadgesForCurrentPlayer() async {
-    await PlayerDataManager.instance.setSeasonRankBadges(const []);
+    final uid = MultiplayerManager.instance.myUid ??
+        await AuthManager.instance.ensureSignedIn();
+    await PlayerDataManager.instance.load();
+    final publicId = PlayerDataManager.instance.playerId;
+    final badges = await fetchSeasonRankBadgesForPlayer(
+      uid: uid,
+      publicId: publicId,
+    );
+    await PlayerDataManager.instance.setSeasonRankBadges(badges);
+  }
+
+  Future<List<SeasonRankBadge>> fetchSeasonRankBadgesForPlayer({
+    required String uid,
+    required String publicId,
+  }) async {
+    final snapshot = await _db.child('rankedSeasons/seasons').get();
+    final raw = snapshot.value;
+    if (raw is! Map) {
+      return const [];
+    }
+    final badges = <SeasonRankBadge>[];
+    for (final seasonEntry in raw.entries) {
+      final seasonId = '${seasonEntry.key}';
+      if (RankedSeasonManager.seasonNumber(seasonId) <
+          RankedSeasonManager.baseSeasonNumber) {
+        continue;
+      }
+      final season = seasonEntry.value is Map
+          ? seasonEntry.value as Map<dynamic, dynamic>
+          : const <dynamic, dynamic>{};
+      if (season['finalized'] != true) {
+        continue;
+      }
+      final finalTop = season['finalTop100'];
+      if (finalTop == null) {
+        continue;
+      }
+      final entry = _findFinalTopEntryForPlayer(
+        finalTop,
+        uid: uid,
+        publicId: publicId,
+      );
+      if (entry == null) {
+        continue;
+      }
+      final rank = RankingEntry._intValue(entry['rank']);
+      if (rank == null || rank <= 0 || rank > _rankingLimit) {
+        continue;
+      }
+      badges.add(
+        SeasonRankBadge(
+          seasonId: seasonId,
+          rank: rank,
+          rating: RankingEntry._intValue(entry['rating']),
+        ),
+      );
+    }
+    badges.sort((a, b) {
+      final seasonDiff = b.seasonId.compareTo(a.seasonId);
+      if (seasonDiff != 0) {
+        return seasonDiff;
+      }
+      return a.rank.compareTo(b.rank);
+    });
+    return badges;
   }
 
   Future<void> finalizeSeasonIfNeeded(String seasonId) async {
@@ -699,7 +756,54 @@ class RankingManager {
     String seasonId,
     Object rawFinalTop,
   ) async {
-    return;
+    final uid = MultiplayerManager.instance.myUid ??
+        await AuthManager.instance.ensureSignedIn();
+    await PlayerDataManager.instance.load();
+    final publicId = PlayerDataManager.instance.playerId;
+    final entry = _findFinalTopEntryForPlayer(
+      rawFinalTop,
+      uid: uid,
+      publicId: publicId,
+    );
+    if (entry == null) {
+      return;
+    }
+    final rank = RankingEntry._intValue(entry['rank']);
+    if (rank == null || rank <= 0 || rank > _rankingLimit) {
+      return;
+    }
+    final currentBadges = PlayerDataManager.instance.seasonRankBadges
+        .where((badge) => badge.seasonId != seasonId)
+        .toList();
+    currentBadges.add(
+      SeasonRankBadge(
+        seasonId: seasonId,
+        rank: rank,
+        rating: RankingEntry._intValue(entry['rating']),
+      ),
+    );
+    await PlayerDataManager.instance.setSeasonRankBadges(currentBadges);
+  }
+
+  Map<dynamic, dynamic>? _findFinalTopEntryForPlayer(
+    Object rawFinalTop, {
+    required String uid,
+    required String publicId,
+  }) {
+    final records = _rankingRecords(rawFinalTop);
+    for (final record in records) {
+      if (record.value is! Map<dynamic, dynamic>) {
+        continue;
+      }
+      final data = record.value as Map<dynamic, dynamic>;
+      final entryUid = data['uid']?.toString() ?? record.key;
+      final entryPublicId = data['publicId']?.toString() ?? '';
+      if (entryUid == uid ||
+          (publicId.isNotEmpty && entryPublicId == publicId)) {
+        return data;
+      }
+    }
+    return null;
   }
 
   Future<List<RankingEntry>> _fetchSeasonSourceRankings(String seasonId) async {

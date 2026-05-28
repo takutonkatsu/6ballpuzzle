@@ -6,6 +6,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../ads/app_ad_service.dart';
 import '../../audio/seamless_bgm.dart';
+import '../../game/mission_manager.dart';
 
 class RewardedAdManager {
   RewardedAdManager._internal();
@@ -88,7 +89,11 @@ class RewardedAdManager {
         unawaited(warmUp());
       }
     }
-    return completer.future;
+    final result = await completer.future;
+    if (result) {
+      unawaited(MissionManager.instance.recordRewardedAdView());
+    }
+    return result;
   }
 
   Future<void> _ensureLoaded() async {

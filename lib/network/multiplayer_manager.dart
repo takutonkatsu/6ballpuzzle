@@ -23,7 +23,10 @@ typedef OpponentOjamaSpawnedCallback = void Function(
   List<dynamic> ojamaData,
   int dropSeed,
 );
-typedef OpponentStampReceivedCallback = void Function(String stampId);
+typedef OpponentStampReceivedCallback = void Function(
+  String stampId,
+  int level,
+);
 typedef OpponentGameOverCallback = void Function();
 typedef OpponentDisconnectedCallback = void Function();
 typedef RematchStartedCallback = void Function(int newSeed);
@@ -2066,6 +2069,30 @@ class MultiplayerManager {
     }
   }
 
+  Future<void> markSavedSessionResultKnown({
+    required bool isWin,
+  }) async {
+    final session = await loadSavedSession();
+    if (session == null || !session.isRankedMode || session.isArenaMode) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final snapshot = Map<String, dynamic>.from(session.snapshot ?? const {});
+    snapshot['resultKnown'] = true;
+    snapshot['isWin'] = isWin;
+    snapshot['resultKnownAt'] = DateTime.now().millisecondsSinceEpoch;
+    final nextSession = SavedOnlineSession(
+      roomId: session.roomId,
+      roleId: session.roleId,
+      isRankedMode: session.isRankedMode,
+      isArenaMode: session.isArenaMode,
+      savedAt: DateTime.now().millisecondsSinceEpoch,
+      snapshot: snapshot,
+    );
+    await prefs.setString(
+        _savedSessionPrefsKey, jsonEncode(nextSession.toJson()));
+  }
+
   Future<SavedSessionResolution?> inspectSavedSession() async {
     final session = await loadSavedSession();
     if (session == null) {
@@ -2111,11 +2138,19 @@ class MultiplayerManager {
           session.snapshot != null ||
           resultData != null ||
           opponentResultData != null;
+      final sessionSnapshot = session.snapshot;
       final wasOfflineDisconnect =
-          session.snapshot?['abandonReason'] == 'offline';
+          sessionSnapshot?['abandonReason'] == 'offline';
       final abandonedByMe = startedMatch && myStatus == 'left';
-      final explicitIsWin =
-          resultData == null ? mirroredIsWin : resultData['isWin'] == true;
+      final bool? resultKnownIsWin;
+      if (sessionSnapshot?['resultKnown'] == true) {
+        resultKnownIsWin = sessionSnapshot?['isWin'] == true;
+      } else {
+        resultKnownIsWin = null;
+      }
+      final explicitIsWin = resultData == null
+          ? (mirroredIsWin ?? resultKnownIsWin)
+          : resultData['isWin'] == true;
       final statusInferredIsWin = abandonedByMe
           ? false
           : myStatus == 'dead'
@@ -2176,6 +2211,15 @@ class MultiplayerManager {
   Future<SavedSessionResolution> _resolveAbandonedRankedBotSession(
     SavedOnlineSession session,
   ) async {
+    if (session.snapshot?['resultKnown'] == true) {
+      return SavedSessionResolution(
+        session: session,
+        isResolved: true,
+        isWin: session.snapshot?['isWin'] == true,
+        newRating: await _loadLatestUserRating(),
+      );
+    }
+
     final opponentRating = _intValue(session.snapshot?['opponentRating']) ??
         rankedBotMinimumMaxRating;
     final opponentName =
@@ -2566,7 +2610,7 @@ class MultiplayerManager {
     }
   }
 
-  Future<void> sendStamp(String stampId) async {
+  Future<void> sendStamp(String stampId, {int level = 1}) async {
     final roomId = currentRoomId;
     if (roomId == null || myRoleId == null) {
       throw StateError('参加中のルームがありません。');
@@ -2578,6 +2622,7 @@ class MultiplayerManager {
           .push()
           .set({
         'id': stampId,
+        'level': level.clamp(1, 4),
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
@@ -2599,7 +2644,7 @@ class MultiplayerManager {
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
-      throw StateError(_firebaseErrorMessage('おじゃま同期送信', error));
+      throw StateError(_firebaseErrorMessage('妨害同期送信', error));
     }
   }
 
@@ -2957,7 +3002,10 @@ class MultiplayerManager {
       if (value is Map<dynamic, dynamic>) {
         final stampId = value['id'] as String?;
         if (stampId != null) {
-          onOpponentStampReceived?.call(stampId);
+          onOpponentStampReceived?.call(
+            stampId,
+            (_intValue(value['level']) ?? 1).clamp(1, 4),
+          );
         }
       }
       if (event.snapshot.key != null) {

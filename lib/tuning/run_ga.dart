@@ -54,7 +54,7 @@ void main() {
     population.sort((a, b) => b.fitness.compareTo(a.fitness));
 
     print(
-        "スコア: ${population.first.fitness.toStringAsFixed(1)} | 生存: ${population.first.avgTurns}手 | ワザ: ${population.first.totalWazas}回");
+        "スコア: ${population.first.fitness.toStringAsFixed(1)} | 生存: ${population.first.avgTurns}手 | フォーメーション: ${population.first.totalWazas}回");
 
     List<Individual> nextGen = [];
     int eliteCount = (populationSize * 0.1).toInt();

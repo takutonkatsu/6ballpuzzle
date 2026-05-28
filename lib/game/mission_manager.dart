@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +16,10 @@ class MissionManager {
   static const int _adsRemovedDailyRerollLimit = 1;
   static const String _dailyRerollDateKey = 'mission_daily_reroll_date';
   static const String _dailyRerollCountKey = 'mission_daily_reroll_count';
+  static const String _regularClaimCountsKey =
+      'mission_regular_claim_counts_json';
+  static const String _rewardedAdViewCountKey =
+      'mission_rewarded_ad_view_count';
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final Random _random = Random();
@@ -45,6 +50,46 @@ class MissionManager {
 
   bool get adsRemovedBenefitsEnabled => AppSettings.instance.adsRemoved.value;
 
+  Future<List<Map<String, dynamic>>> regularMissions() async {
+    await load();
+    await _playerData.syncDailyWinRankPlacementsFromRecordSummary();
+    final prefs = await _prefs();
+    final claimedCounts = _regularClaimCounts(prefs);
+    final missions = <Map<String, dynamic>>[];
+    for (final definition in MissionCatalog.regularMissions) {
+      final claimedCount = claimedCounts[definition.id] ?? 0;
+      final target = definition.targetForClaimedCount(claimedCount);
+      final progress = _regularProgressFor(definition, prefs);
+      missions.add({
+        'id': definition.id,
+        'title': definition.title,
+        'progressKey': definition.progressKey,
+        'progress': progress,
+        'target': target,
+        'rewardCoins': definition.rewardCoins,
+        'claimedCount': claimedCount,
+        'claimable': progress >= target,
+      });
+    }
+    missions.sort((a, b) {
+      final aClaimable = a['claimable'] as bool? ?? false;
+      final bClaimable = b['claimable'] as bool? ?? false;
+      if (aClaimable != bClaimable) {
+        return aClaimable ? -1 : 1;
+      }
+      return MissionCatalog.regularMissions
+          .indexWhere((definition) => definition.id == a['id'])
+          .compareTo(MissionCatalog.regularMissions
+              .indexWhere((definition) => definition.id == b['id']));
+    });
+    return missions;
+  }
+
+  Future<int> regularClaimableCount() async {
+    final missions = await regularMissions();
+    return missions.where((mission) => mission['claimable'] == true).length;
+  }
+
   Future<int> remainingDailyRerolls() async {
     if (!adsRemovedBenefitsEnabled) {
       return 999;
@@ -56,8 +101,6 @@ class MissionManager {
 
   Future<void> load() async {
     await _playerData.checkDailyReset();
-    await _syncSpecialMissionVariant();
-    await _applyLoginRewardMissionProgressIfNeeded();
     await _sortAndPersistIfNeeded();
   }
 
@@ -84,6 +127,12 @@ class MissionManager {
     if (changed) {
       await _persistMissionChanges(missions);
     }
+  }
+
+  Future<void> recordRewardedAdView() async {
+    final prefs = await _prefs();
+    final current = max(0, prefs.getInt(_rewardedAdViewCountKey) ?? 0);
+    await prefs.setInt(_rewardedAdViewCountKey, current + 1);
   }
 
   Future<void> rerollMission(int index) async {
@@ -203,6 +252,27 @@ class MissionManager {
     await _playerData.addCoins(claimAmount);
     await _persistMissionChanges(missions);
     return claimAmount;
+  }
+
+  Future<int> claimRegularMissionReward(String missionId) async {
+    await load();
+    final prefs = await _prefs();
+    final definition = MissionCatalog.regularMissions.firstWhere(
+      (mission) => mission.id == missionId,
+      orElse: () => throw StateError('ミッションが見つかりません。'),
+    );
+    final claimedCounts = _regularClaimCounts(prefs);
+    final claimedCount = claimedCounts[missionId] ?? 0;
+    final target = definition.targetForClaimedCount(claimedCount);
+    final progress = _regularProgressFor(definition, prefs);
+    if (progress < target) {
+      throw StateError('ミッションがまだクリアされていません。');
+    }
+
+    claimedCounts[missionId] = claimedCount + 1;
+    await prefs.setString(_regularClaimCountsKey, jsonEncode(claimedCounts));
+    await _playerData.addCoins(definition.rewardCoins);
+    return definition.rewardCoins;
   }
 
   Future<int> completeRewardedAdMission(int index) async {
@@ -341,6 +411,44 @@ class MissionManager {
 
   Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
 
+  Map<String, int> _regularClaimCounts(SharedPreferences prefs) {
+    final raw = prefs.getString(_regularClaimCountsKey);
+    if (raw == null || raw.isEmpty) {
+      return {};
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        return {};
+      }
+      return {
+        for (final entry in decoded.entries)
+          entry.key.toString(): _intValue(entry.value) ?? 0,
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  int _regularProgressFor(
+    RegularMissionDefinition definition,
+    SharedPreferences prefs,
+  ) {
+    return switch (definition.progressKey) {
+      'ranked_wins' => _playerData.rankedWins,
+      'highest_endless_score' => _playerData.highestEndlessScore,
+      'rewarded_ad_views' => max(0, prefs.getInt(_rewardedAdViewCountKey) ?? 0),
+      'total_login_days' => _playerData.totalLoginDays,
+      'highest_rating' => _playerData.highestRating,
+      'daily_win_rank_1' => _playerData.dailyWinRankPlacements['1位'] ?? 0,
+      'waza_hexagon' => _playerData.wazaCounts['hexagon'] ?? 0,
+      'waza_pyramid' => _playerData.wazaCounts['pyramid'] ?? 0,
+      'waza_straight' => _playerData.wazaCounts['straight'] ?? 0,
+      'total_cleared_balls' => _playerData.totalClearedBalls,
+      _ => 0,
+    };
+  }
+
   int _indexOfMission(List<Map<String, dynamic>> missions, String missionId) =>
       missions.indexWhere(
         (mission) => mission['id']?.toString() == missionId,
@@ -390,85 +498,6 @@ class MissionManager {
       }
     }
     return true;
-  }
-
-  Future<void> _applyLoginRewardMissionProgressIfNeeded() async {
-    final missions = currentMissions;
-    if (missions.isEmpty || _playerData.lastLoginDate != _todayKey()) {
-      return;
-    }
-
-    var changed = false;
-    for (final mission in missions) {
-      final missionId = mission['id']?.toString() ?? '';
-      if (!MissionCatalog.isLoginRewardMissionId(missionId)) {
-        continue;
-      }
-      final target = _intValue(mission['target']) ?? 1;
-      final progress = _intValue(mission['progress']) ?? 0;
-      if (progress < target) {
-        mission['progress'] = target;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      await _persistMissionChanges(missions);
-    }
-  }
-
-  Future<void> _syncSpecialMissionVariant() async {
-    final missions = currentMissions;
-    if (missions.isEmpty) {
-      return;
-    }
-
-    final shouldUseLoginReward = adsRemovedBenefitsEnabled;
-    var changed = false;
-    for (var i = 0; i < missions.length; i++) {
-      final mission = missions[i];
-      final missionId = mission['id']?.toString() ?? '';
-      if (!MissionCatalog.isRewardedAdMissionId(missionId) &&
-          !MissionCatalog.isLoginRewardMissionId(missionId)) {
-        continue;
-      }
-
-      final replacement = shouldUseLoginReward
-          ? const MissionDefinition(
-              id: 'login_bonus_1',
-              title: 'ログイン報酬を受け取る',
-              description: 'ログイン報酬を受け取る',
-              eventKey: 'login_bonus',
-              target: 1,
-              rewardCoins: 500,
-            ).toMissionMap()
-          : const MissionDefinition(
-              id: 'watch_rewarded_ad_1',
-              title: '動画広告を見る',
-              description: '動画広告を1回見る',
-              eventKey: 'watch_rewarded_ad',
-              target: 1,
-              rewardCoins: 500,
-            ).toMissionMap();
-
-      replacement['claimed'] = mission['claimed'] as bool? ?? false;
-      replacement['allClearBonusClaimed'] =
-          mission['allClearBonusClaimed'] as bool? ?? false;
-      replacement['progress'] = shouldUseLoginReward
-          ? (replacement['target'] as int)
-          : ((mission['claimed'] as bool? ?? false) ? 1 : 0);
-      if (missionId != replacement['id'] ||
-          mission['progress'] != replacement['progress'] ||
-          mission['claimed'] != replacement['claimed']) {
-        missions[i] = replacement;
-        changed = true;
-      }
-      break;
-    }
-
-    if (changed) {
-      await _playerData.saveCurrentMissions(missions);
-    }
   }
 
   bool _isComplete(Map<String, dynamic> mission) {

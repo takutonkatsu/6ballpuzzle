@@ -270,7 +270,7 @@ class _RecordScreenState extends State<RecordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _sectionTitle('ワザ累計'),
+        _sectionTitle('フォーメーション累計'),
         _barStat('ヘキサゴン', counts['hexagon'] ?? 0, maxCount, Colors.pinkAccent),
         const SizedBox(height: 10),
         _barStat(

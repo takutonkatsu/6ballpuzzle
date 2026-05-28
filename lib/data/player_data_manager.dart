@@ -146,6 +146,8 @@ class PlayerDataManager {
   static const String _lastDailyResetKey = 'player_last_daily_reset';
   static const String _currentMissionsKey = 'player_current_missions_json';
   static const String _dailyShopItemsKey = 'player_daily_shop_items_json';
+  static const String _unseenCollectionItemIdsKey =
+      'player_unseen_collection_item_ids_json';
   static const String _loginStreakKey = 'player_login_streak';
   static const String _totalLoginDaysKey = 'player_total_login_days';
   static const String _lastLoginDateKey = 'player_last_login_date';
@@ -165,6 +167,7 @@ class PlayerDataManager {
   static const String _equippedBallSkinIdKey = 'player_equipped_ball_skin_id';
   static const String _equippedPlayerIconIdKey =
       'player_equipped_player_icon_id';
+  static const String _equippedIconFrameIdKey = 'player_equipped_icon_frame_id';
   static const String _highestRatingKey = 'player_highest_rating';
   static const String _maxArenaWinsKey = 'player_max_arena_wins';
   static const String _arenaChallengeCountKey = 'player_arena_challenge_count';
@@ -245,6 +248,7 @@ class PlayerDataManager {
   String _lastDailyReset = '';
   List<Map<String, dynamic>> _currentMissions = [];
   List<String> _dailyShopItems = [];
+  List<String> _unseenCollectionItemIds = [];
   int _loginStreak = 0;
   int _totalLoginDays = 0;
   int _lastLoginBonusStreak = 0;
@@ -260,6 +264,7 @@ class PlayerDataManager {
   int _currentRating = 1000;
   String _equippedBallSkinId = 'default';
   String _equippedPlayerIconId = 'default';
+  String _equippedIconFrameId = 'default';
   int _highestRating = 1000;
   int _maxArenaWins = 0;
   int _arenaChallengeCount = 0;
@@ -333,6 +338,7 @@ class PlayerDataManager {
       .map((mission) => Map<String, dynamic>.from(mission))
       .toList();
   List<String> get dailyShopItems => List.unmodifiable(_dailyShopItems);
+  bool get hasUnseenCollectionItems => _unseenCollectionItemIds.isNotEmpty;
   int get loginStreak => _loginStreak;
   int get totalLoginDays => _totalLoginDays;
   String get playerName => _playerName;
@@ -349,6 +355,7 @@ class PlayerDataManager {
   int get currentRating => _currentRating;
   String get equippedBallSkinId => _equippedBallSkinId;
   String get equippedPlayerIconId => _equippedPlayerIconId;
+  String get equippedIconFrameId => _equippedIconFrameId;
   int get highestRating => _highestRating;
   int get maxArenaWins => _maxArenaWins;
   int get arenaChallengeCount => _arenaChallengeCount;
@@ -444,6 +451,9 @@ class PlayerDataManager {
         _dailyShopItems = decoded.map((item) => '$item').toList();
       }
     }
+    _unseenCollectionItemIds = _stringListFromJson(
+      prefs.getString(_unseenCollectionItemIdsKey),
+    );
     _loginStreak = max(0, prefs.getInt(_loginStreakKey) ?? 0);
     _lastLoginDate = prefs.getString(_lastLoginDateKey) ?? '';
     _lastLoginBonusStreak = max(0, prefs.getInt(_lastLoginBonusStreakKey) ?? 0);
@@ -487,6 +497,8 @@ class PlayerDataManager {
     _equippedBallSkinId = prefs.getString(_equippedBallSkinIdKey) ?? 'default';
     _equippedPlayerIconId =
         prefs.getString(_equippedPlayerIconIdKey) ?? 'default';
+    _equippedIconFrameId =
+        prefs.getString(_equippedIconFrameIdKey) ?? 'default';
 
     final createdAtRaw = prefs.getString(_accountCreatedAtKey);
     final parsedCreatedAt = DateTime.tryParse(createdAtRaw ?? '');
@@ -628,6 +640,10 @@ class PlayerDataManager {
       _equippedPlayerIconId = 'default';
       shouldSaveProfile = true;
     }
+    if (!_ownsEquippableItem(_equippedIconFrameId, ItemType.frame)) {
+      _equippedIconFrameId = 'default';
+      shouldSaveProfile = true;
+    }
 
     if (_debugControlsEnabled && _coins != _debugBuildCoins) {
       _coins = _debugBuildCoins;
@@ -703,16 +719,13 @@ class PlayerDataManager {
       changed = true;
       statsChanged = true;
     }
-    if (await _grantLoginBonusIfEligible()) {
-      changed = true;
-    }
-
     final missionIds = _currentMissions
         .map((mission) => mission['id']?.toString() ?? '')
         .toSet();
     final hasSpecialDailyMission =
-        missionIds.any(MissionCatalog.isRewardedAdMissionId) ||
-            missionIds.any(MissionCatalog.isLoginRewardMissionId);
+        missionIds.any(MissionCatalog.isRewardedAdMissionId);
+    final hasRetiredLoginMission =
+        missionIds.any(MissionCatalog.isLoginRewardMissionId);
     final hasRequiredEndlessMission =
         missionIds.contains(MissionCatalog.requiredEndlessMissionId);
     final hasTemporarilyDisabledMissions =
@@ -722,6 +735,7 @@ class PlayerDataManager {
         _currentMissions.length != 4 ||
         !hasSpecialDailyMission ||
         !hasRequiredEndlessMission ||
+        hasRetiredLoginMission ||
         hasTemporarilyDisabledMissions ||
         _dailyShopItems.length != 3) {
       _lastDailyReset = today;
@@ -840,6 +854,7 @@ class PlayerDataManager {
       final storedItem = item.isStamp ? item.copyWith(level: 1) : item;
       _ownedItems.add(storedItem);
       await _saveItems();
+      await _markCollectionItemUnseen(storedItem.id);
       return ItemGrantResult(
         item: storedItem,
         isDuplicate: false,
@@ -884,6 +899,15 @@ class PlayerDataManager {
     await load();
     _dailyShopItems = List<String>.from(itemIds);
     await _saveDailyData();
+  }
+
+  Future<void> clearUnseenCollectionItems() async {
+    await load();
+    if (_unseenCollectionItemIds.isEmpty) {
+      return;
+    }
+    _unseenCollectionItemIds = [];
+    await _saveUnseenCollectionItems();
   }
 
   Future<void> setPlayerName(String name) async {
@@ -933,7 +957,10 @@ class PlayerDataManager {
 
   Future<void> setSeasonRankBadges(List<SeasonRankBadge> badges) async {
     await load();
-    _seasonRankBadges = [];
+    _seasonRankBadges = badges
+        .where((badge) => badge.seasonId.isNotEmpty && badge.rank > 0)
+        .toList()
+      ..sort((a, b) => b.seasonId.compareTo(a.seasonId));
     _equippedBadgeIds = _equippedBadgeIds
         .where((id) => !SeasonRankBadge.isSeasonRankBadgeId(id))
         .map((id) => BadgeCatalog.evolvedBadgeIdFor(
@@ -946,6 +973,7 @@ class PlayerDataManager {
         .toList();
     await _saveSeasonRankBadges();
     await _savePublicProfile();
+    _syncRecordSummaryInBackground(force: true);
   }
 
   Future<void> setEquippedBallSkinId(String skinId) async {
@@ -965,6 +993,16 @@ class PlayerDataManager {
       return;
     }
     _equippedPlayerIconId = normalized;
+    await _savePublicProfile();
+  }
+
+  Future<void> setEquippedIconFrameId(String frameId) async {
+    await load();
+    final normalized = frameId.trim().isEmpty ? 'default' : frameId.trim();
+    if (!_ownsEquippableItem(normalized, ItemType.frame)) {
+      return;
+    }
+    _equippedIconFrameId = normalized;
     await _savePublicProfile();
   }
 
@@ -1195,6 +1233,27 @@ class PlayerDataManager {
     await _saveStats();
   }
 
+  Future<void> syncDailyWinRankPlacementsFromRecordSummary() async {
+    await load();
+    try {
+      final uid = await AuthManager.instance.ensureSignedIn();
+      if (uid.isEmpty) {
+        return;
+      }
+      final snapshot = await AppFirebaseDatabase.ref()
+          .child('playerRecordSummaries/$uid/ranked/dailyWinRankPlacements')
+          .get();
+      final remote = _intMapFromDynamic(snapshot.value);
+      if (_mapsEqual(_dailyWinRankPlacements, remote)) {
+        return;
+      }
+      _dailyWinRankPlacements = remote;
+      await _saveStats();
+    } catch (_) {
+      // 集計値の同期失敗はミッション表示を止めない。
+    }
+  }
+
   Future<String?> consumePendingRankedSeasonResultLog() async {
     await load();
     final prefs = await SharedPreferences.getInstance();
@@ -1371,6 +1430,7 @@ class PlayerDataManager {
     await prefs.setInt(_currentRatingKey, _currentRating);
     await prefs.setString(_equippedBallSkinIdKey, _equippedBallSkinId);
     await prefs.setString(_equippedPlayerIconIdKey, _equippedPlayerIconId);
+    await prefs.setString(_equippedIconFrameIdKey, _equippedIconFrameId);
   }
 
   Future<void> _saveStats() async {
@@ -1431,6 +1491,25 @@ class PlayerDataManager {
     await prefs.setInt(_totalLoginDaysKey, _totalLoginDays);
     await prefs.setInt(_lastLoginBonusStreakKey, _lastLoginBonusStreak);
     await prefs.setString(_lastLoginDateKey, _lastLoginDate);
+  }
+
+  Future<void> _saveUnseenCollectionItems() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _unseenCollectionItemIdsKey,
+      jsonEncode(_unseenCollectionItemIds),
+    );
+  }
+
+  Future<void> _markCollectionItemUnseen(String itemId) async {
+    if (itemId.isEmpty || _unseenCollectionItemIds.contains(itemId)) {
+      return;
+    }
+    _unseenCollectionItemIds = [
+      ..._unseenCollectionItemIds,
+      itemId,
+    ];
+    await _saveUnseenCollectionItems();
   }
 
   Future<void> _saveTodayStats(SharedPreferences prefs) async {
@@ -1730,8 +1809,13 @@ class PlayerDataManager {
             .where((item) => item.type == ItemType.icon)
             .map((item) => item.id)
             .toList(),
+        'ownedFrameIds': _ownedItems
+            .where((item) => item.type == ItemType.frame)
+            .map((item) => item.id)
+            .toList(),
         'equippedBallSkinId': _equippedBallSkinId,
         'equippedPlayerIconId': _equippedPlayerIconId,
+        'equippedIconFrameId': _equippedIconFrameId,
         'equippedBadgeIds': List<String>.from(_equippedBadgeIds),
         'unlockedBadgeIds': unlockedBadgeIds,
         'seasonRankBadges':
@@ -1750,8 +1834,6 @@ class PlayerDataManager {
         'currentWinStreak': _rankedCurrentWinStreak,
         'maxWinStreak': _rankedMaxWinStreak,
         'bestRankedRank': _bestRankedRank,
-        'dailyWinRankPlacements':
-            Map<String, int>.from(_dailyWinRankPlacements),
       },
       'arena': {
         'maxWins': _maxArenaWins,
@@ -1888,26 +1970,6 @@ class PlayerDataManager {
     return true;
   }
 
-  Future<bool> _grantLoginBonusIfEligible() async {
-    final eligibleStreak = (_loginStreak ~/ 7) * 7;
-    if (eligibleStreak <= 0) {
-      return false;
-    }
-    if (_lastLoginBonusStreak >= eligibleStreak) {
-      return false;
-    }
-
-    _lastLoginBonusStreak = eligibleStreak;
-    _coins += 5000;
-    await _saveEconomy();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _pendingLoginBonusLogKey,
-      '連続ログイン$eligibleStreak日達成！\n5000を獲得しました。',
-    );
-    return true;
-  }
-
   int _levelFromExp(int value) {
     var currentLevel = 1;
     var remainingExp = max(0, value);
@@ -1997,6 +2059,28 @@ class PlayerDataManager {
       return {};
     }
     return {};
+  }
+
+  Map<String, int> _intMapFromDynamic(Object? raw) {
+    if (raw is! Map) {
+      return {};
+    }
+    return {
+      for (final entry in raw.entries)
+        entry.key.toString(): _intValue(entry.value) ?? 0,
+    };
+  }
+
+  bool _mapsEqual(Map<String, int> a, Map<String, int> b) {
+    if (a.length != b.length) {
+      return false;
+    }
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) {
+        return false;
+      }
+    }
+    return true;
   }
 
   List<MatchHistoryEntry> _historyFromJson(String? raw) {

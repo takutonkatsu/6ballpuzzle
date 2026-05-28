@@ -43,7 +43,7 @@ class _CollectionScreenState extends State<CollectionScreen>
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         backgroundColor: const Color(0xFF080A12),
         appBar: AppBar(
@@ -69,7 +69,7 @@ class _CollectionScreenState extends State<CollectionScreen>
           title: const _PageTitle(title: 'コレクション', subtitle: 'COLLECTION'),
           bottom: const PreferredSize(
             preferredSize: Size.fromHeight(62),
-            child: _NeonTabBar(tabs: ['スタンプ', 'バッジ', 'ボール', 'アイコン']),
+            child: _NeonTabBar(tabs: ['スタンプ', 'バッジ', 'ボール', 'アイコン', 'フレーム']),
           ),
         ),
         body: Stack(
@@ -89,6 +89,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                       _buildBadgesTab(),
                       _buildSkinsTab(),
                       _buildIconsTab(),
+                      _buildFramesTab(),
                     ],
                   ),
           ],
@@ -291,6 +292,63 @@ class _CollectionScreenState extends State<CollectionScreen>
                 ? () async {
                     _playUiTap();
                     await _playerData.setEquippedPlayerIconId(icon.id);
+                    await _multiplayerManager.updateUserName(
+                      _playerData.playerName,
+                    );
+                    if (!mounted) {
+                      return;
+                    }
+                    setState(() {});
+                  }
+                : null,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildFramesTab() {
+    final ownedFrameIds = {
+      ..._playerData.ownedItems
+          .where((item) => item.type == ItemType.frame)
+          .map((item) => item.id),
+    };
+    return _grid(
+      children: [
+        _simpleCard(
+          title: 'デフォルト',
+          subtitle:
+              _playerData.equippedIconFrameId == 'default' ? '装備中' : 'タップで装備',
+          icon: Icons.crop_square,
+          leading: _framePreview(Colors.cyanAccent),
+          selected: _playerData.equippedIconFrameId == 'default',
+          available: true,
+          onTap: () async {
+            _playUiTap();
+            await _playerData.setEquippedIconFrameId('default');
+            await _multiplayerManager.updateUserName(_playerData.playerName);
+            if (!mounted) {
+              return;
+            }
+            setState(() {});
+          },
+        ),
+        for (final frame in GameItemCatalog.iconFrames)
+          _simpleCard(
+            title: frame.name,
+            subtitle: _playerData.equippedIconFrameId == frame.id
+                ? '装備中'
+                : ownedFrameIds.contains(frame.id)
+                    ? 'タップで装備'
+                    : '未所持',
+            icon: Icons.crop_square,
+            leading: _framePreview(_frameColor(frame)),
+            accentColor: _frameColor(frame),
+            selected: _playerData.equippedIconFrameId == frame.id,
+            available: ownedFrameIds.contains(frame.id),
+            onTap: ownedFrameIds.contains(frame.id)
+                ? () async {
+                    _playUiTap();
+                    await _playerData.setEquippedIconFrameId(frame.id);
                     await _multiplayerManager.updateUserName(
                       _playerData.playerName,
                     );
@@ -527,6 +585,42 @@ class _CollectionScreenState extends State<CollectionScreen>
         return Icons.person;
     }
   }
+
+  Widget _framePreview(Color color) {
+    return Container(
+      width: 26,
+      height: 26,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color, width: 2.4),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.20),
+            blurRadius: 8,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _frameColor(GameItem frame) {
+    return _colorFromFrameName(frame.colorName);
+  }
+
+  Color _colorFromFrameName(String? colorName) {
+    return switch (colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => Colors.yellowAccent,
+      'lime' => Colors.limeAccent,
+      'green' => Colors.greenAccent,
+      'blue' => Colors.lightBlueAccent,
+      'purple' => Colors.purpleAccent,
+      'black' => Colors.white70,
+      _ => Colors.cyanAccent,
+    };
+  }
 }
 
 class _PageTitle extends StatelessWidget {
@@ -609,7 +703,22 @@ class _NeonTabBar extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w700,
         ),
-        tabs: [for (final tab in tabs) Tab(text: tab)],
+        tabs: [
+          for (final tab in tabs)
+            Tab(
+              child: SizedBox(
+                width: double.infinity,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    tab,
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

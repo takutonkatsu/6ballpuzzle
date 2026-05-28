@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../data/models/game_item.dart';
 
 class StampWidget extends StatefulWidget {
@@ -12,7 +13,7 @@ class StampWidget extends StatefulWidget {
 
   final GameItem item;
   final int level;
-  final bool forceLarge; // Use for center overlay pops in GameScreen
+  final bool forceLarge;
   final Color? colorOverride;
 
   @override
@@ -21,14 +22,14 @@ class StampWidget extends StatefulWidget {
 
 class _StampWidgetState extends State<StampWidget>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  late final AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 560),
     );
     if (widget.level >= 4) {
       _controller.repeat(reverse: true);
@@ -42,7 +43,7 @@ class _StampWidgetState extends State<StampWidget>
       _controller.repeat(reverse: true);
     } else if (widget.level < 4 && _controller.isAnimating) {
       _controller.stop();
-      _controller.value = 1.0;
+      _controller.value = 0;
     }
   }
 
@@ -53,148 +54,108 @@ class _StampWidgetState extends State<StampWidget>
   }
 
   Color _getColor(String? colorName) {
-    switch (colorName) {
-      case 'Cyan':
-        return Colors.cyanAccent;
-      case 'Blue':
-        return Colors.blueAccent;
-      case 'Red':
-        return Colors.redAccent;
-      case 'Yellow':
-        return Colors.amberAccent;
-      case 'Magenta':
-        return Colors.pinkAccent;
-      case 'Purple':
-        return Colors.deepPurpleAccent;
-      default:
-        return Colors.white;
-    }
+    return switch (colorName) {
+      'Cyan' => Colors.cyanAccent,
+      'Blue' => Colors.blueAccent,
+      'Red' => Colors.redAccent,
+      'Yellow' => Colors.amberAccent,
+      'Magenta' => Colors.pinkAccent,
+      'Purple' => Colors.deepPurpleAccent,
+      _ => Colors.white,
+    };
   }
 
   IconData _getIcon(String? iconName) {
-    switch (iconName) {
-      case 'handshake':
-        return Icons.handshake;
-      case 'water_drop':
-        return Icons.water_drop;
-      case 'local_fire_department':
-        return Icons.local_fire_department;
-      case 'thumb_up':
-        return Icons.thumb_up;
-      case 'coffee':
-        return Icons.coffee;
-      case 'visibility':
-        return Icons.visibility;
-      case 'memory':
-        return Icons.memory;
-      default:
-        return Icons.message;
-    }
+    return switch (iconName) {
+      'handshake' => Icons.handshake,
+      'water_drop' => Icons.water_drop,
+      'local_fire_department' => Icons.local_fire_department,
+      'thumb_up' => Icons.thumb_up,
+      'coffee' => Icons.coffee,
+      'visibility' => Icons.visibility,
+      'memory' => Icons.memory,
+      _ => Icons.message,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final text = widget.item.text ?? '...';
-    final color = widget.colorOverride ?? Colors.white;
     final glowColor = _getColor(widget.item.colorName);
     final iconName = widget.item.iconName;
     final iconData = iconName == null ? null : _getIcon(iconName);
+    final scale = widget.forceLarge ? 2.0 : 1.0;
+    final level = widget.level.clamp(1, GameItem.maxStampLevel);
 
-    final double scale = widget.forceLarge ? 2.0 : 1.0;
-
-    // Lv 1: White text only
-    if (widget.level <= 1) {
-      return Text(
-        text,
-        softWrap: false,
-        style: TextStyle(
-          color: color,
-          fontSize: 14 * scale,
-          fontFamily: 'Courier',
-          fontWeight: FontWeight.bold,
-          shadows: [
-            Shadow(color: glowColor.withValues(alpha: 0.35), blurRadius: 2)
-          ],
-        ),
-      );
-    }
-
-    // Lv 2: 色付き文字 + 軽い発光
-    if (widget.level == 2) {
-      return Text(
-        text,
-        softWrap: false,
-        style: TextStyle(
-          color: color,
-          fontSize: 16 * scale,
-          fontFamily: 'Courier',
-          fontWeight: FontWeight.w900,
-          shadows: [
-            Shadow(color: glowColor, blurRadius: 10 * scale),
-            Shadow(color: Colors.white, blurRadius: 2 * scale),
-          ],
-        ),
-      );
-    }
-
-    // Lv 3: 枠付きの強調テキスト。テキストのみのスタンプにはアイコンを出さない。
-    final content = Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 8 * scale,
-        vertical: 3 * scale,
+    final fontSize = switch (level) {
+      1 => 14.0,
+      2 => 14.0,
+      3 => 18.5,
+      _ => 19.0,
+    };
+    final textColor = level <= 1 ? Colors.white : glowColor;
+    final shadows = [
+      Shadow(
+        color: Colors.black.withValues(alpha: 0.72),
+        blurRadius: 2.5 * scale,
       ),
-      decoration: BoxDecoration(
-        color: glowColor.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(8 * scale),
-        border: Border.all(color: glowColor.withValues(alpha: 0.55)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (iconData != null) ...[
-            Icon(
-              iconData,
-              color: color,
-              size: 20 * scale,
-              shadows: [Shadow(color: glowColor, blurRadius: 12 * scale)],
-            ),
-            SizedBox(width: 8 * scale),
-          ],
-          Text(
-            text,
-            softWrap: false,
-            style: TextStyle(
-              color: color,
-              fontSize: 18 * scale,
-              fontFamily: 'Courier',
-              fontWeight: FontWeight.w900,
-              shadows: [
-                Shadow(color: glowColor, blurRadius: 12 * scale),
-                Shadow(color: Colors.white, blurRadius: 2 * scale),
-              ],
-            ),
+      if (level >= 2)
+        Shadow(
+          color: glowColor.withValues(alpha: level >= 4 ? 0.96 : 0.72),
+          blurRadius: (level >= 3 ? 10 : 7) * scale,
+        ),
+      if (level >= 4)
+        Shadow(
+          color: Colors.white.withValues(alpha: 0.46),
+          blurRadius: 4.5 * scale,
+        ),
+    ];
+
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (iconData != null) ...[
+          Icon(
+            iconData,
+            color: textColor,
+            size: (level >= 3 ? 20 : 17) * scale,
+            shadows: shadows,
           ),
+          SizedBox(width: 6 * scale),
         ],
-      ),
+        Text(
+          text,
+          softWrap: false,
+          style: TextStyle(
+            color: textColor,
+            fontSize: fontSize * scale,
+            fontFamily: 'Courier',
+            fontWeight: level <= 1 ? FontWeight.bold : FontWeight.w900,
+            shadows: shadows,
+            letterSpacing: level >= 3 ? 0.4 * scale : 0,
+          ),
+        ),
+      ],
     );
 
-    if (widget.level == 3) {
+    if (level < 4) {
       return content;
     }
 
-    // Lv 4: Breathing Animation
     return AnimatedBuilder(
       animation: _controller,
+      child: content,
       builder: (context, child) {
-        final glowScale = 1.0 + (_controller.value * 0.15); // Scale 1.0 to 1.15
-        final opacity = 0.6 + (_controller.value * 0.4); // Opacity 0.6 to 1.0
-
-        return Transform.scale(
-          scale: glowScale,
-          child: Opacity(
-            opacity: opacity,
-            child: content,
+        final t = Curves.easeInOut.transform(_controller.value);
+        return Transform.translate(
+          offset: Offset(0, -4.4 * scale * t),
+          child: Transform.rotate(
+            angle: 0.07 * scale * (t - 0.5),
+            child: Transform.scale(
+              scale: 1.0 + 0.16 * t,
+              child: child,
+            ),
           ),
         );
       },

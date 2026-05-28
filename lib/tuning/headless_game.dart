@@ -91,7 +91,7 @@ class HeadlessGame {
                for (var target in w.matched) {
                   board.remove(target);
                }
-               // ワザの場合は同色全消し
+               // フォーメーションの場合は同色全消し
                if (w.waza != WazaType.none) {
                   BallColor colorToRemove = board[w.matched.first] ?? BallColor.blue; // dummy if already gone
                   board.removeWhere((h, c) => c == colorToRemove);

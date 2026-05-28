@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_settings.dart';
+import '../app_notice_manager.dart';
 import '../app_review_config.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
@@ -31,6 +32,7 @@ import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
 import 'collection_screen.dart';
 import 'game_screen.dart';
+import 'mission_screen.dart';
 import 'profile_screen.dart';
 import 'ranking_screen.dart';
 import 'record_screen.dart';
@@ -41,7 +43,6 @@ class HomeBootstrapData {
     required this.playerName,
     required this.rating,
     this.pendingLevelUpRewardLog,
-    this.pendingLoginBonusLog,
     this.pendingRankedSeasonResultLog,
     this.abandonedMatchMessage,
   });
@@ -49,7 +50,6 @@ class HomeBootstrapData {
   final String playerName;
   final int rating;
   final String? pendingLevelUpRewardLog;
-  final String? pendingLoginBonusLog;
   final String? pendingRankedSeasonResultLog;
   final String? abandonedMatchMessage;
 }
@@ -193,8 +193,7 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
 
     final pendingLevelUpRewardLog =
         await playerDataManager.consumePendingLevelUpRewardLog();
-    final pendingLoginBonusLog =
-        await playerDataManager.consumePendingLoginBonusLog();
+    await playerDataManager.consumePendingLoginBonusLog();
     final pendingRankedSeasonResultLog =
         await playerDataManager.consumePendingRankedSeasonResultLog();
 
@@ -202,7 +201,6 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
       playerName: savedName,
       rating: rating,
       pendingLevelUpRewardLog: pendingLevelUpRewardLog,
-      pendingLoginBonusLog: pendingLoginBonusLog,
       pendingRankedSeasonResultLog: pendingRankedSeasonResultLog,
       abandonedMatchMessage: abandonedMatchMessage,
     );
@@ -352,6 +350,7 @@ class _HomeScreenState extends State<HomeScreen>
   static const Object _bgmOwner = 'home_screen';
 
   static const _playerNameKey = 'player_name';
+  static const _lastSeenNoticeIdKey = 'home_last_seen_notice_id';
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
   static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
   static const bool _debugControlsEnabled = AppReviewConfig.debugMenuEnabled;
@@ -372,11 +371,14 @@ class _HomeScreenState extends State<HomeScreen>
   int _coins = PlayerDataManager.initialCoins;
   int _claimableMissionCount = 0;
   int _completedMissionCount = 0;
+  bool _hasUnseenCollectionItems = false;
   int _todayRankedWins = 0;
   String _currentSeasonName = 'シーズン--';
   String _seasonRankLabel = '圏外';
   String _dailyWinRankLabel = '圏外';
   bool _isLoadingProfile = true;
+  bool _isLoadingNotice = false;
+  int _unreadNoticeCount = 0;
   late AnimationController _animController;
   bool _isHomeBgmPlaying = false;
   bool _homeBgmSuspendedByLifecycle = false;
@@ -422,6 +424,21 @@ class _HomeScreenState extends State<HomeScreen>
       'icon_bell' => Icons.notifications,
       'icon_skull' => Icons.dangerous,
       _ => Icons.person,
+    };
+  }
+
+  Color _playerIconFrameColor(String frameId) {
+    final frame = GameItemCatalog.byId(frameId);
+    return switch (frame?.colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => Colors.yellowAccent,
+      'lime' => Colors.limeAccent,
+      'green' => Colors.greenAccent,
+      'blue' => Colors.lightBlueAccent,
+      'purple' => Colors.purpleAccent,
+      'black' => Colors.white70,
+      _ => Colors.cyanAccent,
     };
   }
 
@@ -510,6 +527,7 @@ class _HomeScreenState extends State<HomeScreen>
       duration: const Duration(seconds: 4),
     )..repeat();
     unawaited(_refreshCurrentSeasonName());
+    unawaited(_loadRemoteNotice(showUnread: true));
     _startSeasonStateMonitor();
     unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_startHomeBgm());
@@ -531,6 +549,7 @@ class _HomeScreenState extends State<HomeScreen>
       unawaited(_resumeHomeBgmFromLifecycle());
       unawaited(_refreshCurrentSeasonName(forceRefresh: true));
       unawaited(_checkRankedSeasonBoundary(showResultLog: true));
+      unawaited(_loadRemoteNotice(showUnread: true));
       return;
     }
     if (state == AppLifecycleState.inactive ||
@@ -644,6 +663,7 @@ class _HomeScreenState extends State<HomeScreen>
     _rating = bootstrapData.rating;
     _isLoadingProfile = false;
     _syncPlayerEconomyState();
+    unawaited(_refreshPlayerEconomy());
     unawaited(_syncRankedSeasonState(showResultLog: true));
 
     final pendingLevelUpRewardLog = bootstrapData.pendingLevelUpRewardLog;
@@ -657,22 +677,6 @@ class _HomeScreenState extends State<HomeScreen>
             context,
             'レベルアップ',
             pendingLevelUpRewardLog,
-          ),
-        );
-      });
-    }
-
-    final pendingLoginBonusLog = bootstrapData.pendingLoginBonusLog;
-    if (pendingLoginBonusLog != null && pendingLoginBonusLog.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) {
-          return;
-        }
-        unawaited(
-          _showAlert(
-            context,
-            '連続ログインボーナス',
-            pendingLoginBonusLog,
           ),
         );
       });
@@ -721,15 +725,16 @@ class _HomeScreenState extends State<HomeScreen>
       await _playerDataManager.checkDailyReset();
       await _missionManager.load();
       await _arenaManager.load();
+      final regularClaimableCount =
+          await _missionManager.regularClaimableCount();
       final pendingLevelUpRewardLog =
           await _playerDataManager.consumePendingLevelUpRewardLog();
-      final pendingLoginBonusLog =
-          await _playerDataManager.consumePendingLoginBonusLog();
+      await _playerDataManager.consumePendingLoginBonusLog();
       if (!mounted) {
         return;
       }
       setState(() {
-        _syncPlayerEconomyState();
+        _syncPlayerEconomyState(regularClaimableCount: regularClaimableCount);
       });
       if (pendingLevelUpRewardLog != null &&
           pendingLevelUpRewardLog.isNotEmpty) {
@@ -746,20 +751,6 @@ class _HomeScreenState extends State<HomeScreen>
           );
         });
       }
-      if (pendingLoginBonusLog != null && pendingLoginBonusLog.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) {
-            return;
-          }
-          unawaited(
-            _showAlert(
-              context,
-              '連続ログインボーナス',
-              pendingLoginBonusLog,
-            ),
-          );
-        });
-      }
     } catch (_) {
       // ローカルデータ読込に失敗してもホーム表示は継続する。
     }
@@ -770,20 +761,29 @@ class _HomeScreenState extends State<HomeScreen>
     await _playerDataManager.checkDailyReset();
     await _missionManager.load();
     await _arenaManager.load();
+    final regularClaimableCount = await _missionManager.regularClaimableCount();
     if (!mounted) {
       return;
     }
     setState(() {
-      _syncPlayerEconomyState();
+      _syncPlayerEconomyState(regularClaimableCount: regularClaimableCount);
     });
   }
 
-  void _syncPlayerEconomyState() {
+  void _syncPlayerEconomyState({int regularClaimableCount = 0}) {
     _level = _playerDataManager.level;
     _currentLevelExp = _playerDataManager.currentLevelExp;
     _nextLevelRequiredExp = _playerDataManager.nextLevelRequiredExp;
     _coins = _playerDataManager.coins;
-    _claimableMissionCount = _missionManager.claimableCount;
+    final allClearClaimableCount = (!AppSettings.instance.adsRemoved.value &&
+            _missionManager.allMissionsComplete &&
+            !_missionManager.isAllClearBonusClaimed)
+        ? 1
+        : 0;
+    _claimableMissionCount = _missionManager.claimableCount +
+        regularClaimableCount +
+        allClearClaimableCount;
+    _hasUnseenCollectionItems = _playerDataManager.hasUnseenCollectionItems;
     _completedMissionCount =
         _playerDataManager.currentMissions.where((mission) {
       final progress = (mission['progress'] as num?)?.toInt() ?? 0;
@@ -814,6 +814,226 @@ class _HomeScreenState extends State<HomeScreen>
       });
     } catch (_) {
       // ランキング取得失敗はホーム表示を止めない。
+    }
+  }
+
+  Future<void> _loadRemoteNotice({
+    bool showUnread = false,
+    bool forceDialog = false,
+  }) async {
+    if (_isLoadingNotice && !forceDialog) {
+      return;
+    }
+    _isLoadingNotice = true;
+    try {
+      final notices = await AppNoticeManager.fetchActiveNotices();
+      if (!mounted) {
+        return;
+      }
+
+      if (notices.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _unreadNoticeCount = 0;
+          });
+        }
+        if (forceDialog) {
+          await _showAlert(context, 'お知らせ', '現在のお知らせはありません。');
+        }
+        return;
+      }
+
+      if (forceDialog) {
+        await _showNoticeList(notices);
+        return;
+      }
+
+      if (!showUnread) {
+        return;
+      }
+      final prefs = await SharedPreferences.getInstance();
+      final seenIds = _seenNoticeIds(prefs);
+      final unreadCount =
+          notices.where((notice) => !seenIds.contains(notice.id)).length;
+      setState(() {
+        _unreadNoticeCount = unreadCount;
+      });
+    } finally {
+      _isLoadingNotice = false;
+    }
+  }
+
+  Future<void> _showNoticeList(List<AppNotice> notices) async {
+    await _markNoticesSeen(notices);
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        AppNotice? selectedNotice;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final notice = selectedNotice;
+            return _buildCyberDialog(
+              accentColor: Colors.cyanAccent,
+              title: notice == null ? 'お知らせ' : notice.title,
+              child: notice == null
+                  ? ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 360),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: notices.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final item = notices[index];
+                          return InkWell(
+                            onTap: () {
+                              _playUiTap();
+                              setDialogState(() {
+                                selectedNotice = item;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.24),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.cyanAccent.withValues(
+                                    alpha: 0.28,
+                                  ),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                        if (item.publishedAtText.isNotEmpty)
+                                          Padding(
+                                            padding:
+                                                const EdgeInsets.only(top: 3),
+                                            child: Text(
+                                              item.publishedAtText,
+                                              style: const TextStyle(
+                                                color: Colors.white54,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Colors.cyanAccent,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (notice.publishedAtText.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Text(
+                              notice.publishedAtText,
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        Text(
+                          notice.message,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            height: 1.5,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildCyberDialogButton(
+                                label: '一覧へ',
+                                accentColor: Colors.cyanAccent,
+                                onPressed: () {
+                                  setDialogState(() {
+                                    selectedNotice = null;
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _buildCyberDialogButton(
+                                label: '閉じる',
+                                accentColor: Colors.cyanAccent,
+                                onPressed: () =>
+                                    Navigator.of(dialogContext).pop(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Set<String> _seenNoticeIds(SharedPreferences prefs) {
+    try {
+      final seenList = prefs.getStringList(_lastSeenNoticeIdKey);
+      if (seenList != null) {
+        return seenList.toSet();
+      }
+    } catch (_) {
+      // 旧バージョンでは文字列で保存していたため、型違いは下で救済する。
+    }
+    String? legacy;
+    try {
+      legacy = prefs.getString(_lastSeenNoticeIdKey);
+    } catch (_) {
+      legacy = null;
+    }
+    return legacy == null || legacy.isEmpty ? <String>{} : {legacy};
+  }
+
+  Future<void> _markNoticesSeen(List<AppNotice> notices) async {
+    final prefs = await SharedPreferences.getInstance();
+    final seenIds = _seenNoticeIds(prefs)..addAll(notices.map((n) => n.id));
+    await prefs.setStringList(_lastSeenNoticeIdKey, seenIds.toList());
+    if (mounted) {
+      setState(() {
+        _unreadNoticeCount = 0;
+      });
     }
   }
 
@@ -1237,6 +1457,8 @@ class _HomeScreenState extends State<HomeScreen>
     final displayName = _playerNameController.text.trim().isEmpty
         ? 'プレイヤー'
         : _playerNameController.text.trim();
+    final frameColor =
+        _playerIconFrameColor(_playerDataManager.equippedIconFrameId);
 
     return InkWell(
       onTap: () {
@@ -1267,10 +1489,10 @@ class _HomeScreenState extends State<HomeScreen>
               width: compact ? 18 : 22,
               height: compact ? 18 : 22,
               decoration: BoxDecoration(
-                color: Colors.cyanAccent.withValues(alpha: 0.16),
+                color: frameColor.withValues(alpha: 0.16),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: Colors.cyanAccent.withValues(alpha: 0.65),
+                  color: frameColor.withValues(alpha: 0.72),
                 ),
               ),
               child: Icon(
@@ -1339,6 +1561,7 @@ class _HomeScreenState extends State<HomeScreen>
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CollectionScreen()),
     );
+    await _playerDataManager.clearUnseenCollectionItems();
     await _refreshPlayerEconomy();
   }
 
@@ -1413,7 +1636,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '本日 $_todayRankedWins勝  $_dailyWinRankLabel',
+                        '今日 $_todayRankedWins勝  $_dailyWinRankLabel',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 11,
@@ -1432,38 +1655,55 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
           ),
-          Row(
-            children: [
-              _buildRoundIcon(
-                Icons.notifications,
-                Colors.cyanAccent,
-                () => unawaited(_showAlert(context, 'お知らせ', '現在のお知らせはありません。')),
-                tooltip: 'お知らせ',
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Row(
+                children: [
+                  _buildRoundIcon(
+                    Icons.notifications,
+                    Colors.cyanAccent,
+                    () => unawaited(_loadRemoteNotice(forceDialog: true)),
+                    tooltip: 'お知らせ',
+                    badgeCount: _unreadNoticeCount,
+                  ),
+                  const SizedBox(width: 6),
+                  _buildRoundIcon(
+                    Icons.question_mark,
+                    Colors.cyanAccent,
+                    () => unawaited(_showHowToDialog()),
+                    tooltip: '遊び方',
+                  ),
+                  const SizedBox(width: 6),
+                  _buildRoundIcon(
+                    Icons.settings,
+                    Colors.cyanAccent,
+                    () => unawaited(_showSettingsDialog()),
+                    tooltip: '設定',
+                  ),
+                  if (_debugControlsEnabled) ...[
+                    const SizedBox(width: 6),
+                    _buildRoundIcon(
+                      Icons.bug_report,
+                      Colors.cyanAccent,
+                      () => unawaited(_showDebugMenu()),
+                      tooltip: 'デバッグ',
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  if (AdRemovalPurchaseManager.isSupportedPlatform) ...[
+                    const SizedBox(width: 6),
+                    _buildRoundIcon(
+                      Icons.block,
+                      Colors.cyanAccent,
+                      () => unawaited(_showAdRemovalDialog(context)),
+                      tooltip: '広告削除',
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(width: 8),
-              _buildRoundIcon(
-                Icons.settings,
-                Colors.cyanAccent,
-                () => unawaited(_showSettingsDialog()),
-                tooltip: '設定',
-              ),
-              const SizedBox(width: 8),
-              if (_debugControlsEnabled) ...[
-                _buildRoundIcon(
-                  Icons.bug_report,
-                  Colors.cyanAccent,
-                  () => unawaited(_showDebugMenu()),
-                  tooltip: 'デバッグ',
-                ),
-                const SizedBox(width: 8),
-              ],
-              _buildRoundIcon(
-                Icons.bar_chart,
-                Colors.cyanAccent,
-                _openRecordScreen,
-                tooltip: 'レコード',
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -1484,26 +1724,37 @@ class _HomeScreenState extends State<HomeScreen>
           _playUiTap();
           onTap();
         },
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(8),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: color.withValues(alpha: 0.1),
-                border: Border.all(color: color.withValues(alpha: 0.5)),
-                boxShadow: [
-                  BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 4)
+            SizedBox(
+              width: 45,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 28),
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      tooltip,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        color: color.withValues(alpha: 0.82),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ],
               ),
-              child: Icon(icon, color: color, size: 20),
             ),
             if (badgeCount > 0)
               Positioned(
-                right: -4,
-                top: -4,
+                right: 0,
+                top: -5,
                 child: Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
@@ -2237,6 +2488,16 @@ class _HomeScreenState extends State<HomeScreen>
         'ミッション';
   }
 
+  Future<void> _openMissionScreen() async {
+    _playUiTap();
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const MissionScreen()),
+    );
+    if (mounted) {
+      await _refreshPlayerEconomy();
+    }
+  }
+
   Widget _buildBottomBannerTop() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
@@ -2251,19 +2512,19 @@ class _HomeScreenState extends State<HomeScreen>
             Icons.collections_bookmark,
             'コレクション',
             () => unawaited(_openCollectionScreen()),
+            showDot: _hasUnseenCollectionItems,
           ),
           _buildBottomTextButton(
             Icons.assignment_turned_in,
             'ミッション',
-            () => unawaited(_showDailyMissionsDialog(context)),
+            () => unawaited(_openMissionScreen()),
             badgeCount: _claimableMissionCount,
           ),
-          if (AdRemovalPurchaseManager.isSupportedPlatform)
-            _buildBottomTextButton(
-              Icons.block,
-              '広告削除',
-              () => unawaited(_showAdRemovalDialog(context)),
-            ),
+          _buildBottomTextButton(
+            Icons.bar_chart,
+            'レコード',
+            _openRecordScreen,
+          ),
         ],
       ),
     );
@@ -2282,6 +2543,7 @@ class _HomeScreenState extends State<HomeScreen>
     String label,
     VoidCallback onTap, {
     int badgeCount = 0,
+    bool showDot = false,
   }) {
     return Expanded(
       child: InkWell(
@@ -2298,7 +2560,7 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Icon(
                   icon,
-                  color: Colors.cyanAccent.withValues(alpha: 0.7),
+                  color: Colors.cyanAccent.withValues(alpha: 0.88),
                   size: 24,
                 ),
                 const SizedBox(height: 4),
@@ -2307,32 +2569,43 @@ class _HomeScreenState extends State<HomeScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.cyanAccent.withValues(alpha: 0.7),
+                    color: Colors.cyanAccent.withValues(alpha: 0.88),
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
-            if (badgeCount > 0)
+            if (badgeCount > 0 || showDot)
               Positioned(
                 top: -6,
                 right: 18,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  width: showDot && badgeCount <= 0 ? 9 : null,
+                  height: showDot && badgeCount <= 0 ? 9 : null,
+                  padding: showDot && badgeCount <= 0
+                      ? EdgeInsets.zero
+                      : const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
                     color: Colors.redAccent,
                     borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.redAccent.withValues(alpha: 0.42),
+                        blurRadius: 8,
+                      ),
+                    ],
                   ),
-                  child: Text(
-                    '$badgeCount',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
+                  child: showDot && badgeCount <= 0
+                      ? null
+                      : Text(
+                          '$badgeCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                 ),
               ),
           ],
@@ -2733,12 +3006,6 @@ class _HomeScreenState extends State<HomeScreen>
           color: const Color(0xFF101827).withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: accentColor.withValues(alpha: 0.48)),
-          boxShadow: [
-            BoxShadow(
-              color: accentColor.withValues(alpha: 0.15),
-              blurRadius: 16,
-            ),
-          ],
         ),
         child: Row(
           children: [
@@ -2748,7 +3015,7 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   Row(
                     children: [
-                      Expanded(
+                      Flexible(
                         child: Text(
                           label,
                           maxLines: 1,
@@ -2758,9 +3025,6 @@ class _HomeScreenState extends State<HomeScreen>
                             fontSize: 17,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0,
-                            shadows: [
-                              Shadow(color: accentColor, blurRadius: 8),
-                            ],
                           ),
                         ),
                       ),
@@ -2786,6 +3050,7 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                         ),
                       ),
+                      const Spacer(),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -2862,10 +3127,12 @@ class _HomeScreenState extends State<HomeScreen>
     await _refreshPlayerEconomy();
   }
 
+  // ignore: unused_element
   Future<void> _showDailyMissionsDialog(BuildContext context) async {
     await _refreshPlayerEconomy();
     if (!context.mounted) return;
 
+    var selectedTabIndex = 0;
     return showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -2886,139 +3153,380 @@ class _HomeScreenState extends State<HomeScreen>
             final canClaimAllClearBonus = showAllClearBonus &&
                 _missionManager.allMissionsComplete &&
                 !_missionManager.isAllClearBonusClaimed;
+            final maxDialogHeight = MediaQuery.of(context).size.height * 0.78;
 
             return _buildCyberDialog(
               accentColor: Colors.cyanAccent,
-              title: 'デイリーミッション',
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '$_completedMissionCount / ${dialogMissions.length} 達成',
-                    style: const TextStyle(
-                      color: Colors.cyanAccent,
-                      fontWeight: FontWeight.bold,
-                      shadows: [
-                        Shadow(color: Colors.cyanAccent, blurRadius: 8)
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  for (var i = 0; i < dialogMissions.length; i++) ...[
-                    _buildSimplifiedMissionTile(
-                      index: i,
-                      mission: dialogMissions[i],
-                      onClaimed: (amount) async {
-                        await refreshDialogState();
-                        if (context.mounted && amount > 0) {
-                          await _showCoinRewardAlert(
-                            context,
-                            'ミッション報酬',
-                            amount,
-                          );
-                        }
+              title: 'ミッション',
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxDialogHeight),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildMissionTabSelector(
+                      selectedIndex: selectedTabIndex,
+                      onChanged: (index) {
+                        _playUiTap();
+                        setDialogState(() {
+                          selectedTabIndex = index;
+                        });
                       },
                     ),
-                    if (i != dialogMissions.length - 1)
-                      const SizedBox(height: 10),
-                  ],
-                  if (showAllClearBonus) ...[
                     const SizedBox(height: 14),
-                    _buildDailyAllClearBonusCard(
-                      canClaim: canClaimAllClearBonus,
-                      alreadyClaimed: _missionManager.isAllClearBonusClaimed,
-                      onClaimed: () async {
-                        await refreshDialogState();
-                        if (!context.mounted) {
-                          return;
-                        }
-                        await _showCoinRewardAlert(
-                          context,
-                          '全達成ボーナス',
-                          _missionManager.allClearClaimAmount,
-                        );
-                      },
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: selectedTabIndex == 0
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '$_completedMissionCount / ${dialogMissions.length} 達成',
+                                    style: const TextStyle(
+                                      color: Colors.cyanAccent,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  for (var i = 0;
+                                      i < dialogMissions.length;
+                                      i++) ...[
+                                    _buildSimplifiedMissionTile(
+                                      index: i,
+                                      mission: dialogMissions[i],
+                                      onClaimed: (amount) async {
+                                        await refreshDialogState();
+                                        if (context.mounted && amount > 0) {
+                                          await _showCoinRewardAlert(
+                                            context,
+                                            'ミッション報酬',
+                                            amount,
+                                          );
+                                        }
+                                      },
+                                    ),
+                                    if (i != dialogMissions.length - 1)
+                                      const SizedBox(height: 10),
+                                  ],
+                                  if (showAllClearBonus) ...[
+                                    const SizedBox(height: 14),
+                                    _buildDailyAllClearBonusCard(
+                                      canClaim: canClaimAllClearBonus,
+                                      alreadyClaimed: _missionManager
+                                          .isAllClearBonusClaimed,
+                                      onClaimed: () async {
+                                        await refreshDialogState();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        await _showCoinRewardAlert(
+                                          context,
+                                          '全達成ボーナス',
+                                          _missionManager.allClearClaimAmount,
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ],
+                              )
+                            : FutureBuilder<List<Map<String, dynamic>>>(
+                                future: _missionManager.regularMissions(),
+                                builder: (context, snapshot) {
+                                  final regularMissions =
+                                      snapshot.data ?? const [];
+                                  if (regularMissions.isEmpty) {
+                                    return const Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 24,
+                                      ),
+                                      child: Text(
+                                        'ミッションを読み込み中...',
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      for (var i = 0;
+                                          i < regularMissions.length;
+                                          i++) ...[
+                                        _buildRegularMissionTile(
+                                          mission: regularMissions[i],
+                                          onClaimed: (amount) async {
+                                            await refreshDialogState();
+                                            if (context.mounted && amount > 0) {
+                                              await _showCoinRewardAlert(
+                                                context,
+                                                'ミッション報酬',
+                                                amount,
+                                              );
+                                            }
+                                          },
+                                        ),
+                                        if (i != regularMissions.length - 1)
+                                          const SizedBox(height: 10),
+                                      ],
+                                    ],
+                                  );
+                                },
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildCyberDialogButton(
+                      label: '閉じる',
+                      accentColor: Colors.cyanAccent,
+                      onPressed: () => Navigator.of(dialogContext).pop(),
                     ),
                   ],
-                  const SizedBox(height: 20),
-                  Container(
-                    width: double.infinity,
-                    height: 1,
-                    color: Colors.white.withValues(alpha: 0.14),
-                  ),
-                  const SizedBox(height: 20),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '連続ログイン',
-                      style: TextStyle(
-                        color: Colors.cyanAccent,
-                        fontWeight: FontWeight.bold,
-                        shadows: [
-                          Shadow(color: Colors.cyanAccent, blurRadius: 8),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.cyanAccent.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.cyanAccent.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          '現在${_playerDataManager.loginStreak}日連続ログイン中！',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              '7日ごとに',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            _buildCoinAmount(
-                              5000,
-                              color: Colors.white70,
-                              iconSize: 13,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _buildCyberDialogButton(
-                    label: '閉じる',
-                    accentColor: Colors.cyanAccent,
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                  ),
-                ],
+                ),
               ),
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildMissionTabSelector({
+    required int selectedIndex,
+    required ValueChanged<int> onChanged,
+  }) {
+    const labels = ['デイリー', 'レギュラー'];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.32)),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++)
+            Expanded(
+              child: InkWell(
+                onTap: selectedIndex == i ? null : () => onChanged(i),
+                borderRadius: BorderRadius.circular(9),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: selectedIndex == i
+                        ? Colors.cyanAccent.withValues(alpha: 0.18)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(9),
+                    border: Border.all(
+                      color: selectedIndex == i
+                          ? Colors.cyanAccent.withValues(alpha: 0.85)
+                          : Colors.transparent,
+                    ),
+                    boxShadow: selectedIndex == i
+                        ? [
+                            BoxShadow(
+                              color: Colors.cyanAccent.withValues(alpha: 0.18),
+                              blurRadius: 10,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Text(
+                    labels[i],
+                    style: TextStyle(
+                      color: selectedIndex == i
+                          ? Colors.cyanAccent
+                          : Colors.white70,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRegularMissionTile({
+    required Map<String, dynamic> mission,
+    required Future<void> Function(int amount) onClaimed,
+  }) {
+    final progress = (mission['progress'] as num?)?.toInt() ?? 0;
+    final target = (mission['target'] as num?)?.toInt() ?? 0;
+    final reward = (mission['rewardCoins'] as num?)?.toInt() ?? 0;
+    final canClaim = mission['claimable'] as bool? ?? false;
+    final progressKey = mission['progressKey']?.toString() ?? '';
+
+    return InkWell(
+      onTap: !canClaim
+          ? null
+          : () async {
+              _playUiTap();
+              final amount = await _missionManager.claimRegularMissionReward(
+                mission['id']?.toString() ?? '',
+              );
+              await onClaimed(amount);
+            },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: canClaim
+              ? Colors.greenAccent.withValues(alpha: 0.14)
+              : Colors.cyanAccent.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: canClaim
+                ? Colors.greenAccent
+                : Colors.cyanAccent.withValues(alpha: 0.3),
+            width: canClaim ? 2 : 1,
+          ),
+          boxShadow: canClaim
+              ? [
+                  BoxShadow(
+                    color: Colors.greenAccent.withValues(alpha: 0.28),
+                    blurRadius: 12,
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _buildRegularMissionTitle(mission),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: canClaim
+                        ? Colors.greenAccent.withValues(alpha: 0.18)
+                        : Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: canClaim
+                          ? Colors.greenAccent
+                          : Colors.white.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (canClaim) ...[
+                        const Text(
+                          '受け取る',
+                          style: TextStyle(
+                            color: Colors.greenAccent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      _buildCoinAmount(
+                        reward,
+                        color: canClaim ? Colors.greenAccent : Colors.white70,
+                        iconSize: 13,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: LinearProgressIndicator(
+                    value: target == 0 ? 0 : (progress / target).clamp(0, 1),
+                    color: canClaim ? Colors.greenAccent : Colors.cyanAccent,
+                    backgroundColor: Colors.white12,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _buildRegularMissionProgress(
+                  progress: progress,
+                  target: target,
+                  progressKey: progressKey,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRegularMissionTitle(Map<String, dynamic> mission) {
+    final progressKey = mission['progressKey']?.toString() ?? '';
+    final target = (mission['target'] as num?)?.toInt() ?? 0;
+    final title = mission['title']?.toString() ?? 'ミッション';
+    final parts = title.split('〇〇');
+    if (progressKey != 'highest_rating' || parts.length < 2) {
+      return Text(
+        title.replaceFirst('〇〇', '$target'),
+        style: const TextStyle(
+          color: Colors.lightBlueAccent,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text(
+          parts.first,
+          style: const TextStyle(
+            color: Colors.lightBlueAccent,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        HexagonTrophyAmount(
+          target,
+          iconSize: 14,
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+        ),
+        Text(
+          parts.skip(1).join('〇〇'),
+          style: const TextStyle(
+            color: Colors.lightBlueAccent,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRegularMissionProgress({
+    required int progress,
+    required int target,
+    required String progressKey,
+  }) {
+    final cappedProgress = math.min(progress, target);
+    if (progressKey == 'highest_rating') {
+      return HexagonTrophyAmount(
+        cappedProgress,
+        suffix: ' / $target',
+        color: Colors.white70,
+        iconSize: 13,
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+      );
+    }
+    return Text(
+      '$cappedProgress / $target',
+      style: const TextStyle(color: Colors.white70, fontSize: 12),
     );
   }
 
@@ -3047,17 +3555,19 @@ class _HomeScreenState extends State<HomeScreen>
           : () async {
               _playUiTap();
               if (isRewardedAdMission && !canClaim) {
-                final rewarded =
-                    await RewardedAdManager.instance.showDoubleRewardAd();
-                if (!rewarded) {
-                  if (mounted) {
-                    await _showAlert(
-                      context,
-                      '広告エラー',
-                      '動画の視聴が完了しませんでした。',
-                    );
+                if (!adsRemoved) {
+                  final rewarded =
+                      await RewardedAdManager.instance.showDoubleRewardAd();
+                  if (!rewarded) {
+                    if (mounted) {
+                      await _showAlert(
+                        context,
+                        '広告エラー',
+                        '動画の視聴が完了しませんでした。',
+                      );
+                    }
+                    return;
                   }
-                  return;
                 }
                 if (mounted && context.mounted) {
                   await _showCoinRewardAlert(
@@ -3413,14 +3923,12 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
     if (isRewardedAdMission && !canClaim) {
-      return const Text(
-        '動画を見る',
-        style: TextStyle(
-          color: Colors.white70,
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.8,
-        ),
+      return _buildCoinAmount(
+        reward,
+        color: Colors.white70,
+        iconSize: 13,
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
       );
     }
 
@@ -3917,14 +4425,18 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
       );
-    } catch (error) {
+    } catch (_) {
       if (!context.mounted) {
         return;
       }
       if (dialogOpen) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      await _showAlert(context, 'ランク戦に失敗しました', '$error');
+      await _showAlert(
+        context,
+        'ランク戦に失敗しました',
+        'マッチングに失敗しました。再度やり直してください。',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -4372,6 +4884,107 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _showHowToDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: Colors.cyanAccent,
+          title: '遊び方',
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 520),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildHowToSection(
+                    title: '基本ルール',
+                    body: '同じ色のボールを6つ以上繋げると消えます。'
+                        '消せる場所を探しながら、落ちてくる操作ボールを置いていきましょう。',
+                  ),
+                  _buildHowToSection(
+                    title: '操作',
+                    body: '左右移動で位置を合わせ、回転で色の並びを変えます。'
+                        '置きたい場所が決まったらドロップして、盤面を素早く整えましょう。'
+                        '操作パネルのレイアウトは、設定から変更できます。',
+                  ),
+                  _buildHowToSection(
+                    title: 'フォーメーション',
+                    body: '同じ色で特定の形を作るとフォーメーションが発動します。'
+                        '発動すると、盤面内にある同じ色のボールをまとめて消せます。',
+                  ),
+                  _buildHowToSection(
+                    title: 'フォーメーションの種類',
+                    body: 'ストレート: 同じ色を一直線に並べる基本形です。\n'
+                        'ピラミッド: 同じ色を三角形に並べる応用形です。\n'
+                        'ヘキサゴン: 同じ色を六角形に並べる強力な形です。',
+                  ),
+                  _buildHowToSection(
+                    title: '対戦',
+                    body: '対戦では、フォーメーションを決めると相手に妨害ボールを送れます。'
+                        '盤面の上にあるラインをボールが超えるとゲームオーバーです。',
+                  ),
+                  _buildHowToSection(
+                    title: 'モード',
+                    body: 'ランク戦: レートをかけて全国のプレイヤーと対戦します。\n'
+                        'フレンド対戦: 部屋を作って友達と対戦できます。\n'
+                        'コンピュータ対戦: 強さを選んで練習できます。\n'
+                        'エンドレス: ひとりでハイスコアに挑戦します。',
+                  ),
+                  const SizedBox(height: 16),
+                  _buildCyberDialogButton(
+                    label: '閉じる',
+                    accentColor: Colors.cyanAccent,
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildHowToSection({
+    required String title,
+    required String body,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.cyanAccent,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            body,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              height: 1.45,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showOnboardingDemo() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -4769,17 +5382,6 @@ class _HomeScreenState extends State<HomeScreen>
             color: accentColor.withValues(alpha: 0.78),
             width: 1.5,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: accentColor.withValues(alpha: 0.35),
-              blurRadius: 24,
-              spreadRadius: 2,
-            ),
-            BoxShadow(
-              color: Colors.purpleAccent.withValues(alpha: 0.18),
-              blurRadius: 40,
-            ),
-          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -4792,7 +5394,6 @@ class _HomeScreenState extends State<HomeScreen>
                 fontSize: 18,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 2.4,
-                shadows: [Shadow(color: accentColor, blurRadius: 12)],
               ),
             ),
             const SizedBox(height: 18),
@@ -5079,12 +5680,12 @@ class _HomeScreenState extends State<HomeScreen>
                           accentColor: Colors.amberAccent,
                           onPressed: () {
                             Navigator.of(sheetContext).pop();
-                            unawaited(_showDailyMissionsDialog(context));
+                            unawaited(_openMissionScreen());
                           },
                         ),
                         const SizedBox(height: 12),
                         _buildCyberDialogButton(
-                          label: 'スタンプ確認',
+                          label: 'テキストスタンプLv確認',
                           accentColor: Colors.purpleAccent,
                           onPressed: () {
                             Navigator.of(sheetContext).pop();
@@ -5160,7 +5761,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Column(
             children: [
               const Text(
-                'スタンプ確認',
+                'テキストスタンプ Lv確認',
                 style: TextStyle(
                   color: Colors.purpleAccent,
                   fontWeight: FontWeight.bold,
@@ -5168,64 +5769,46 @@ class _HomeScreenState extends State<HomeScreen>
                   shadows: [Shadow(color: Colors.purpleAccent, blurRadius: 4)],
                 ),
               ),
+              const SizedBox(height: 8),
+              const Text(
+                '各テキストスタンプのLv.1〜Lv.4表示を確認できます。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 16),
               Expanded(
                 child: ListView.separated(
                   itemCount: GameItemCatalog.commonStamps.length,
                   separatorBuilder: (context, index) =>
-                      const Divider(color: Colors.white24),
+                      const SizedBox(height: 12),
                   itemBuilder: (context, index) {
                     final item = GameItemCatalog.commonStamps[index];
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.24),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.purpleAccent.withValues(alpha: 0.24),
+                        ),
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(item.name,
-                              style: const TextStyle(
-                                  color: Colors.white70, fontSize: 12)),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              Column(
-                                children: [
-                                  const Text('Lv.1',
-                                      style: TextStyle(
-                                          color: Colors.white38, fontSize: 10)),
-                                  const SizedBox(height: 4),
-                                  StampWidget(item: item, level: 1),
-                                ],
-                              ),
-                              Column(
-                                children: [
-                                  const Text('Lv.2',
-                                      style: TextStyle(
-                                          color: Colors.white38, fontSize: 10)),
-                                  const SizedBox(height: 4),
-                                  StampWidget(item: item, level: 2),
-                                ],
-                              ),
-                              Column(
-                                children: [
-                                  const Text('Lv.3',
-                                      style: TextStyle(
-                                          color: Colors.white38, fontSize: 10)),
-                                  const SizedBox(height: 4),
-                                  StampWidget(item: item, level: 3),
-                                ],
-                              ),
-                              Column(
-                                children: [
-                                  const Text('Lv.4',
-                                      style: TextStyle(
-                                          color: Colors.white38, fontSize: 10)),
-                                  const SizedBox(height: 4),
-                                  StampWidget(item: item, level: 4),
-                                ],
-                              ),
-                            ],
+                          Text(
+                            item.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
+                          const SizedBox(height: 10),
+                          _buildStampLevelPreviewGrid(item),
                         ],
                       ),
                     );
@@ -5236,6 +5819,64 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildStampLevelPreviewGrid(GameItem item) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cardWidth = (constraints.maxWidth - 10) / 2;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (var level = 1; level <= 4; level++)
+              _buildStampLevelPreviewCard(
+                item: item,
+                level: level,
+                width: cardWidth,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStampLevelPreviewCard({
+    required GameItem item,
+    required int level,
+    required double width,
+  }) {
+    return Container(
+      width: width,
+      height: 74,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.055),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Lv.$level',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.45),
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: StampWidget(item: item, level: level),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

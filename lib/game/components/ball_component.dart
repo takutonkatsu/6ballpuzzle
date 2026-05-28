@@ -63,9 +63,9 @@ class BallComponent extends PositionComponent {
 
   // 通常発光（定期パルス）
   double glowIntensity = 0.0;
-  // ワザ演出フラッシュ（完全ホワイトアウト）
+  // フォーメーション演出フラッシュ（完全ホワイトアウト）
   double _flashIntensity = 0.0;
-  // ワザ演出中の同色発光（枠リング）
+  // フォーメーション演出中の同色発光（枠リング）
   bool isWazaSameColor = false;
 
   bool _isPulsing = false;
@@ -85,7 +85,7 @@ class BallComponent extends PositionComponent {
             anchor: Anchor.center,
             size: Vector2.all(radius * 2));
 
-  /// ワザ演出のコアフラッシュ（白く塗りつぶされる）
+  /// フォーメーション演出のコアフラッシュ（白く塗りつぶされる）
   void flashGlow() {
     _flashIntensity = 1.0;
     glowIntensity = 0.0;

@@ -1,4 +1,4 @@
-enum ItemType { stamp, skin, icon, vfx }
+enum ItemType { stamp, skin, icon, frame, vfx }
 
 enum ItemRarity { common, rare, epic, legendary }
 
@@ -27,6 +27,7 @@ class GameItem {
 
   bool get isStamp => type == ItemType.stamp;
   bool get isIcon => type == ItemType.icon;
+  bool get isFrame => type == ItemType.frame;
   bool get isMaxLevel => isStamp && level >= maxStampLevel;
 
   GameItem copyWith({
@@ -292,11 +293,11 @@ class GameItemCatalog {
     ),
     GameItem(
       id: 'stamp_attack_02',
-      name: 'おじゃま行くよ？',
+      name: '妨害行くよ？',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
       colorName: 'Red',
-      text: 'おじゃま行くよ？',
+      text: '妨害行くよ？',
     ),
     GameItem(
       id: 'stamp_attack_03',
@@ -446,7 +447,7 @@ class GameItemCatalog {
     ),
     GameItem(
       id: 'icon_sword',
-      name: '剣',
+      name: 'ハンマー',
       type: ItemType.icon,
       rarity: ItemRarity.common,
       iconName: 'sword',
@@ -460,7 +461,7 @@ class GameItemCatalog {
     ),
     GameItem(
       id: 'icon_crown',
-      name: '王冠',
+      name: 'バッジ',
       type: ItemType.icon,
       rarity: ItemRarity.common,
       iconName: 'crown',
@@ -586,6 +587,65 @@ class GameItemCatalog {
     ),
   ];
 
+  static const List<GameItem> iconFrames = [
+    GameItem(
+      id: 'frame_red',
+      name: '赤フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'red',
+    ),
+    GameItem(
+      id: 'frame_orange',
+      name: '橙フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'orange',
+    ),
+    GameItem(
+      id: 'frame_yellow',
+      name: '黄フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'yellow',
+    ),
+    GameItem(
+      id: 'frame_lime',
+      name: '黄緑フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'lime',
+    ),
+    GameItem(
+      id: 'frame_green',
+      name: '緑フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'green',
+    ),
+    GameItem(
+      id: 'frame_blue',
+      name: '青フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'blue',
+    ),
+    GameItem(
+      id: 'frame_purple',
+      name: '紫フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'purple',
+    ),
+    GameItem(
+      id: 'frame_black',
+      name: '黒フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'black',
+    ),
+  ];
+
   static const List<GameItem> ballSkins = [];
 
   static const List<GameItem> legacyVfxItems = [];
@@ -593,6 +653,7 @@ class GameItemCatalog {
   static const List<GameItem> gachaCommonPool = [
     ...commonStamps,
     ...playerIcons,
+    ...iconFrames,
   ];
 
   static const List<GameItem> gachaRarePool = [];
@@ -603,6 +664,7 @@ class GameItemCatalog {
     ...commonStamps,
     ...rareStamps,
     ...playerIcons,
+    ...iconFrames,
     ...ballSkins,
   ];
 
@@ -614,6 +676,7 @@ class GameItemCatalog {
   static const List<GameItem> shopDirectPurchasePool = [
     ...commonStamps,
     ...playerIcons,
+    ...iconFrames,
   ];
 
   static GameItem? byId(String id) {

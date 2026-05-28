@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
+import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
 import '../network/multiplayer_manager.dart';
@@ -111,6 +112,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       widget.initialEntry,
       currentRankLabel: rankLabel,
     );
+    final seasonBadges = await _fetchRemoteSeasonRankBadges(profile);
+    if (seasonBadges.isNotEmpty) {
+      profile = profile.copyWithSeasonRankBadges(seasonBadges);
+    }
     if (!mounted) {
       return;
     }
@@ -128,6 +133,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     } catch (_) {
       return widget.initialRankLabel ?? '圏外';
+    }
+  }
+
+  Future<List<SeasonRankBadge>> _fetchRemoteSeasonRankBadges(
+    _ProfileViewData profile,
+  ) async {
+    try {
+      return await _rankingManager.fetchSeasonRankBadgesForPlayer(
+        uid: widget.playerUid ?? widget.initialEntry?.uid ?? '',
+        publicId: profile.publicId.isNotEmpty
+            ? profile.publicId
+            : widget.initialEntry?.publicId ?? '',
+      );
+    } catch (_) {
+      return profile.seasonRankBadges;
     }
   }
 
@@ -278,6 +298,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final selectedBadge = _selectedEquippedBadgeId == null
         ? null
         : _badgeDisplayById(equippedBadges, _selectedEquippedBadgeId!);
+    final iconFrameColor = _playerIconFrameColor(profile.playerIconFrameId);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -288,19 +309,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               width: 62,
               height: 62,
               decoration: BoxDecoration(
-                color: Colors.cyanAccent.withValues(alpha: 0.12),
+                color: iconFrameColor.withValues(alpha: 0.12),
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.cyanAccent),
+                border: Border.all(color: iconFrameColor, width: 2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.cyanAccent.withValues(alpha: 0.24),
+                    color: iconFrameColor.withValues(alpha: 0.24),
                     blurRadius: 20,
                   ),
                 ],
               ),
               child: Icon(
                 _playerIconData(profile.playerIconId),
-                color: Colors.cyanAccent,
+                color: Colors.white,
                 size: 34,
               ),
             ),
@@ -806,13 +827,100 @@ class _ProfileScreenState extends State<ProfileScreen> {
               showTrophy: true,
             ),
             _MetricData(
-              label: 'ランク戦最高順位',
+              label: 'ランク戦最高到達順位',
               value: bestRank,
               color: Colors.white,
             ),
           ],
         ),
+        const SizedBox(height: 10),
+        _buildBestSeasonRankTile(_bestSeasonRankBadge(profile)),
       ],
+    );
+  }
+
+  SeasonRankBadge? _bestSeasonRankBadge(_ProfileViewData profile) {
+    final badges = profile.seasonRankBadges
+        .where((badge) => badge.rank > 0 && badge.seasonId.isNotEmpty)
+        .toList();
+    if (badges.isEmpty) {
+      return null;
+    }
+    badges.sort((a, b) {
+      final rankDiff = a.rank.compareTo(b.rank);
+      if (rankDiff != 0) {
+        return rankDiff;
+      }
+      return b.seasonId.compareTo(a.seasonId);
+    });
+    return badges.first;
+  }
+
+  Widget _buildBestSeasonRankTile(SeasonRankBadge? badge) {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 74),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.13)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            '最高シーズン順位',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white54,
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (badge == null)
+            const SizedBox(height: 24)
+          else
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${badge.rank}位',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  if (badge.rating != null) ...[
+                    const SizedBox(width: 10),
+                    HexagonTrophyAmount(
+                      badge.rating!,
+                      color: Colors.amberAccent,
+                      iconSize: 18,
+                      fontSize: 20,
+                    ),
+                  ],
+                  const SizedBox(width: 10),
+                  Text(
+                    badge.seasonName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -968,7 +1076,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF151827),
-          title: const Text('名前変更'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: Colors.cyanAccent.withValues(alpha: 0.58),
+              width: 1.4,
+            ),
+          ),
+          title: const Text(
+            '名前変更',
+            style: TextStyle(
+              color: Colors.cyanAccent,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1011,7 +1134,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 controller: controller,
                 maxLength: 10,
                 maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                decoration: const InputDecoration(counterText: ''),
+                cursorColor: Colors.cyanAccent,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+                decoration: InputDecoration(
+                  counterText: '',
+                  filled: true,
+                  fillColor: Colors.black.withValues(alpha: 0.24),
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                      color: Colors.cyanAccent.withValues(alpha: 0.36),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: Colors.cyanAccent,
+                      width: 1.4,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -1021,14 +1167,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _playUiTap();
                 Navigator.of(dialogContext).pop();
               },
-              child: const Text('キャンセル'),
+              child: const Text(
+                'キャンセル',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
             TextButton(
               onPressed: () {
                 _playUiTap();
                 Navigator.of(dialogContext).pop(controller.text.trim());
               },
-              child: const Text('保存'),
+              child: const Text(
+                '保存',
+                style: TextStyle(
+                  color: Colors.cyanAccent,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ],
         );
@@ -1050,7 +1208,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (confirmContext) {
         return AlertDialog(
           backgroundColor: const Color(0xFF151827),
-          title: const Text('消費します'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: Colors.amberAccent.withValues(alpha: 0.58),
+              width: 1.4,
+            ),
+          ),
+          title: const Text(
+            '消費します',
+            style: TextStyle(
+              color: Colors.amberAccent,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
           content: const Row(
             children: [
               Text(
@@ -1075,14 +1248,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _playUiTap();
                 Navigator.of(confirmContext).pop(false);
               },
-              child: const Text('キャンセル'),
+              child: const Text(
+                'キャンセル',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
             TextButton(
               onPressed: () {
                 _playUiTap();
                 Navigator.of(confirmContext).pop(true);
               },
-              child: const Text('変更する'),
+              child: const Text(
+                '変更する',
+                style: TextStyle(
+                  color: Colors.amberAccent,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ],
         );
@@ -1102,7 +1287,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
+        SnackBar(
+          backgroundColor: const Color(0xFF151827),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+            side: BorderSide(
+              color: Colors.redAccent.withValues(alpha: 0.5),
+            ),
+          ),
+          content: Text(
+            '$error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
       );
       return;
     }
@@ -1160,6 +1361,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _ => Icons.person,
     };
   }
+
+  Color _playerIconFrameColor(String frameId) {
+    final frame = GameItemCatalog.byId(frameId);
+    return switch (frame?.colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => Colors.yellowAccent,
+      'lime' => Colors.limeAccent,
+      'green' => Colors.greenAccent,
+      'blue' => Colors.lightBlueAccent,
+      'purple' => Colors.purpleAccent,
+      'black' => Colors.white70,
+      _ => Colors.cyanAccent,
+    };
+  }
 }
 
 class _ProfileViewData {
@@ -1167,6 +1383,7 @@ class _ProfileViewData {
     required this.displayName,
     required this.publicId,
     required this.playerIconId,
+    required this.playerIconFrameId,
     required this.equippedBadgeIds,
     required this.unlockedBadgeIds,
     required this.seasonRankBadges,
@@ -1183,6 +1400,7 @@ class _ProfileViewData {
   final String displayName;
   final String publicId;
   final String playerIconId;
+  final String playerIconFrameId;
   final List<String> equippedBadgeIds;
   final List<String> unlockedBadgeIds;
   final List<SeasonRankBadge> seasonRankBadges;
@@ -1195,6 +1413,26 @@ class _ProfileViewData {
   final int bestRankedRank;
   final Map<String, int> wazaCounts;
 
+  _ProfileViewData copyWithSeasonRankBadges(List<SeasonRankBadge> badges) {
+    return _ProfileViewData(
+      displayName: displayName,
+      publicId: publicId,
+      playerIconId: playerIconId,
+      playerIconFrameId: playerIconFrameId,
+      equippedBadgeIds: equippedBadgeIds,
+      unlockedBadgeIds: unlockedBadgeIds,
+      seasonRankBadges: badges,
+      totalWins: totalWins,
+      level: level,
+      currentRating: currentRating,
+      currentRankLabel: currentRankLabel,
+      totalClearedBalls: totalClearedBalls,
+      highestRating: highestRating,
+      bestRankedRank: bestRankedRank,
+      wazaCounts: wazaCounts,
+    );
+  }
+
   factory _ProfileViewData.fromLocal(
     PlayerDataManager playerData, {
     required String currentRankLabel,
@@ -1203,6 +1441,7 @@ class _ProfileViewData {
       displayName: playerData.displayPlayerName,
       publicId: playerData.playerId,
       playerIconId: playerData.equippedPlayerIconId,
+      playerIconFrameId: playerData.equippedIconFrameId,
       equippedBadgeIds: playerData.equippedBadgeIds,
       unlockedBadgeIds: playerData.unlockedBadgeIds,
       seasonRankBadges: playerData.seasonRankBadges,
@@ -1233,6 +1472,8 @@ class _ProfileViewData {
           'Player',
       publicId: _stringValue(data['publicId']) ?? fallbackEntry?.publicId ?? '',
       playerIconId: _stringValue(collection['equippedPlayerIconId']) ?? '',
+      playerIconFrameId:
+          _stringValue(collection['equippedIconFrameId']) ?? 'default',
       equippedBadgeIds: _stringListValue(collection['equippedBadgeIds']),
       unlockedBadgeIds: _stringListValue(collection['unlockedBadgeIds']),
       seasonRankBadges: _seasonRankBadgesValue(collection['seasonRankBadges']),
@@ -1260,6 +1501,7 @@ class _ProfileViewData {
       displayName: entry?.displayName ?? 'Player',
       publicId: entry?.publicId ?? '',
       playerIconId: '',
+      playerIconFrameId: 'default',
       equippedBadgeIds: const [],
       unlockedBadgeIds: const [],
       seasonRankBadges: const [],

@@ -103,6 +103,7 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
       ItemType.stamp => 'スタンプ',
       ItemType.skin => 'ボールスキン',
       ItemType.icon => 'プレイヤーアイコン',
+      ItemType.frame => 'アイコンフレーム',
       ItemType.vfx => 'エフェクト',
     };
   }
@@ -344,6 +345,8 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
           'skull' => Icons.dangerous,
           _ => Icons.person,
         };
+      case ItemType.frame:
+        return Icons.crop_square;
       case ItemType.vfx:
         return Icons.auto_awesome;
       case ItemType.stamp:
