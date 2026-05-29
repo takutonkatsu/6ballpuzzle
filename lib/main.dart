@@ -83,8 +83,6 @@ Future<void> _initializeEssentialServices() async {
         'Continuing with the native-configured app.',
       );
     }
-    _configureRealtimeDatabaseCache(activeApp);
-
     if (enableAppCheck) {
       try {
         await FirebaseAppCheck.instanceFor(app: activeApp).activate(
@@ -151,16 +149,6 @@ Future<void> _configureSharedGameAudio() async {
     );
   } on MissingPluginException {
     // 開発中の古いネイティブビルドではプラグイン未登録でも起動を止めない。
-  }
-}
-
-void _configureRealtimeDatabaseCache(FirebaseApp app) {
-  try {
-    final database = AppFirebaseDatabase.instance();
-    database.setPersistenceEnabled(true);
-    database.setPersistenceCacheSizeBytes(2 * 1024 * 1024);
-  } catch (error) {
-    debugPrint('Realtime Database cache configuration skipped: $error');
   }
 }
 
