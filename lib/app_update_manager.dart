@@ -9,6 +9,8 @@ class AppUpdateRequirement {
     required this.required,
     required this.currentBuild,
     required this.minSupportedBuild,
+    required this.currentVersion,
+    required this.minSupportedVersion,
     required this.storeUrl,
     required this.message,
   });
@@ -16,6 +18,8 @@ class AppUpdateRequirement {
   final bool required;
   final int currentBuild;
   final int minSupportedBuild;
+  final String currentVersion;
+  final String minSupportedVersion;
   final String storeUrl;
   final String message;
 }
@@ -30,11 +34,14 @@ class AppUpdateManager {
   static Future<AppUpdateRequirement> checkRequirement() async {
     final packageInfo = await PackageInfo.fromPlatform();
     final currentBuild = int.tryParse(packageInfo.buildNumber) ?? 0;
+    final currentVersion = packageInfo.version;
     if (!Platform.isAndroid && !Platform.isIOS) {
       return AppUpdateRequirement(
         required: false,
         currentBuild: currentBuild,
         minSupportedBuild: 0,
+        currentVersion: currentVersion,
+        minSupportedVersion: '',
         storeUrl: '',
         message: _defaultMessage,
       );
@@ -55,6 +62,13 @@ class AppUpdateManager {
             _mapValue(data['forceUpdate'])?[platformKey],
           ) ??
           0;
+      final minSupportedVersion = _stringValue(
+            _mapValue(data['minSupportedVersion'])?[platformKey],
+          ) ??
+          _stringValue(
+            _mapValue(data['forceUpdateVersion'])?[platformKey],
+          ) ??
+          (minSupportedBuild > 0 ? '$minSupportedBuild' : '');
       final storeUrl = _stringValue(
             _mapValue(data['storeUrl'])?[platformKey],
           ) ??
@@ -65,6 +79,8 @@ class AppUpdateManager {
         required: minSupportedBuild > 0 && currentBuild < minSupportedBuild,
         currentBuild: currentBuild,
         minSupportedBuild: minSupportedBuild,
+        currentVersion: currentVersion,
+        minSupportedVersion: minSupportedVersion,
         storeUrl: storeUrl,
         message: message,
       );
@@ -73,6 +89,8 @@ class AppUpdateManager {
         required: false,
         currentBuild: currentBuild,
         minSupportedBuild: 0,
+        currentVersion: currentVersion,
+        minSupportedVersion: '',
         storeUrl: '',
         message: _defaultMessage,
       );

@@ -4204,14 +4204,27 @@ class _HomeScreenState extends State<HomeScreen>
     BuildContext context, {
     required String title,
   }) async {
+    final currentConnected = await RealtimeConnectionGuard.currentConnected(
+      timeout: const Duration(milliseconds: 180),
+    );
+    if (currentConnected == false) {
+      if (context.mounted) {
+        await _showAlert(
+            context, title, RealtimeConnectionGuard.offlineMessage);
+      }
+      return false;
+    }
+    if (currentConnected == true) {
+      return true;
+    }
     final connected = await RealtimeConnectionGuard.waitForConnected(
-      timeout: const Duration(seconds: 3),
+      timeout: const Duration(milliseconds: 700),
     );
     if (connected) {
       return true;
     }
     if (context.mounted) {
-      await _showAlert(context, title, 'データ通信に接続できません。通信状況を確認してください。');
+      await _showAlert(context, title, RealtimeConnectionGuard.offlineMessage);
     }
     return false;
   }

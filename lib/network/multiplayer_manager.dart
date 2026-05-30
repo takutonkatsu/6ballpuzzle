@@ -2575,18 +2575,28 @@ class MultiplayerManager {
       throw StateError('参加中のルームがありません。');
     }
 
+    final attackRef =
+        _db.child('rooms/$roomId/players/$opponentRoleId/attacks').push();
+    final payload = {
+      'type': task.type.name,
+      'startColor': task.startColor?.index,
+      'presetColors': task.presetColors?.map((color) => color.index).toList(),
+      'timestamp': ServerValue.timestamp,
+    };
     try {
-      await _db
-          .child('rooms/$roomId/players/$opponentRoleId/attacks')
-          .push()
-          .set({
-        'type': task.type.name,
-        'startColor': task.startColor?.index,
-        'presetColors': task.presetColors?.map((color) => color.index).toList(),
-        'timestamp': ServerValue.timestamp,
-      });
+      await attackRef.set(payload);
     } on FirebaseException catch (error) {
-      throw StateError(_firebaseErrorMessage('攻撃送信', error));
+      final reconnected = await RealtimeConnectionGuard.waitForConnected(
+        timeout: const Duration(milliseconds: 500),
+      );
+      if (!reconnected) {
+        throw StateError(_firebaseErrorMessage('攻撃送信', error));
+      }
+      try {
+        await attackRef.set(payload);
+      } on FirebaseException catch (retryError) {
+        throw StateError(_firebaseErrorMessage('攻撃送信', retryError));
+      }
     }
   }
 

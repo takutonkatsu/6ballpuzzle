@@ -819,7 +819,7 @@ class ForceUpdateScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      '現在: ${requirement.currentBuild} / 必要: ${requirement.minSupportedBuild}',
+                      '現在: ${requirement.currentVersion} / 必要: ${requirement.minSupportedVersion.isEmpty ? requirement.minSupportedBuild : requirement.minSupportedVersion}',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white38,

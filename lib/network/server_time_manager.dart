@@ -13,7 +13,7 @@ class ServerTimeManager {
 
   int? _anchorServerMillis;
   final Stopwatch _anchorStopwatch = Stopwatch();
-  DateTime? _lastRefreshAttemptAt;
+  final Stopwatch _refreshCooldownStopwatch = Stopwatch();
 
   DatabaseReference get _db => AppFirebaseDatabase.ref();
 
@@ -21,7 +21,17 @@ class ServerTimeManager {
     if (_hasFreshAnchor && (!forceRefresh || !_canRefreshNow)) {
       return _anchoredNowUtc();
     }
-    if (!forceRefresh && _hasAnchor) {
+    if (_canRefreshNow) {
+      try {
+        return await refreshNowUtc();
+      } catch (_) {
+        if (_hasAnchor) {
+          return _anchoredNowUtc();
+        }
+        rethrow;
+      }
+    }
+    if (_hasAnchor) {
       return _anchoredNowUtc();
     }
     return refreshNowUtc();
@@ -40,7 +50,9 @@ class ServerTimeManager {
   }
 
   Future<DateTime> refreshNowUtc() async {
-    _lastRefreshAttemptAt = DateTime.now();
+    _refreshCooldownStopwatch
+      ..reset()
+      ..start();
     final uid = await AuthManager.instance.ensureSignedIn();
     final ref = _db.child('serverTimePings/$uid/current');
     await ref.set({
@@ -64,9 +76,8 @@ class ServerTimeManager {
       _hasAnchor && _anchorStopwatch.elapsed <= _anchorTtl;
 
   bool get _canRefreshNow {
-    final last = _lastRefreshAttemptAt;
-    return last == null ||
-        DateTime.now().difference(last) >= _minRefreshInterval;
+    return !_refreshCooldownStopwatch.isRunning ||
+        _refreshCooldownStopwatch.elapsed >= _minRefreshInterval;
   }
 
   DateTime _anchoredNowUtc() {

@@ -114,12 +114,12 @@ class _RankingScreenState extends State<RankingScreen> {
     });
 
     try {
-      await (switch (requestTab) {
+      final syncFuture = (switch (requestTab) {
         _RankingTab.endless => _syncEndlessBeforeLoad(),
         _ => _syncCurrentSeasonBeforeLoad(),
       })
           .timeout(_rankingOperationTimeout);
-      final entries = switch (requestTab) {
+      final entriesFuture = switch (requestTab) {
         _RankingTab.currentSeason => await _rankingManager
             .fetchTopRankings(forceRefresh: true)
             .timeout(_rankingOperationTimeout),
@@ -130,6 +130,8 @@ class _RankingScreenState extends State<RankingScreen> {
             .fetchTopEndlessScoreRankings(forceRefresh: true)
             .timeout(_rankingOperationTimeout),
       };
+      await syncFuture;
+      final entries = entriesFuture;
       if (!mounted) {
         return;
       }

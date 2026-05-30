@@ -143,7 +143,7 @@ async function dailyWinEntriesForDate(dateKey) {
   }
 
   const seasonMerged = mergeDailyEntries(seasonEntries, {
-    combineDuplicateWins: true,
+    combineDuplicateWins: false,
   });
   const legacyEntries = [];
   for (const [uid, raw] of Object.entries(legacyRoot)) {

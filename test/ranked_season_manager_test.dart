@@ -68,5 +68,39 @@ void main() {
         '残り30秒',
       );
     });
+
+    test('handles JST wall clock values returned with a UTC marker', () {
+      expect(
+        RankedSeasonManager.remainingLabel(
+          nowJstOverride: DateTime.utc(2026, 5, 30, 13),
+        ),
+        '残り1日',
+      );
+      expect(
+        RankedSeasonManager.remainingLabel(
+          nowJstOverride: DateTime.utc(2026, 5, 31, 13),
+        ),
+        '残り8時間',
+      );
+      expect(
+        RankedSeasonManager.currentSeasonId(
+          nowJstOverride: DateTime.utc(2026, 5, 31, 20, 59, 59),
+        ),
+        '2026-05',
+      );
+      expect(
+        RankedSeasonManager.currentSeasonId(
+          nowJstOverride: DateTime.utc(2026, 5, 31, 21),
+        ),
+        '2026-06',
+      );
+    });
+
+    test('stores the actual UTC instant for the JST season boundary', () {
+      expect(
+        RankedSeasonManager.seasonEndJst('2026-05'),
+        DateTime.utc(2026, 5, 31, 12),
+      );
+    });
   });
 }

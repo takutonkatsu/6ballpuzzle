@@ -1348,12 +1348,14 @@ class PlayerDataManager {
         }
       }
       final syncedAt = DateTime.now();
-      await database.child('playerRecordSummaries/$uid').set({
-        ...summary,
-        'updatedAt': ServerValue.timestamp,
-        'updatedAtText': _formatDateTimeForDatabase(syncedAt),
-        'lastSeenAtText': _formatDateTimeForDatabase(syncedAt),
-      });
+      await database.child('playerRecordSummaries/$uid').update(
+            _flattenSummaryForUpdate({
+              ...summary,
+              'updatedAt': ServerValue.timestamp,
+              'updatedAtText': _formatDateTimeForDatabase(syncedAt),
+              'lastSeenAtText': _formatDateTimeForDatabase(syncedAt),
+            }),
+          );
       await database
           .child('playerNameLookup/${_nameLookupKey(displayPlayerName)}/$uid')
           .set({
@@ -1378,6 +1380,36 @@ class PlayerDataManager {
 
   void _syncRecordSummaryInBackground({bool force = false}) {
     unawaited(_syncRecordSummarySafely(force: force));
+  }
+
+  Map<String, Object?> _flattenSummaryForUpdate(Map<String, dynamic> source) {
+    final updates = <String, Object?>{};
+
+    void visit(String prefix, Object? value) {
+      if (value is Map) {
+        // Firebase server values contain special keys such as ".sv".
+        // Keep them as leaf values instead of turning them into update paths.
+        if (value.keys.any((key) => key.toString().startsWith('.'))) {
+          updates[prefix] = value;
+          return;
+        }
+        if (value.isEmpty) {
+          updates[prefix] = value;
+          return;
+        }
+        for (final entry in value.entries) {
+          final key = entry.key.toString();
+          visit(prefix.isEmpty ? key : '$prefix/$key', entry.value);
+        }
+        return;
+      }
+      updates[prefix] = value;
+    }
+
+    for (final entry in source.entries) {
+      visit(entry.key, entry.value);
+    }
+    return updates;
   }
 
   Future<void> _syncRecordSummarySafely({bool force = false}) async {

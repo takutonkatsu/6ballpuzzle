@@ -79,6 +79,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final bool isRemotePlayerMode;
   final bool useConstantFallSpeed;
   final bool manualPieceSpawning;
+  final bool renderDetectedFormationEffects;
   late Random _rng;
   Random? syncDropRng;
   int currentDropSeed = 0;
@@ -166,6 +167,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Map<HexCoordinate, BallColor>? _pendingSpectatorBoardState;
   async.Timer? _deferredRemoteBoardTimer;
   Map<String, dynamic>? _deferredRemoteBoardState;
+  int _remoteAttackFormationGeneration = 0;
   static const Duration _minimumRemoteOjamaVisibleDuration =
       Duration(milliseconds: 180);
   static const Duration _deathLineTransitionDuration =
@@ -601,6 +603,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     this.isRemotePlayerMode = false,
     this.useConstantFallSpeed = false,
     this.manualPieceSpawning = false,
+    this.renderDetectedFormationEffects = true,
     this.wallColor,
   }) {
     _rng = seed != null ? Random(seed) : Random();
@@ -1474,7 +1477,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                 if (onWazaFired != null) {
                   onWazaFired!(matchResult.highestWaza, matchResult.wazaColor);
                 }
-                await _playWazaAnimation(matchResult);
+                if (renderDetectedFormationEffects) {
+                  await _playWazaAnimation(matchResult);
+                } else {
+                  await _waitForWazaAnimation(matchResult);
+                }
               }
 
               if (_playsBoardSfx) {
@@ -2430,6 +2437,27 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     for (var ball in sameColorBalls) {
       ball.isWazaSameColor = false;
     }
+  }
+
+  Future<void> _waitForWazaAnimation(MatchResult matchResult) async {
+    await Future<void>.delayed(
+      Duration(milliseconds: matchResult.wazaPattern.length * 180 + 350),
+    );
+  }
+
+  void showRemoteAttackFormation(OjamaType type) {
+    final name = switch (type) {
+      OjamaType.hexagonSet => 'HEXAGON',
+      OjamaType.pyramidSet => 'PYRAMID',
+      OjamaType.straightSet => 'STRAIGHT',
+    };
+    final generation = ++_remoteAttackFormationGeneration;
+    wazaNameNotifier.value = '$name！';
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      if (!_isRemoved && generation == _remoteAttackFormationGeneration) {
+        wazaNameNotifier.value = null;
+      }
+    });
   }
 
   HexCoordinate? _hexForBall(BallComponent ball) {

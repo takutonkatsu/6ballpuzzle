@@ -12,10 +12,12 @@ class RankedSeasonManager {
     if (now == null) {
       throw StateError('currentSeasonId requires server based JST time.');
     }
-    final end = _seasonEndForMonth(now.year, now.month);
-    final seasonMonth = now.isBefore(end) ? now.month : _nextMonth(now.month);
+    final wallClockNow = _wallClockUtc(now);
+    final end = _seasonEndWallClockForMonth(now.year, now.month);
+    final seasonMonth =
+        wallClockNow.isBefore(end) ? now.month : _nextMonth(now.month);
     final seasonYear =
-        now.isBefore(end) || now.month < 12 ? now.year : now.year + 1;
+        wallClockNow.isBefore(end) || now.month < 12 ? now.year : now.year + 1;
     return _formatSeasonId(seasonYear, seasonMonth);
   }
 
@@ -64,8 +66,13 @@ class RankedSeasonManager {
     if (now == null) {
       throw StateError('remaining requires server based JST time.');
     }
-    final end = seasonEndJst(currentSeasonId(nowJstOverride: now));
-    final remaining = end.difference(now);
+    final wallClockNow = _wallClockUtc(now);
+    final currentSeasonIdValue = currentSeasonId(nowJstOverride: now);
+    final parsed = _parseSeasonId(currentSeasonIdValue);
+    final end = parsed == null
+        ? _seasonEndWallClockForMonth(2026, 5)
+        : _seasonEndWallClockForMonth(parsed.$1, parsed.$2);
+    final remaining = end.difference(wallClockNow);
     return remaining.isNegative ? Duration.zero : remaining;
   }
 
@@ -91,10 +98,33 @@ class RankedSeasonManager {
   }
 
   static DateTime _seasonEndForMonth(int year, int month) {
-    final nextMonth =
-        month == 12 ? DateTime(year + 1, 1, 1) : DateTime(year, month + 1, 1);
+    final nextMonth = month == 12
+        ? DateTime.utc(year + 1, 1, 1)
+        : DateTime.utc(year, month + 1, 1);
     final lastDay = nextMonth.subtract(const Duration(days: 1)).day;
-    return DateTime(year, month, lastDay, seasonEndHourJst);
+    return DateTime.utc(year, month, lastDay, seasonEndHourJst)
+        .subtract(const Duration(hours: 9));
+  }
+
+  static DateTime _seasonEndWallClockForMonth(int year, int month) {
+    final nextMonth = month == 12
+        ? DateTime.utc(year + 1, 1, 1)
+        : DateTime.utc(year, month + 1, 1);
+    final lastDay = nextMonth.subtract(const Duration(days: 1)).day;
+    return DateTime.utc(year, month, lastDay, seasonEndHourJst);
+  }
+
+  static DateTime _wallClockUtc(DateTime value) {
+    return DateTime.utc(
+      value.year,
+      value.month,
+      value.day,
+      value.hour,
+      value.minute,
+      value.second,
+      value.millisecond,
+      value.microsecond,
+    );
   }
 
   static int _nextMonth(int month) => month == 12 ? 1 : month + 1;

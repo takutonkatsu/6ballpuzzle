@@ -66,6 +66,9 @@
     "playerRecordSummaries": {
       ".read": true,
       ".write": true,
+      "$uid": {
+        ".validate": "newData.child('ranked/dailyWinRankPlacements').val() === data.child('ranked/dailyWinRankPlacements').val()"
+      },
       ".indexOn": ["publicId", "displayName", "updatedAt", "recordDate"]
     },
     "playerNameLookup": {

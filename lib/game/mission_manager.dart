@@ -57,6 +57,9 @@ class MissionManager {
     final claimedCounts = _regularClaimCounts(prefs);
     final missions = <Map<String, dynamic>>[];
     for (final definition in MissionCatalog.regularMissions) {
+      if (_isHiddenRegularMission(definition)) {
+        continue;
+      }
       final claimedCount = claimedCounts[definition.id] ?? 0;
       final target = definition.targetForClaimedCount(claimedCount);
       final progress = _regularProgressFor(definition, prefs);
@@ -261,6 +264,9 @@ class MissionManager {
       (mission) => mission.id == missionId,
       orElse: () => throw StateError('ミッションが見つかりません。'),
     );
+    if (_isHiddenRegularMission(definition)) {
+      throw StateError('このミッションは現在利用できません。');
+    }
     final claimedCounts = _regularClaimCounts(prefs);
     final claimedCount = claimedCounts[missionId] ?? 0;
     final target = definition.targetForClaimedCount(claimedCount);
@@ -447,6 +453,11 @@ class MissionManager {
       'total_cleared_balls' => _playerData.totalClearedBalls,
       _ => 0,
     };
+  }
+
+  bool _isHiddenRegularMission(RegularMissionDefinition definition) {
+    return adsRemovedBenefitsEnabled &&
+        definition.progressKey == 'rewarded_ad_views';
   }
 
   int _indexOfMission(List<Map<String, dynamic>> missions, String missionId) =>

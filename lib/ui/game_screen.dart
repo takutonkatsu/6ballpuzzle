@@ -144,6 +144,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Timer? _rankedAutoStartTimer;
   bool _rankedAutoStartScheduled = false;
   bool _opponentGameOverVerificationPending = false;
+  Timer? _pendingEmptyOpponentBoardTimer;
   bool _matchingSfxPlayed = false;
   bool _autoReadyRequested = false;
   bool _pendingPreBattleForfeitWin = false;
@@ -393,6 +394,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         autoStart: false,
         isRemotePlayerMode: true,
         useConstantFallSpeed: true,
+        renderDetectedFormationEffects: false,
         wallColor: Colors.redAccent,
       );
       _cpuGame!.onDeathLineCrossed = () {
@@ -777,6 +779,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     unawaited(GameActivityPresence.instance.exit());
     _clearAllPendingAttacks();
     _rankedAutoStartTimer?.cancel();
+    _pendingEmptyOpponentBoardTimer?.cancel();
     _myStampTimer?.cancel();
     _opponentStampTimer?.cancel();
     _stampCooldownTimer?.cancel();
@@ -4183,16 +4186,35 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         _multiplayerManager.currentRoom?.players[opponentRoleId]?.status;
     if (boardData.isEmpty &&
         currentOpponentBoardIsNotEmpty &&
-        (_resultRevealPending ||
+        (_onlineGameStarted ||
+            _resultRevealPending ||
             _onlineResultMessage != null ||
             _opponentGameOverVerificationPending ||
             opponentStatus == 'dead')) {
       _ignoreEmptyOpponentBoardUntil =
           DateTime.now().add(const Duration(seconds: 3));
+      _pendingEmptyOpponentBoardTimer?.cancel();
+      _pendingEmptyOpponentBoardTimer =
+          Timer(const Duration(milliseconds: 1500), () {
+        _pendingEmptyOpponentBoardTimer = null;
+        if (!mounted ||
+            _resultRevealPending ||
+            _onlineResultMessage != null ||
+            _opponentGameOverVerificationPending) {
+          return;
+        }
+        final latestStatus = _multiplayerManager
+            .currentRoom?.players[_multiplayerManager.opponentRoleId]?.status;
+        if (latestStatus != 'dead') {
+          _cpuGame?.applyRemoteBoardState(const {});
+        }
+      });
       return;
     }
     if (boardData.isNotEmpty) {
       _ignoreEmptyOpponentBoardUntil = null;
+      _pendingEmptyOpponentBoardTimer?.cancel();
+      _pendingEmptyOpponentBoardTimer = null;
     }
     opponentGame?.applyRemoteBoardState(boardData);
   }
@@ -4313,6 +4335,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   }
 
   void _handleAttackReceived(OjamaTask task) {
+    _cpuGame?.showRemoteAttackFormation(task.type);
     _queueOjamaTask(_playerGame, task);
   }
 
