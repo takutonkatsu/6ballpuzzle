@@ -1,5 +1,6 @@
 import 'dart:async' show runZonedGuarded, unawaited;
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flame_audio/flame_audio.dart';
@@ -22,6 +23,7 @@ import 'network/realtime_connection_guard.dart';
 import 'purchases/ad_removal_purchase_manager.dart';
 import 'ui/game_screen.dart';
 import 'ui/home_screen.dart';
+import 'ui/theme/game_theme_colors.dart';
 
 void main() {
   runZonedGuarded(
@@ -406,24 +408,12 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                     constraints: const BoxConstraints(maxWidth: 380),
                     padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF141421),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: Colors.cyanAccent.withValues(alpha: 0.78),
-                        width: 1.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.cyanAccent.withValues(alpha: 0.35),
-                          blurRadius: 24,
-                          spreadRadius: 2,
-                        ),
-                        BoxShadow(
-                          color: Colors.purpleAccent.withValues(alpha: 0.18),
-                          blurRadius: 40,
-                        ),
-                      ],
-                    ),
+                        color: const Color(0xFF141421),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: GameThemeColors.cyanBorder,
+                          width: 1.5,
+                        )),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -431,13 +421,10 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                           '名前を登録',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Colors.cyanAccent,
+                            color: GameThemeColors.cyan,
                             fontSize: 18,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 2.4,
-                            shadows: [
-                              Shadow(color: Colors.cyanAccent, blurRadius: 12),
-                            ],
                           ),
                         ),
                         const SizedBox(height: 18),
@@ -464,14 +451,14 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                                 const TextStyle(color: Colors.white38),
                             labelStyle: const TextStyle(color: Colors.white70),
                             errorText: errorText,
-                            enabledBorder: OutlineInputBorder(
+                            enabledBorder: const OutlineInputBorder(
                               borderSide: BorderSide(
-                                color:
-                                    Colors.cyanAccent.withValues(alpha: 0.42),
+                                color: GameThemeColors.cyanBorder,
                               ),
                             ),
                             focusedBorder: const OutlineInputBorder(
-                              borderSide: BorderSide(color: Colors.cyanAccent),
+                              borderSide:
+                                  BorderSide(color: GameThemeColors.cyanBorder),
                             ),
                           ),
                         ),
@@ -486,10 +473,9 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                               unawaited(submit());
                             },
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.cyanAccent,
-                              side: BorderSide(
-                                color:
-                                    Colors.cyanAccent.withValues(alpha: 0.75),
+                              foregroundColor: GameThemeColors.cyan,
+                              side: const BorderSide(
+                                color: GameThemeColors.cyanBorder,
                                 width: 1.4,
                               ),
                               padding: const EdgeInsets.symmetric(
@@ -570,15 +556,15 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF090B12),
+      backgroundColor: GameThemeColors.background,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF09111C),
-              Color(0xFF060A12),
+              Color(0xFF08111C),
+              Color(0xFF05070D),
             ],
           ),
         ),
@@ -595,25 +581,37 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(34),
-                              boxShadow: [
-                                BoxShadow(
-                                  color:
-                                      Colors.cyanAccent.withValues(alpha: 0.16),
-                                  blurRadius: 32,
-                                  spreadRadius: 1,
+                          AnimatedBuilder(
+                            animation: _progressController,
+                            builder: (context, child) {
+                              final pulse = 0.985 +
+                                  math.sin(
+                                        _progressController.value * math.pi * 2,
+                                      ) *
+                                      0.015;
+                              return Transform.scale(
+                                scale: pulse,
+                                child: child,
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.035),
+                                borderRadius: BorderRadius.circular(40),
+                                border: Border.all(
+                                  color: GameThemeColors.cyanBorder,
+                                  width: 1.4,
                                 ),
-                              ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(34),
-                              child: Image.asset(
-                                'assets/images/Hexagon_icon02_1024x1024.png',
-                                width: 184,
-                                height: 184,
-                                fit: BoxFit.cover,
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(30),
+                                child: Image.asset(
+                                  'assets/images/Hexagon_icon02_1024x1024.png',
+                                  width: 168,
+                                  height: 168,
+                                  fit: BoxFit.cover,
+                                ),
                               ),
                             ),
                           ),
@@ -636,17 +634,13 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                       width: double.infinity,
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(22),
-                        color: const Color(0xFF0D1826),
-                        border: Border.all(
-                          color: Colors.cyanAccent.withValues(alpha: 0.32),
+                        borderRadius: BorderRadius.circular(18),
+                        color: GameThemeColors.surfaceDeep.withValues(
+                          alpha: 0.92,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.cyanAccent.withValues(alpha: 0.12),
-                            blurRadius: 18,
-                          ),
-                        ],
+                        border: Border.all(
+                          color: GameThemeColors.cyanBorder,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -659,7 +653,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                                 height: 8,
                                 decoration: const BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: Colors.cyanAccent,
+                                  color: GameThemeColors.cyan,
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -685,7 +679,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                                   minHeight: 10,
                                   backgroundColor: Colors.white10,
                                   valueColor: const AlwaysStoppedAnimation(
-                                    Colors.cyanAccent,
+                                    GameThemeColors.cyan,
                                   ),
                                 );
                               },
@@ -771,29 +765,18 @@ class ForceUpdateScreen extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF141421),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.cyanAccent.withValues(alpha: 0.72),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.cyanAccent.withValues(alpha: 0.24),
-                      blurRadius: 28,
-                    ),
-                    BoxShadow(
-                      color: Colors.pinkAccent.withValues(alpha: 0.12),
-                      blurRadius: 38,
-                    ),
-                  ],
-                ),
+                    color: const Color(0xFF141421),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: GameThemeColors.cyanBorder,
+                      width: 1.5,
+                    )),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(
                       Icons.system_update,
-                      color: Colors.cyanAccent,
+                      color: GameThemeColors.cyan,
                       size: 42,
                     ),
                     const SizedBox(height: 18),
@@ -835,7 +818,7 @@ class ForceUpdateScreen extends StatelessWidget {
                             ? null
                             : () => unawaited(_openStore()),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.cyanAccent,
+                          backgroundColor: GameThemeColors.cyan,
                           foregroundColor: Colors.black,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(

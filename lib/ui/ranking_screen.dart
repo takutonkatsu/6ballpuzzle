@@ -11,6 +11,7 @@ import '../network/ranking_manager.dart';
 import '../network/server_time_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'profile_screen.dart';
+import 'theme/game_theme_colors.dart';
 
 class RankingScreen extends StatefulWidget {
   const RankingScreen({super.key});
@@ -296,22 +297,11 @@ class _RankingScreenState extends State<RankingScreen> {
               Expanded(
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xFF141421),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: Colors.cyanAccent.withValues(alpha: 0.45),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.cyanAccent.withValues(alpha: 0.16),
-                        blurRadius: 24,
-                      ),
-                      BoxShadow(
-                        color: Colors.purpleAccent.withValues(alpha: 0.12),
-                        blurRadius: 36,
-                      ),
-                    ],
-                  ),
+                      color: const Color(0xFF141421),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: GameThemeColors.cyan.withValues(alpha: 0.45),
+                      )),
                   child: _buildBody(),
                 ),
               ),
@@ -374,7 +364,7 @@ class _RankingScreenState extends State<RankingScreen> {
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Colors.cyanAccent),
+        child: CircularProgressIndicator(color: GameThemeColors.cyan),
       );
     }
 
@@ -472,16 +462,10 @@ class _RankingScreenState extends State<RankingScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 2),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xCC0B1020),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.28)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.cyanAccent.withValues(alpha: 0.12),
-            blurRadius: 18,
-          ),
-        ],
-      ),
+          color: const Color(0xCC0B1020),
+          borderRadius: BorderRadius.circular(18),
+          border:
+              Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.28))),
       child: Row(
         children: [
           _buildModeTab(
@@ -533,14 +517,15 @@ class _RankingScreenState extends State<RankingScreen> {
             gradient: selected
                 ? LinearGradient(
                     colors: [
-                      Colors.cyanAccent.withValues(alpha: 0.35),
+                      GameThemeColors.cyan.withValues(alpha: 0.35),
                       const Color(0xFF0B84FF).withValues(alpha: 0.28),
                     ],
                   )
                 : null,
             borderRadius: BorderRadius.circular(14),
             border: selected
-                ? Border.all(color: Colors.cyanAccent.withValues(alpha: 0.85))
+                ? Border.all(
+                    color: GameThemeColors.cyan.withValues(alpha: 0.85))
                 : null,
           ),
           child: Text(
@@ -564,16 +549,16 @@ class _RankingScreenState extends State<RankingScreen> {
     required _RankingTab tab,
   }) {
     final accent = switch (rank) {
-      1 => Colors.amberAccent,
-      2 => const Color(0xFFE5E7EB),
-      3 => const Color(0xFFCD7F32),
-      _ => Colors.cyanAccent,
+      1 => const Color(0xFFFFD85A),
+      2 => const Color(0xFFDCE8FF),
+      3 => const Color(0xFFFFA35A),
+      _ => GameThemeColors.cyan,
     };
     final rankIsTop = rank <= 3;
     final topFillColor = switch (rank) {
-      1 => const Color(0xFF9A7218),
-      2 => const Color(0xFF768394),
-      3 => const Color(0xFF924A24),
+      1 => const Color(0xFF4A3714),
+      2 => const Color(0xFF303A4F),
+      3 => const Color(0xFF4A2416),
       _ => const Color(0xFF101827),
     };
 
@@ -585,30 +570,22 @@ class _RankingScreenState extends State<RankingScreen> {
         constraints: const BoxConstraints(minHeight: 58),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
-          color: rankIsTop ? topFillColor.withValues(alpha: 0.96) : null,
-          gradient: rankIsTop
-              ? null
-              : LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    const Color(0xFF101827).withValues(alpha: 0.96),
-                    const Color(0xFF070B14).withValues(alpha: 0.98),
-                  ],
-                ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: accent.withValues(alpha: rankIsTop ? 0.88 : 0.24),
-            width: rankIsTop ? 1.3 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: rankIsTop ? 0.28 : 0.06),
-              blurRadius: rankIsTop ? 12 : 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
+            color: rankIsTop ? topFillColor.withValues(alpha: 0.98) : null,
+            gradient: rankIsTop
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF101827).withValues(alpha: 0.96),
+                      const Color(0xFF070B14).withValues(alpha: 0.98),
+                    ],
+                  ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: accent.withValues(alpha: rankIsTop ? 0.9 : 0.24),
+              width: rankIsTop ? 1.5 : 1,
+            )),
         child: Row(
           children: [
             Container(
@@ -616,7 +593,7 @@ class _RankingScreenState extends State<RankingScreen> {
               height: 34,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: rankIsTop ? 0.28 : 0.20),
+                color: Colors.black.withValues(alpha: rankIsTop ? 0.34 : 0.20),
                 borderRadius: BorderRadius.circular(9),
                 border: Border.all(
                   color: accent.withValues(alpha: rankIsTop ? 0.78 : 0.34),
@@ -787,22 +764,15 @@ class _RankingScreenState extends State<RankingScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.32),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: Colors.amberAccent.withValues(alpha: 0.42),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.amberAccent.withValues(alpha: 0.10),
-                  blurRadius: 14,
-                ),
-              ],
-            ),
+                color: Colors.black.withValues(alpha: 0.32),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: GameThemeColors.cyan.withValues(alpha: 0.42),
+                )),
             child: const Text(
               '過去シーズン',
               style: TextStyle(
-                color: Colors.amberAccent,
+                color: GameThemeColors.cyan,
                 fontSize: 12,
                 fontWeight: FontWeight.w900,
               ),
@@ -839,22 +809,15 @@ class _RankingScreenState extends State<RankingScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.32),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: Colors.amberAccent.withValues(alpha: 0.38),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.amberAccent.withValues(alpha: 0.08),
-              blurRadius: 14,
-            ),
-          ],
-        ),
+            color: Colors.black.withValues(alpha: 0.32),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: GameThemeColors.cyan.withValues(alpha: 0.38),
+            )),
         child: Text(
           label,
           style: const TextStyle(
-            color: Colors.amberAccent,
+            color: GameThemeColors.cyan,
             fontSize: 12,
             fontWeight: FontWeight.w900,
           ),
@@ -869,12 +832,12 @@ class _RankingScreenState extends State<RankingScreen> {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.32),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.3)),
+        border: Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.3)),
       ),
       child: Text(
         label,
         style: const TextStyle(
-          color: Colors.cyanAccent,
+          color: GameThemeColors.cyan,
           fontSize: 12,
           fontWeight: FontWeight.w900,
         ),
@@ -1052,23 +1015,12 @@ class _RankingScreenState extends State<RankingScreen> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF101321),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: Colors.cyanAccent.withValues(alpha: 0.52),
-            width: 1.4,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.cyanAccent.withValues(alpha: 0.18),
-              blurRadius: 28,
-            ),
-            BoxShadow(
-              color: Colors.pinkAccent.withValues(alpha: 0.10),
-              blurRadius: 36,
-            ),
-          ],
-        ),
+            color: const Color(0xFF101321),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: GameThemeColors.cyan.withValues(alpha: 0.52),
+              width: 1.4,
+            )),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1104,10 +1056,10 @@ class _RankingScreenState extends State<RankingScreen> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.cyanAccent.withValues(alpha: 0.08),
+            color: GameThemeColors.cyan.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: Colors.cyanAccent.withValues(alpha: 0.42),
+              color: GameThemeColors.cyan.withValues(alpha: 0.42),
               width: 1.2,
             ),
           ),
@@ -1132,7 +1084,7 @@ class _RankingScreenState extends State<RankingScreen> {
               Text(
                 'FINAL RATE',
                 style: TextStyle(
-                  color: Colors.cyanAccent.withValues(alpha: 0.78),
+                  color: GameThemeColors.cyan.withValues(alpha: 0.78),
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 2,
@@ -1239,7 +1191,7 @@ class _RankingScreenState extends State<RankingScreen> {
             ),
             const Icon(
               Icons.chevron_right,
-              color: Colors.cyanAccent,
+              color: GameThemeColors.cyan,
               size: 22,
             ),
           ],
@@ -1307,7 +1259,7 @@ class _RankingPageTitle extends StatelessWidget {
         Text(
           subtitle,
           style: const TextStyle(
-            color: Colors.cyanAccent,
+            color: GameThemeColors.cyan,
             fontSize: 10,
             fontWeight: FontWeight.w900,
             letterSpacing: 3.5,
@@ -1320,9 +1272,6 @@ class _RankingPageTitle extends StatelessWidget {
             fontSize: 18,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
-            shadows: [
-              Shadow(color: Colors.cyanAccent, blurRadius: 12),
-            ],
           ),
         ),
       ],

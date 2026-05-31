@@ -29,6 +29,17 @@ import 'components/interstitial_ad_manager.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
 import 'home_screen.dart';
+import 'theme/game_theme_colors.dart';
+
+const Color _gameCyan = GameThemeColors.cyan;
+const Color _battlePlayerColor = GameThemeColors.blueSide;
+const Color _battleOpponentColor = GameThemeColors.redSide;
+const Color _rankedPurple = GameThemeColors.ranked;
+const Color _endlessGreen = GameThemeColors.endless;
+const Color _computerYellow = GameThemeColors.computer;
+const Color _friendPink = GameThemeColors.friend;
+const Color _mutedButtonGrey = GameThemeColors.mutedButton;
+const Duration _playerProfileSyncTimeout = Duration(seconds: 5);
 
 class GameScreen extends StatefulWidget {
   final bool isCpuMode;
@@ -375,7 +386,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         autoStart: false,
         useConstantFallSpeed: true,
         manualPieceSpawning: true,
-        wallColor: Colors.redAccent,
+        wallColor: _battleOpponentColor,
       );
       _cpuGame!.onGameOverTriggered = () {
         unawaited(
@@ -395,7 +406,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         isRemotePlayerMode: true,
         useConstantFallSpeed: true,
         renderDetectedFormationEffects: false,
-        wallColor: Colors.redAccent,
+        wallColor: _battleOpponentColor,
       );
       _cpuGame!.onDeathLineCrossed = () {
         unawaited(_verifyOpponentDeathLineBeforeResult());
@@ -445,7 +456,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         seed: gameSeed,
         autoStart: false,
         useConstantFallSpeed: true,
-        wallColor: Colors.redAccent,
+        wallColor: _battleOpponentColor,
       );
       if (_cpuGame!.cpuAgent != null) {
         _cpuGame!.cpuAgent!.setDifficulty(widget.cpuDifficulty);
@@ -903,7 +914,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           decoration: BoxDecoration(
             color: const Color(0xFF0F0F13).withValues(alpha: 0.95),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.3)),
+            border: Border.all(color: _gameCyan.withValues(alpha: 0.3)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -911,10 +922,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               const Text(
                 'SEND STAMP',
                 style: TextStyle(
-                  color: Colors.cyanAccent,
+                  color: _gameCyan,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2,
-                  shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 3)],
                 ),
               ),
               const SizedBox(height: 20),
@@ -943,9 +953,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         width: 140,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
-                          color: Colors.cyanAccent.withValues(alpha: 0.06),
+                          color: _gameCyan.withValues(alpha: 0.06),
                           border: Border.all(
-                            color: Colors.cyanAccent.withValues(alpha: 0.36),
+                            color: _gameCyan.withValues(alpha: 0.36),
                           ),
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -1058,7 +1068,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     bool isOpponent = false,
   }) {
     final normalizedScale = compact ? scale : 1.0;
-    final borderColor = isOpponent ? Colors.redAccent : Colors.cyanAccent;
+    final borderColor = isOpponent ? _battleOpponentColor : _battlePlayerColor;
     return Semantics(
       label: 'stamp',
       child: IgnorePointer(
@@ -1084,20 +1094,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               color: borderColor.withValues(alpha: compact ? 0.7 : 0.5),
               width: compact ? 1.2 * normalizedScale : 2,
             ),
-            boxShadow: compact
-                ? [
-                    BoxShadow(
-                      color: borderColor.withValues(alpha: 0.18),
-                      blurRadius: 8 * normalizedScale,
-                    ),
-                  ]
-                : const [
-                    BoxShadow(
-                      color: Colors.cyanAccent,
-                      blurRadius: 20,
-                      spreadRadius: 4,
-                    ),
-                  ],
           ),
           child: FittedBox(
             fit: BoxFit.scaleDown,
@@ -1106,7 +1102,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               item: stamp,
               level: stamp.level,
               forceLarge: !compact,
-              colorOverride: isOpponent ? Colors.redAccent : null,
+              colorOverride:
+                  isOpponent ? _battleOpponentColor : _battlePlayerColor,
             ),
           ),
         ),
@@ -1128,22 +1125,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.62),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: Colors.lightBlueAccent.withValues(alpha: 0.72),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.lightBlueAccent.withValues(alpha: 0.22),
-                blurRadius: 12,
-              ),
-            ],
-          ),
+              color: Colors.black.withValues(alpha: 0.62),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _gameCyan.withValues(alpha: 0.72),
+              )),
           child: Text(
             'アリーナ  $wins勝 $losses敗',
             style: const TextStyle(
-              color: Colors.lightBlueAccent,
+              color: _gameCyan,
               fontSize: 11,
               fontWeight: FontWeight.w900,
               letterSpacing: 1.2,
@@ -1172,7 +1162,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return _buildResultInfoRow(
       label: 'アリーナ',
       value: '$wins勝 $losses敗',
-      color: Colors.lightBlueAccent,
+      color: _gameCyan,
     );
   }
 
@@ -1195,7 +1185,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.42),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.42)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.42)),
       ),
       child: Stack(
         alignment: Alignment.center,
@@ -1241,22 +1231,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
           color: claimed
-              ? Colors.greenAccent.withValues(alpha: 0.12)
+              ? _endlessGreen.withValues(alpha: 0.12)
               : Colors.amberAccent.withValues(alpha: waiting ? 0.08 : 0.2),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: claimed
-                ? Colors.greenAccent.withValues(alpha: 0.55)
+                ? _endlessGreen.withValues(alpha: 0.55)
                 : Colors.amberAccent.withValues(alpha: waiting ? 0.28 : 0.78),
           ),
-          boxShadow: claimed || waiting
-              ? null
-              : [
-                  BoxShadow(
-                    color: Colors.amberAccent.withValues(alpha: 0.2),
-                    blurRadius: 12,
-                  ),
-                ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1278,7 +1260,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       : '×3倍',
               style: TextStyle(
                 color: claimed
-                    ? Colors.greenAccent
+                    ? _endlessGreen
                     : waiting
                         ? Colors.white54
                         : Colors.amberAccent,
@@ -1322,7 +1304,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             value: _resultLevelAfterExp == null
                 ? ''
                 : 'Lv.${_resultLevelAfterExp!}',
-            color: Colors.cyanAccent,
+            color: _gameCyan,
           ),
         ],
       ],
@@ -1333,7 +1315,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     return _buildResultInfoRow(
       label: 'スコア',
       value: '$_currentPlayerScore',
-      color: Colors.amberAccent,
+      color: _endlessGreen,
+      valueColor: Colors.white,
     );
   }
 
@@ -1347,9 +1330,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       children: [
         _buildResultProfileCard(
           label: 'あなた',
-          accentColor: Colors.cyanAccent,
+          accentColor: _battlePlayerColor,
           name: _myDisplayName,
           iconId: _playerDataManager.equippedPlayerIconId,
+          iconFrameId: _playerDataManager.equippedIconFrameId,
           badgeIds: _playerDataManager.equippedBadgeIds,
           ratingDelta: _myResultRatingDeltaText(),
           ratingDeltaColor: _myResultRatingDeltaColor(),
@@ -1369,12 +1353,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         ),
         _buildResultProfileCard(
           label: '相手',
-          accentColor: Colors.pinkAccent,
+          accentColor: _battleOpponentColor,
           name: _opponentResultName(),
           iconId: _opponentResultIconId(),
+          iconFrameId: _opponentResultIconFrameId(),
           badgeIds: _opponentResultBadgeIds(),
           ratingDelta: '',
-          ratingDeltaColor: Colors.pinkAccent,
+          ratingDeltaColor: _battleOpponentColor,
           showRatingDelta: false,
         ),
       ],
@@ -1386,11 +1371,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required Color accentColor,
     required String name,
     required String iconId,
+    required String iconFrameId,
     required List<String> badgeIds,
     required String ratingDelta,
     required Color ratingDeltaColor,
     required bool showRatingDelta,
   }) {
+    final iconFrameColor = _playerIconFrameColor(iconFrameId);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -1418,10 +1405,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 width: 42,
                 height: 42,
                 decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.12),
+                  color: iconFrameColor.withValues(alpha: 0.18),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: accentColor.withValues(alpha: 0.55),
+                    color: iconFrameColor,
+                    width: 2,
                   ),
                 ),
                 child: Icon(
@@ -1555,6 +1543,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         'default';
   }
 
+  String _opponentResultIconFrameId() {
+    if (widget.isTutorialMode || widget.isCpuMode) {
+      return 'default';
+    }
+    return _room
+            ?.players[_multiplayerManager.opponentRoleId]?.playerIconFrameId ??
+        'default';
+  }
+
   List<String> _opponentResultBadgeIds() {
     if (widget.isTutorialMode) {
       return const [];
@@ -1570,6 +1567,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required String label,
     required String value,
     required Color color,
+    Color? valueColor,
     String? trailing,
     Widget? leadingValue,
     bool centerValue = false,
@@ -1603,7 +1601,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     value,
                     maxLines: 1,
                     style: TextStyle(
-                      color: color,
+                      color: valueColor ?? color,
                       fontSize: 18,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.5,
@@ -1636,7 +1634,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       value,
                       maxLines: 1,
                       style: TextStyle(
-                        color: color,
+                        color: valueColor ?? color,
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.5,
@@ -1687,25 +1685,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     final useEndlessLayout = _usesEndlessBattleLayout;
+    final levelColor = useEndlessLayout ? _endlessGreen : Colors.amberAccent;
     final scorePanel = Container(
       margin: EdgeInsets.fromLTRB(
           useEndlessLayout ? 64 : 16, useEndlessLayout ? 18 : 10, 16, 6),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF101827).withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.cyanAccent.withValues(alpha: 0.42),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.28),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+          color: const Color(0xFF101827).withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _gameCyan.withValues(alpha: 0.42),
+            width: 1.2,
+          )),
       child: ValueListenableBuilder(
         valueListenable: game.scoreManager.state,
         builder: (context, state, child) {
@@ -1718,7 +1709,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   color: Colors.black.withValues(alpha: 0.28),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: Colors.amberAccent.withValues(alpha: 0.42),
+                    color: levelColor.withValues(alpha: 0.42),
                   ),
                 ),
                 child: Column(
@@ -1735,8 +1726,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 1),
                     Text(
                       '${state.level}',
-                      style: const TextStyle(
-                        color: Colors.amberAccent,
+                      style: TextStyle(
+                        color: levelColor,
                         fontSize: 24,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0,
@@ -1754,7 +1745,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     color: Colors.black.withValues(alpha: 0.20),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: Colors.cyanAccent.withValues(alpha: 0.28),
+                      color: _gameCyan.withValues(alpha: 0.28),
                     ),
                   ),
                   child: Column(
@@ -1913,24 +1904,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                             child: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color:
-                                    Colors.cyanAccent.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color:
-                                      Colors.cyanAccent.withValues(alpha: 0.58),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.cyanAccent
-                                        .withValues(alpha: 0.12),
-                                    blurRadius: 5,
-                                  ),
-                                ],
-                              ),
+                                  color: _gameCyan.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _gameCyan.withValues(alpha: 0.58),
+                                  )),
                               child: Icon(
                                 Icons.chat,
-                                color: Colors.cyanAccent.withValues(
+                                color: _gameCyan.withValues(
                                   alpha: _isStampCoolingDown ? 0.72 : 1,
                                 ),
                               ),
@@ -2061,10 +2042,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   fontWeight: FontWeight.w900,
                   color: Colors.white,
                   letterSpacing: 1.5,
-                  shadows: [
-                    Shadow(color: Colors.white, blurRadius: 10),
-                    Shadow(color: Colors.amberAccent, blurRadius: 18),
-                  ],
                 ),
               ),
             ),
@@ -2079,7 +2056,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required bool isCpu,
     required String roleLabel,
   }) {
-    final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
+    final neonColor = isCpu ? _battleOpponentColor : _battlePlayerColor;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2091,19 +2068,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               height: 38,
               padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E1E28),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: neonColor.withValues(alpha: 0.8),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: neonColor.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                  ),
-                ],
-              ),
+                  color: const Color(0xFF1E1E28),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: neonColor.withValues(alpha: 0.8),
+                    width: 1.5,
+                  )),
               child: Center(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
@@ -2111,11 +2081,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      shadows: [Shadow(color: neonColor, blurRadius: 4)],
                     ),
                   ),
                 ),
@@ -2196,25 +2165,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     required bool isCpu,
     required double ballSize,
   }) {
-    final neonColor = isCpu ? Colors.pinkAccent : Colors.cyanAccent;
+    final neonColor = isCpu ? _battleOpponentColor : _battlePlayerColor;
     return Container(
       width: ballSize * 2 + 16,
       height: ballSize * 2 + 40,
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1E28),
-        border: Border.all(
-          color: neonColor.withValues(alpha: 0.5),
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: neonColor.withValues(alpha: 0.15),
-            blurRadius: 4,
+          color: const Color(0xFF1E1E28),
+          border: Border.all(
+            color: neonColor.withValues(alpha: 0.5),
+            width: 1.5,
           ),
-        ],
-      ),
+          borderRadius: BorderRadius.circular(8)),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2230,7 +2192,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   color: neonColor,
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  shadows: [Shadow(color: neonColor, blurRadius: 2)],
                 ),
               ),
             ),
@@ -2269,16 +2230,14 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               child: Center(
                 child: Text(
                   _playerGame.isReadyGoText ? 'GO!' : 'READY',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 48,
                     fontFamily: 'Courier',
                     fontWeight: FontWeight.w900,
-                    color: Colors.orangeAccent,
+                    color: _playerGame.isReadyGoText
+                        ? _battleOpponentColor
+                        : Colors.orangeAccent,
                     letterSpacing: 2,
-                    shadows: [
-                      Shadow(color: Colors.orangeAccent, blurRadius: 16),
-                      Shadow(color: Colors.white, blurRadius: 4),
-                    ],
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -2297,10 +2256,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               _cpuBattlePlayerWon ?? (pState != GameState.gameover);
           final isBattleResult = widget.isCpuMode || widget.isTutorialMode;
           final title =
-              isBattleResult ? (cpuPlayerWon ? '勝ち' : '負け') : 'GAME OVER';
+              isBattleResult ? (cpuPlayerWon ? '勝ち' : '負け') : 'ゲームオーバー';
           final titleColor = isBattleResult
-              ? (cpuPlayerWon ? Colors.cyanAccent : Colors.pinkAccent)
-              : Colors.orangeAccent;
+              ? (cpuPlayerWon ? _battlePlayerColor : _battleOpponentColor)
+              : _endlessGreen;
 
           return _buildUnifiedResultSheet(
             title: title,
@@ -2324,8 +2283,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 12),
                     if (!isBattleResult) ...[
                       _buildCyberResultButton(
-                        label: 'RESTART',
-                        baseColor: Colors.cyanAccent,
+                        label: 'リスタート',
+                        baseColor: _endlessGreen,
                         isWaiting: false,
                         onPressed: () {
                           _clearAllPendingAttacks();
@@ -2340,7 +2299,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     ],
                     _buildCyberResultButton(
                       label: 'ホームへ戻る',
-                      baseColor: Colors.white54,
+                      baseColor: _mutedButtonGrey,
                       isWaiting: false,
                       onPressed: () {
                         _clearAllPendingAttacks();
@@ -2364,7 +2323,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     }
 
     final win = _onlineResultMessage == 'YOU WIN!!';
-    final textColor = win ? Colors.cyanAccent : Colors.pinkAccent;
+    final textColor = win ? _battlePlayerColor : _battleOpponentColor;
     final title = win && _onlineResultWasForfeit
         ? '不戦勝'
         : _onlineResultWasOfflineForfeit
@@ -2405,7 +2364,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           ],
           _buildCyberResultButton(
             label: 'ホームへ戻る',
-            baseColor: Colors.white54,
+            baseColor: _mutedButtonGrey,
             isWaiting: false,
             onPressed: () {
               _leaveOnlineBattle();
@@ -2441,16 +2400,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.cyanAccent.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.32)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.cyanAccent.withValues(alpha: 0.12),
-              blurRadius: 18,
-            ),
-          ],
-        ),
+            color: _gameCyan.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _gameCyan.withValues(alpha: 0.32))),
         child: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2490,7 +2442,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       const SizedBox(height: 18),
       _buildCyberResultButton(
         label: 'ホームへ戻る',
-        baseColor: Colors.white54,
+        baseColor: _mutedButtonGrey,
         isWaiting: false,
         onPressed: () {
           _clearAllPendingAttacks();
@@ -2516,19 +2468,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               child: Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF141421),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: titleColor.withValues(alpha: 0.7),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: titleColor.withValues(alpha: 0.24),
-                      blurRadius: 24,
-                    ),
-                  ],
-                ),
+                    color: const Color(0xFF141421),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: titleColor.withValues(alpha: 0.7),
+                      width: 1.5,
+                    )),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -2539,9 +2484,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                         fontWeight: FontWeight.w900,
                         color: titleColor,
                         letterSpacing: 2,
-                        shadows: [
-                          Shadow(color: titleColor, blurRadius: 10),
-                        ],
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -2598,26 +2540,18 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         width: 280,
         padding: const EdgeInsets.symmetric(vertical: 18),
         decoration: BoxDecoration(
-          color: baseColor.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: baseColor.withValues(alpha: 0.8), width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: baseColor.withValues(alpha: 0.2),
-              blurRadius: 12,
-              spreadRadius: 2,
-            ),
-          ],
-        ),
+            color: baseColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+            border:
+                Border.all(color: baseColor.withValues(alpha: 0.8), width: 2)),
         child: Center(
           child: Text(
             label,
-            style: TextStyle(
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 20,
               fontWeight: FontWeight.w900,
               letterSpacing: 2,
-              shadows: [Shadow(color: baseColor, blurRadius: 8)],
             ),
           ),
         ),
@@ -2628,24 +2562,24 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
   Widget _buildReadyGoOverlay() {
     final text = _readyGoOverlayText!;
     final isGo = text == 'GO!';
+    final alignment =
+        _showsOpponentBoard ? const Alignment(0, -0.18) : Alignment.center;
     return Positioned.fill(
       child: IgnorePointer(
         child: Container(
           color: Colors.black.withValues(alpha: isGo ? 0.18 : 0.38),
-          child: Center(
+          child: Align(
+            alignment: alignment,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 180),
               child: Text(
                 text,
                 key: ValueKey(text),
                 style: TextStyle(
-                  color: isGo ? Colors.amberAccent : Colors.white,
+                  color: isGo ? _battleOpponentColor : Colors.white,
                   fontSize: isGo ? 56 : 42,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 3,
-                  shadows: const [
-                    Shadow(color: Colors.black, blurRadius: 16),
-                  ],
                 ),
               ),
             ),
@@ -2671,6 +2605,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       return const SizedBox.shrink();
     }
 
+    final lobbyAccent = widget.isArenaMode
+        ? _gameCyan
+        : widget.isRankedMode
+            ? _rankedPurple
+            : _friendPink;
+
     return Positioned.fill(
       child: Container(
         color: const Color(0xEE0F0F13),
@@ -2681,34 +2621,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF141421),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: (widget.isArenaMode
-                          ? Colors.lightBlueAccent
-                          : widget.isRankedMode
-                              ? Colors.pinkAccent
-                              : Colors.cyanAccent)
-                      .withValues(alpha: 0.75),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: (widget.isArenaMode
-                            ? Colors.lightBlueAccent
-                            : widget.isRankedMode
-                                ? Colors.pinkAccent
-                                : Colors.cyanAccent)
-                        .withValues(alpha: 0.32),
-                    blurRadius: 24,
-                    spreadRadius: 2,
-                  ),
-                  BoxShadow(
-                    color: Colors.purpleAccent.withValues(alpha: 0.16),
-                    blurRadius: 36,
-                  ),
-                ],
-              ),
+                  color: const Color(0xFF141421),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: lobbyAccent.withValues(alpha: 0.75),
+                    width: 1.5,
+                  )),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -2725,9 +2643,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.2,
-                      shadows: [
-                        Shadow(color: Colors.cyanAccent, blurRadius: 10),
-                      ],
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -2778,6 +2693,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     badgeIds: room.players['host']?.badgeIds ?? const [],
                     playerIconId:
                         room.players['host']?.playerIconId ?? 'default',
+                    playerIconFrameId:
+                        room.players['host']?.playerIconFrameId ?? 'default',
+                    displayBorderColor: _lobbyPlayerBorderColorForRole('host'),
                     subLabel: widget.isArenaMode
                         ? _buildArenaLobbySubLabel(isHostSlot: true)
                         : widget.isRankedMode
@@ -2793,6 +2711,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     badgeIds: room.players['guest']?.badgeIds ?? const [],
                     playerIconId:
                         room.players['guest']?.playerIconId ?? 'default',
+                    playerIconFrameId:
+                        room.players['guest']?.playerIconFrameId ?? 'default',
+                    displayBorderColor: _lobbyPlayerBorderColorForRole('guest'),
                     subLabel: widget.isArenaMode
                         ? _buildArenaLobbySubLabel(isHostSlot: false)
                         : widget.isRankedMode
@@ -2802,13 +2723,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 28),
                   if (showAutoStart && canShowReady)
-                    const SizedBox(
+                    SizedBox(
                       height: 56,
                       child: Center(
                         child: Text(
                           'まもなく開始します...',
                           style: TextStyle(
-                            color: Colors.amberAccent,
+                            color: lobbyAccent,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -2859,9 +2780,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                           unawaited(_cancelFriendLobby());
                         },
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.pinkAccent,
+                          foregroundColor: _mutedButtonGrey,
                           side: BorderSide(
-                            color: Colors.pinkAccent.withValues(alpha: 0.8),
+                            color: _mutedButtonGrey.withValues(alpha: 0.8),
                             width: 1.5,
                           ),
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -2908,20 +2829,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             child: Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF141421),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Colors.pinkAccent.withValues(alpha: 0.75),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.pinkAccent.withValues(alpha: 0.32),
-                    blurRadius: 24,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
+                  color: const Color(0xFF141421),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _rankedPurple.withValues(alpha: 0.75),
+                    width: 1.5,
+                  )),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -2932,9 +2845,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1.2,
-                      shadows: [
-                        Shadow(color: Colors.pinkAccent, blurRadius: 10),
-                      ],
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -2945,6 +2855,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     isOccupied: true,
                     badgeIds: _playerDataManager.equippedBadgeIds,
                     playerIconId: _playerDataManager.equippedPlayerIconId,
+                    playerIconFrameId: _playerDataManager.equippedIconFrameId,
+                    displayBorderColor: _battlePlayerColor,
                     subLabel: _buildLobbyRatingLabel(
                         _multiplayerManager.currentRating),
                   ),
@@ -2955,6 +2867,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     isOccupied: true,
                     badgeIds: const [],
                     playerIconId: 'default',
+                    playerIconFrameId: 'default',
+                    displayBorderColor: _battleOpponentColor,
                     subLabel: _buildLobbyRatingLabel(widget.rankedBotRating),
                   ),
                   const SizedBox(height: 28),
@@ -2964,7 +2878,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                       child: Text(
                         'まもなく開始します...',
                         style: TextStyle(
-                          color: Colors.amberAccent,
+                          color: _rankedPurple,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
@@ -2987,8 +2901,13 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     String? subLabel,
     List<String> badgeIds = const [],
     String playerIconId = 'default',
+    String playerIconFrameId = 'default',
+    Color? displayBorderColor,
   }) {
-    final accentColor = isOccupied ? Colors.cyanAccent : Colors.white38;
+    final accentColor =
+        isOccupied ? (displayBorderColor ?? _gameCyan) : Colors.white38;
+    final iconFrameColor =
+        isOccupied ? _playerIconFrameColor(playerIconFrameId) : Colors.white38;
     final nameColor = isOccupied ? Colors.white : Colors.white54;
     final statusText = isOccupied ? '' : '未参加';
     final hasSubLabel = subLabel != null && subLabel.trim().isNotEmpty;
@@ -3000,7 +2919,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         color: const Color(0xFF0E1220).withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: accentColor.withValues(alpha: isOccupied ? 0.34 : 0.16),
+          color: accentColor.withValues(alpha: isOccupied ? 0.75 : 0.16),
           width: 1.2,
         ),
       ),
@@ -3010,9 +2929,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.12),
+              color: iconFrameColor.withValues(alpha: 0.16),
               shape: BoxShape.circle,
-              border: Border.all(color: accentColor.withValues(alpha: 0.42)),
+              border: Border.all(
+                color: iconFrameColor.withValues(alpha: 0.92),
+                width: 1.6,
+              ),
             ),
             child: Icon(
               _playerIconData(playerIconId),
@@ -3054,19 +2976,19 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: isReady
-                    ? Colors.greenAccent.withValues(alpha: 0.14)
+                    ? _endlessGreen.withValues(alpha: 0.14)
                     : Colors.white.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
                   color: isReady
-                      ? Colors.greenAccent.withValues(alpha: 0.65)
+                      ? _endlessGreen.withValues(alpha: 0.65)
                       : Colors.white24,
                 ),
               ),
               child: Text(
                 statusText,
                 style: TextStyle(
-                  color: isReady ? Colors.greenAccent : Colors.white54,
+                  color: isReady ? _endlessGreen : Colors.white54,
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0.5,
@@ -3081,6 +3003,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
 
   String _buildLobbyRatingLabel(int? rating) {
     return rating == null ? 'rating:-' : 'rating:$rating';
+  }
+
+  Color _lobbyPlayerBorderColorForRole(String roleId) {
+    return roleId == _multiplayerManager.myRoleId
+        ? _battlePlayerColor
+        : _battleOpponentColor;
   }
 
   Widget _buildResponsivePlayerNameText(
@@ -3138,9 +3066,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             style: const TextStyle(
               color: Colors.amberAccent,
               fontWeight: FontWeight.w900,
-              shadows: [
-                Shadow(color: Color(0xAAFFD54F), blurRadius: 7),
-              ],
             ),
           ),
         ],
@@ -4171,6 +4096,21 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     };
   }
 
+  Color _playerIconFrameColor(String? frameId) {
+    final frame = GameItemCatalog.byId(frameId ?? 'default');
+    return switch (frame?.colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => _computerYellow,
+      'lime' => Colors.limeAccent,
+      'green' => _endlessGreen,
+      'blue' => _battlePlayerColor,
+      'purple' => Colors.purpleAccent,
+      'black' => Colors.white70,
+      _ => _gameCyan,
+    };
+  }
+
   void _handleOpponentBoardUpdated(Map<String, dynamic> boardData) {
     final ignoreUntil = _ignoreEmptyOpponentBoardUntil;
     if (boardData.isEmpty &&
@@ -4420,21 +4360,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       );
       if (change != null) {
         await _playerDataManager.setCurrentRating(change.newRating);
-        unawaited(
-          _playerDataManager.updateLatestRankedHistory(
-            ratingAfter: change.newRating,
-            ratingDelta: change.delta,
-          ),
+        await _playerDataManager.updateLatestRankedHistory(
+          ratingAfter: change.newRating,
+          ratingDelta: change.delta,
         );
-        if (change.delta != 0) {
-          unawaited(
-            _rankingManager.updateMyRating(
-              rating: change.newRating,
-              incrementDailyWin: isWin,
-              incrementSeasonLoss: !isWin,
-            ),
-          );
-        }
+        await _syncPlayerProfileOnline(
+          rating: change.newRating,
+          incrementDailyWin: change.delta != 0 && isWin,
+          incrementSeasonLoss: change.delta != 0 && !isWin,
+        );
       }
       if (!mounted || change == null) {
         return;
@@ -4480,21 +4414,15 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       );
       await _multiplayerManager.clearSavedSession();
       await _playerDataManager.setCurrentRating(change.newRating);
-      unawaited(
-        _playerDataManager.updateLatestRankedHistory(
-          ratingAfter: change.newRating,
-          ratingDelta: change.delta,
-        ),
+      await _playerDataManager.updateLatestRankedHistory(
+        ratingAfter: change.newRating,
+        ratingDelta: change.delta,
       );
-      if (change.delta != 0) {
-        unawaited(
-          _rankingManager.updateMyRating(
-            rating: change.newRating,
-            incrementDailyWin: isWin,
-            incrementSeasonLoss: !isWin,
-          ),
-        );
-      }
+      await _syncPlayerProfileOnline(
+        rating: change.newRating,
+        incrementDailyWin: change.delta != 0 && isWin,
+        incrementSeasonLoss: change.delta != 0 && !isWin,
+      );
       if (!mounted) {
         return;
       }
@@ -4577,6 +4505,55 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _syncPlayerProfileOnline({
+    int? rating,
+    bool incrementDailyWin = false,
+    bool incrementSeasonLoss = false,
+  }) async {
+    final syncRating = rating ?? _playerDataManager.currentRating;
+    await Future.wait<void>(
+      [
+        _runRequiredProfileSyncTask(
+          () => _multiplayerManager
+              .updateUserName(_playerDataManager.playerName)
+              .timeout(_playerProfileSyncTimeout),
+        ),
+        _runRequiredProfileSyncTask(
+          () => _rankingManager
+              .updateMyRating(
+                rating: syncRating,
+                displayName: _playerDataManager.displayPlayerName,
+                incrementDailyWin: incrementDailyWin,
+                incrementSeasonLoss: incrementSeasonLoss,
+              )
+              .timeout(_playerProfileSyncTimeout),
+        ),
+        _runRequiredProfileSyncTask(
+          () => _playerDataManager
+              .syncRecordSummary(force: true, rethrowErrors: true)
+              .timeout(_playerProfileSyncTimeout),
+        ),
+      ],
+      eagerError: false,
+    );
+  }
+
+  Future<void> _runRequiredProfileSyncTask(
+    Future<void> Function() task,
+  ) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await task();
+        return;
+      } catch (_) {
+        if (attempt < 2) {
+          await Future<void>.delayed(
+              Duration(milliseconds: 250 * (attempt + 1)));
+        }
+      }
+    }
+  }
+
   Widget _buildBadgeUnlockResultCard() {
     if (_newlyUnlockedBadges.isEmpty) {
       return const SizedBox.shrink();
@@ -4586,19 +4563,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.amberAccent.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.amberAccent.withValues(alpha: 0.68),
-          width: 1.4,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.amberAccent.withValues(alpha: 0.22),
-            blurRadius: 18,
-          ),
-        ],
-      ),
+          color: Colors.amberAccent.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: Colors.amberAccent.withValues(alpha: 0.68),
+            width: 1.4,
+          )),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -4608,7 +4578,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               color: Colors.amberAccent,
               fontWeight: FontWeight.w900,
               fontSize: 16,
-              shadows: [Shadow(color: Colors.amberAccent, blurRadius: 10)],
             ),
           ),
           const SizedBox(height: 10),
@@ -4852,6 +4821,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       ratingAfter: _rankedRatingChange?.newRating,
       ratingDelta: _rankedRatingChange?.delta,
     );
+    await _syncPlayerProfileOnline(
+      rating:
+          _rankedRatingChange?.newRating ?? _playerDataManager.currentRating,
+    );
     _refreshNewlyUnlockedBadgesFromSnapshot();
   }
 
@@ -4871,11 +4844,11 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       score: _currentPlayerScore,
     );
     try {
-      await _rankingManager.updateMyRating(
-        rating: _playerDataManager.currentRating,
-      );
+      await _syncPlayerProfileOnline(rating: _playerDataManager.currentRating);
     } catch (_) {
-      // ランキング同期に失敗しても、エンドレス結果の保存は維持する。
+      if (mounted) {
+        _showRealtimeOfflineMessage();
+      }
     }
     _refreshNewlyUnlockedBadgesFromSnapshot();
   }
@@ -4891,10 +4864,16 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
     final result = await _arenaManager.recordArenaMatch(isWin);
     if (isWin) {
       unawaited(_missionManager.recordEvent('win_arena_match'));
-      _sendServerAction(
-        () => _rankingManager.updateMyRating(
-            rating: _playerDataManager.currentRating, incrementDailyWin: true),
+    }
+    try {
+      await _syncPlayerProfileOnline(
+        rating: _playerDataManager.currentRating,
+        incrementDailyWin: isWin,
       );
+    } catch (_) {
+      if (mounted) {
+        _showRealtimeOfflineMessage();
+      }
     }
     final currentLevel = _playerDataManager.level;
     if (!mounted) {
@@ -5247,7 +5226,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       barrierDismissible: false,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
+          accentColor: _gameCyan,
           title: title,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -5263,7 +5242,7 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               const SizedBox(height: 20),
               _buildCyberDialogButton(
                 label: 'OK',
-                accentColor: Colors.cyanAccent,
+                accentColor: _gameCyan,
                 onPressed: () => Navigator.of(dialogContext).pop(),
               ),
             ],
@@ -5286,24 +5265,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
         constraints: const BoxConstraints(maxWidth: 380),
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
-          color: const Color(0xFF141421),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: accentColor.withValues(alpha: 0.78),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: accentColor.withValues(alpha: 0.35),
-              blurRadius: 24,
-              spreadRadius: 2,
-            ),
-            BoxShadow(
-              color: Colors.purpleAccent.withValues(alpha: 0.18),
-              blurRadius: 40,
-            ),
-          ],
-        ),
+            color: const Color(0xFF141421),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: accentColor.withValues(alpha: 0.78),
+              width: 1.5,
+            )),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -5315,7 +5282,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                 fontSize: 18,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 2.4,
-                shadows: [Shadow(color: accentColor, blurRadius: 12)],
               ),
             ),
             const SizedBox(height: 18),
@@ -5395,24 +5361,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
             constraints: const BoxConstraints(maxWidth: 340),
             padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: const Color(0xFF141421),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: Colors.cyanAccent.withValues(alpha: 0.72),
-                width: 1.4,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.cyanAccent.withValues(alpha: 0.24),
-                  blurRadius: 20,
-                  spreadRadius: 1,
-                ),
-                BoxShadow(
-                  color: Colors.cyanAccent.withValues(alpha: 0.1),
-                  blurRadius: 34,
-                ),
-              ],
-            ),
+                color: const Color(0xFF141421),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _gameCyan.withValues(alpha: 0.72),
+                  width: 1.4,
+                )),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -5421,13 +5375,10 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   '設定',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    color: Colors.cyanAccent,
+                    color: _gameCyan,
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 2.2,
-                    shadows: [
-                      Shadow(color: Colors.cyanAccent, blurRadius: 6),
-                    ],
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -5440,9 +5391,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                   icon: const Icon(Icons.home, size: 18),
                   label: const Text('ホーム画面に戻る'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.cyanAccent,
+                    foregroundColor: _gameCyan,
                     side: BorderSide(
-                      color: Colors.cyanAccent.withValues(alpha: 0.72),
+                      color: _gameCyan.withValues(alpha: 0.72),
                       width: 1.3,
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
@@ -5471,9 +5422,9 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     icon: const Icon(Icons.restart_alt, size: 18),
                     label: const Text('リスタート'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.cyanAccent,
+                      foregroundColor: _gameCyan,
                       side: BorderSide(
-                        color: Colors.cyanAccent.withValues(alpha: 0.72),
+                        color: _gameCyan.withValues(alpha: 0.72),
                         width: 1.3,
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 14),
@@ -5883,26 +5834,39 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               ? ControlLayoutPreset.rotateMoveMoveRotate
               : preset,
         );
-        return SizedBox(
-          height: 90,
+        return Container(
+          height: 96,
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+          decoration: BoxDecoration(
+            color: const Color(0xEE080A12),
+            border: Border(
+              top: BorderSide(
+                color: _gameCyan.withValues(alpha: 0.22),
+                width: 1.2,
+              ),
+            ),
+          ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final action in actions)
+              for (var i = 0; i < actions.length; i++) ...[
                 Expanded(
                   child: _buildAreaButton(
-                    action: action.tutorialAction,
-                    icon: action.icon,
+                    action: actions[i].tutorialAction,
+                    icon: actions[i].icon,
                     onDown: widget.isTutorialMode
                         ? () => _handleTutorialControlDown(
-                              action.tutorialAction,
+                              actions[i].tutorialAction,
                             )
-                        : action.onDown,
+                        : actions[i].onDown,
                     onUp: widget.isTutorialMode
-                        ? () => _handleTutorialControlUp(action.tutorialAction)
-                        : action.onUp,
+                        ? () =>
+                            _handleTutorialControlUp(actions[i].tutorialAction)
+                        : actions[i].onUp,
                   ),
                 ),
+                if (i != actions.length - 1) const SizedBox(width: 8),
+              ],
             ],
           ),
         );
@@ -5933,19 +5897,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xDD101827),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.cyanAccent.withValues(alpha: 0.64),
-          width: 1.3,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.cyanAccent.withValues(alpha: 0.14),
-            blurRadius: 16,
-          ),
-        ],
-      ),
+          color: const Color(0xDD101827),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: _gameCyan.withValues(alpha: 0.64),
+            width: 1.3,
+          )),
       child: child,
     );
   }
@@ -5990,19 +5947,12 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: Colors.cyanAccent.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.cyanAccent.withValues(alpha: 0.82),
-                width: 2.4,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.cyanAccent.withValues(alpha: 0.28),
-                  blurRadius: 22,
-                ),
-              ],
-            ),
+                color: _gameCyan.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _gameCyan.withValues(alpha: 0.82),
+                  width: 2.4,
+                )),
             child: Center(
               child: TweenAnimationBuilder<double>(
                 key: ValueKey(
@@ -6038,9 +5988,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     Icons.touch_app,
                     color: Colors.white,
                     size: 34,
-                    shadows: [
-                      Shadow(color: Colors.cyanAccent, blurRadius: 14),
-                    ],
                   ),
                 ),
               ),
@@ -6136,33 +6083,25 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         decoration: BoxDecoration(
-          color: enabled
-              ? const Color(0x1100FFFF)
-              : Colors.white.withValues(alpha: 0.035),
-          border: Border(
-            top: BorderSide(
-              color: enabled ? Colors.cyanAccent : Colors.white24,
-              width: enabled ? 2 : 1,
-            ),
-            bottom: BorderSide(
-              color: enabled ? Colors.cyanAccent : Colors.white10,
-              width: enabled ? 2 : 1,
-            ),
-            right: BorderSide(
-              color: enabled
-                  ? const Color(0x3300FFFF)
-                  : Colors.white.withValues(alpha: 0.08),
-              width: 1,
-            ),
-          ),
-          boxShadow: widget.isTutorialMode && enabled
-              ? [
-                  BoxShadow(
-                    color: Colors.cyanAccent.withValues(alpha: 0.24),
-                    blurRadius: 18,
-                  ),
-                ]
+          gradient: enabled
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _gameCyan.withValues(alpha: 0.16),
+                    GameThemeColors.blueSide.withValues(alpha: 0.10),
+                    Colors.white.withValues(alpha: 0.035),
+                  ],
+                )
               : null,
+          color: enabled ? null : Colors.white.withValues(alpha: 0.035),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: enabled
+                ? _gameCyan.withValues(alpha: 0.58)
+                : Colors.white.withValues(alpha: 0.12),
+            width: enabled ? 1.4 : 1,
+          ),
         ),
         child: Stack(
           clipBehavior: Clip.none,
@@ -6172,9 +6111,8 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
               opacity: enabled ? 1 : 0.24,
               child: Icon(
                 icon,
-                color: Colors.cyanAccent,
+                color: enabled ? _gameCyan : Colors.white38,
                 size: 32,
-                shadows: const [Shadow(color: Colors.cyan, blurRadius: 8)],
               ),
             ),
             if (widget.isTutorialMode && enabled)
@@ -6203,9 +6141,6 @@ class _GameScreenState extends State<GameScreen> with WidgetsBindingObserver {
                     Icons.touch_app,
                     color: Colors.white,
                     size: 28,
-                    shadows: [
-                      Shadow(color: Colors.cyanAccent, blurRadius: 13),
-                    ],
                   ),
                 ),
               ),
@@ -6247,7 +6182,7 @@ class _TutorialResultLine extends StatelessWidget {
         Text(
           title,
           style: const TextStyle(
-            color: Colors.cyanAccent,
+            color: _gameCyan,
             fontSize: 13,
             fontWeight: FontWeight.w900,
             letterSpacing: 0.8,

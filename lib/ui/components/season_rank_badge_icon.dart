@@ -44,10 +44,6 @@ class SeasonRankBadgeIcon extends StatelessWidget {
                   fontSize: textSize,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0,
-                  shadows: const [
-                    Shadow(color: Colors.black, blurRadius: 4),
-                    Shadow(color: Colors.black, blurRadius: 8),
-                  ],
                 ),
               ),
             ),

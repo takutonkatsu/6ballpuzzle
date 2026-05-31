@@ -6,6 +6,7 @@ import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
 import 'components/hexagon_grid_background.dart';
+import 'theme/game_theme_colors.dart';
 
 class CollectionScreen extends StatefulWidget {
   const CollectionScreen({super.key});
@@ -75,13 +76,14 @@ class _CollectionScreenState extends State<CollectionScreen>
         body: Stack(
           children: [
             const HexagonGridBackground(
-              color: Colors.cyanAccent,
+              color: GameThemeColors.cyan,
               opacity: 0.04,
               hexRadius: 30,
             ),
             _loading
                 ? const Center(
-                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                    child:
+                        CircularProgressIndicator(color: GameThemeColors.cyan),
                   )
                 : TabBarView(
                     children: [
@@ -319,7 +321,7 @@ class _CollectionScreenState extends State<CollectionScreen>
           subtitle:
               _playerData.equippedIconFrameId == 'default' ? '装備中' : 'タップで装備',
           icon: Icons.crop_square,
-          leading: _framePreview(Colors.cyanAccent),
+          leading: _framePreview(GameThemeColors.cyan),
           selected: _playerData.equippedIconFrameId == 'default',
           available: true,
           onTap: () async {
@@ -391,7 +393,7 @@ class _CollectionScreenState extends State<CollectionScreen>
     required VoidCallback? onTap,
   }) {
     final muted = !available;
-    final accent = accentColor ?? Colors.cyanAccent;
+    final accent = accentColor ?? GameThemeColors.cyan;
     final borderColor = selected
         ? accent
         : muted
@@ -594,12 +596,6 @@ class _CollectionScreenState extends State<CollectionScreen>
         color: color.withValues(alpha: 0.28),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color, width: 2.4),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.20),
-            blurRadius: 8,
-          ),
-        ],
       ),
     );
   }
@@ -612,13 +608,13 @@ class _CollectionScreenState extends State<CollectionScreen>
     return switch (colorName) {
       'red' => Colors.redAccent,
       'orange' => Colors.orangeAccent,
-      'yellow' => Colors.yellowAccent,
+      'yellow' => GameThemeColors.computer,
       'lime' => Colors.limeAccent,
-      'green' => Colors.greenAccent,
-      'blue' => Colors.lightBlueAccent,
+      'green' => GameThemeColors.endless,
+      'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
-      _ => Colors.cyanAccent,
+      _ => GameThemeColors.cyan,
     };
   }
 }
@@ -637,7 +633,7 @@ class _PageTitle extends StatelessWidget {
         Text(
           subtitle,
           style: const TextStyle(
-            color: Colors.cyanAccent,
+            color: GameThemeColors.cyan,
             fontSize: 10,
             fontWeight: FontWeight.w900,
             letterSpacing: 3.5,
@@ -649,7 +645,6 @@ class _PageTitle extends StatelessWidget {
             color: Colors.white,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
-            shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 12)],
           ),
         ),
       ],
@@ -670,13 +665,7 @@ class _NeonTabBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xCC0B1020),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.28)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.cyanAccent.withValues(alpha: 0.12),
-            blurRadius: 18,
-          ),
-        ],
+        border: Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.28)),
       ),
       child: TabBar(
         onTap: (_) => AppSfx.playUiTap(),
@@ -685,12 +674,13 @@ class _NeonTabBar extends StatelessWidget {
         indicator: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              Colors.cyanAccent.withValues(alpha: 0.35),
+              GameThemeColors.cyan.withValues(alpha: 0.35),
               const Color(0xFF0B84FF).withValues(alpha: 0.28),
             ],
           ),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.85)),
+          border:
+              Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.85)),
         ),
         labelColor: Colors.white,
         unselectedLabelColor: Colors.white54,

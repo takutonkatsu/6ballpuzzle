@@ -47,6 +47,7 @@ class MultiplayerPlayer {
     this.rating,
     this.badgeIds = const [],
     this.playerIconId = 'default',
+    this.playerIconFrameId = 'default',
   });
 
   final String status;
@@ -56,6 +57,7 @@ class MultiplayerPlayer {
   final int? rating;
   final List<String> badgeIds;
   final String playerIconId;
+  final String playerIconFrameId;
 
   factory MultiplayerPlayer.fromMap(Map<dynamic, dynamic>? data) {
     return MultiplayerPlayer(
@@ -68,6 +70,10 @@ class MultiplayerPlayer {
       playerIconId:
           ((data?['playerIconId']?.toString() ?? '').trim()).isNotEmpty
               ? data!['playerIconId'].toString().trim()
+              : 'default',
+      playerIconFrameId:
+          ((data?['playerIconFrameId']?.toString() ?? '').trim()).isNotEmpty
+              ? data!['playerIconFrameId'].toString().trim()
               : 'default',
     );
   }
@@ -344,12 +350,19 @@ class MultiplayerManager {
     return iconId.isEmpty ? 'default' : iconId;
   }
 
+  Future<String> _currentEquippedIconFrameId() async {
+    await PlayerDataManager.instance.load();
+    final frameId = PlayerDataManager.instance.equippedIconFrameId.trim();
+    return frameId.isEmpty ? 'default' : frameId;
+  }
+
   Future<Map<String, Object?>> _buildPlayerPayload({
     required String status,
     int? rating,
   }) async {
     final badgeIds = await _currentEquippedBadgeIds();
     final playerIconId = await _currentEquippedPlayerIconId();
+    final playerIconFrameId = await _currentEquippedIconFrameId();
     return {
       'status': status,
       'name': displayPlayerName,
@@ -358,6 +371,7 @@ class MultiplayerManager {
       if (rating != null) 'rating': rating,
       'badgeIds': badgeIds,
       'playerIconId': playerIconId,
+      'playerIconFrameId': playerIconFrameId,
     };
   }
 
@@ -385,12 +399,14 @@ class MultiplayerManager {
       }
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
+      final playerIconFrameId = await _currentEquippedIconFrameId();
       await userRef.update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
         'rating': syncedRating,
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
+        'playerIconFrameId': playerIconFrameId,
         'updatedAt': ServerValue.timestamp,
       }).timeout(matchmakingDatabaseOperationTimeout);
     } on TimeoutException {
@@ -407,30 +423,33 @@ class MultiplayerManager {
     final uid = myUid ?? await _loadAuthenticatedUid();
     myUid = uid;
 
-    try {
-      final badgeIds = await _currentEquippedBadgeIds();
-      final playerIconId = await _currentEquippedPlayerIconId();
-      await _db.child('users/$uid').update({
-        'name': displayPlayerName,
-        'publicId': PlayerDataManager.instance.playerId,
-        'rating': currentRating,
-        'badgeIds': badgeIds,
-        'playerIconId': playerIconId,
-        'updatedAt': ServerValue.timestamp,
-      });
-      final roomId = currentRoomId;
-      final roleId = myRoleId;
-      if (roomId != null && roleId != null) {
+    final badgeIds = await _currentEquippedBadgeIds();
+    final playerIconId = await _currentEquippedPlayerIconId();
+    final playerIconFrameId = await _currentEquippedIconFrameId();
+    await _db.child('users/$uid').update({
+      'name': displayPlayerName,
+      'publicId': PlayerDataManager.instance.playerId,
+      'rating': currentRating,
+      'badgeIds': badgeIds,
+      'playerIconId': playerIconId,
+      'playerIconFrameId': playerIconFrameId,
+      'updatedAt': ServerValue.timestamp,
+    }).timeout(matchmakingDatabaseOperationTimeout);
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId != null && roleId != null) {
+      try {
         await _db.child('rooms/$roomId/players/$roleId').update({
           'name': displayPlayerName,
           'publicId': PlayerDataManager.instance.playerId,
           'badgeIds': badgeIds,
           'playerIconId': playerIconId,
+          'playerIconFrameId': playerIconFrameId,
           'updatedAt': ServerValue.timestamp,
-        });
+        }).timeout(matchmakingDatabaseOperationTimeout);
+      } catch (_) {
+        // 対戦終了直後にルームが削除済みでも、永続プロフィール同期は成功扱いにする。
       }
-    } on FirebaseException {
-      // 名前のオンライン同期失敗はローカル保存と画面操作を止めない。
     }
   }
 
@@ -467,12 +486,14 @@ class MultiplayerManager {
     try {
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
+      final playerIconFrameId = await _currentEquippedIconFrameId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
         'rating': newRating,
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
+        'playerIconFrameId': playerIconFrameId,
         'updatedAt': ServerValue.timestamp,
       });
 
@@ -530,11 +551,13 @@ class MultiplayerManager {
 
     final badgeIds = await _currentEquippedBadgeIds();
     final playerIconId = await _currentEquippedPlayerIconId();
+    final playerIconFrameId = await _currentEquippedIconFrameId();
     await _db.child('users/$uid').update({
       'name': displayPlayerName,
       'rating': newRating,
       'badgeIds': badgeIds,
       'playerIconId': playerIconId,
+      'playerIconFrameId': playerIconFrameId,
       'updatedAt': ServerValue.timestamp,
     });
 
@@ -1394,6 +1417,7 @@ class MultiplayerManager {
 
   Future<void> _writeWaitingMatchmakingEntry(String uid, int myRating) async {
     final playerIconId = await _currentEquippedPlayerIconId();
+    final playerIconFrameId = await _currentEquippedIconFrameId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
@@ -1401,6 +1425,7 @@ class MultiplayerManager {
       'role': null,
       'name': displayPlayerName,
       'playerIconId': playerIconId,
+      'playerIconFrameId': playerIconFrameId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1411,6 +1436,7 @@ class MultiplayerManager {
     int currentWins,
   ) async {
     final playerIconId = await _currentEquippedPlayerIconId();
+    final playerIconFrameId = await _currentEquippedIconFrameId();
     await _db.child('arena_matchmaking/$uid').set({
       'status': 'waiting',
       'wins': currentWins,
@@ -1418,6 +1444,7 @@ class MultiplayerManager {
       'role': null,
       'name': displayPlayerName,
       'playerIconId': playerIconId,
+      'playerIconFrameId': playerIconFrameId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1429,10 +1456,12 @@ class MultiplayerManager {
   ) async {
     try {
       final playerIconId = await _currentEquippedPlayerIconId();
+      final playerIconFrameId = await _currentEquippedIconFrameId();
       await _db.child('matchmaking/$uid').update({
         'rating': myRating,
         'name': displayPlayerName,
         'playerIconId': playerIconId,
+        'playerIconFrameId': playerIconFrameId,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -1446,10 +1475,12 @@ class MultiplayerManager {
   ) async {
     try {
       final playerIconId = await _currentEquippedPlayerIconId();
+      final playerIconFrameId = await _currentEquippedIconFrameId();
       await _db.child('arena_matchmaking/$uid').update({
         'wins': currentWins,
         'name': displayPlayerName,
         'playerIconId': playerIconId,
+        'playerIconFrameId': playerIconFrameId,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -1638,6 +1669,7 @@ class MultiplayerManager {
     }
 
     final playerIconId = await _currentEquippedPlayerIconId();
+    final playerIconFrameId = await _currentEquippedIconFrameId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
@@ -1645,6 +1677,7 @@ class MultiplayerManager {
       'role': null,
       'name': displayPlayerName,
       'playerIconId': playerIconId,
+      'playerIconFrameId': playerIconFrameId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1659,6 +1692,7 @@ class MultiplayerManager {
     }
 
     final playerIconId = await _currentEquippedPlayerIconId();
+    final playerIconFrameId = await _currentEquippedIconFrameId();
     await _db.child('arena_matchmaking/$uid').set({
       'status': 'waiting',
       'wins': currentWins,
@@ -1666,6 +1700,7 @@ class MultiplayerManager {
       'role': null,
       'name': displayPlayerName,
       'playerIconId': playerIconId,
+      'playerIconFrameId': playerIconFrameId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -2244,12 +2279,14 @@ class MultiplayerManager {
     try {
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
+      final playerIconFrameId = await _currentEquippedIconFrameId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
         'rating': newRating,
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
+        'playerIconFrameId': playerIconFrameId,
         'updatedAt': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -2376,6 +2413,7 @@ class MultiplayerManager {
       'publicId': PlayerDataManager.instance.playerId,
       'badgeIds': await _currentEquippedBadgeIds(),
       'playerIconId': await _currentEquippedPlayerIconId(),
+      'playerIconFrameId': await _currentEquippedIconFrameId(),
       if (restoredStatus != null) 'status': restoredStatus,
       'reconnectedAt': ServerValue.timestamp,
     });
@@ -2916,6 +2954,8 @@ class MultiplayerManager {
         ..write(player.rating ?? '')
         ..write(':')
         ..write(player.playerIconId)
+        ..write(':')
+        ..write(player.playerIconFrameId)
         ..write(':')
         ..write(player.badgeIds.join(','));
     }

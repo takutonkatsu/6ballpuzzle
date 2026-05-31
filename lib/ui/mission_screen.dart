@@ -10,6 +10,7 @@ import '../game/mission_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'theme/game_theme_colors.dart';
 
 class MissionScreen extends StatefulWidget {
   const MissionScreen({super.key});
@@ -106,13 +107,14 @@ class _MissionScreenState extends State<MissionScreen> {
         body: Stack(
           children: [
             const HexagonGridBackground(
-              color: Colors.cyanAccent,
+              color: GameThemeColors.cyan,
               opacity: 0.04,
               hexRadius: 30,
             ),
             _loading
                 ? const Center(
-                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                    child:
+                        CircularProgressIndicator(color: GameThemeColors.cyan),
                   )
                 : TabBarView(
                     children: [
@@ -164,7 +166,7 @@ class _MissionScreenState extends State<MissionScreen> {
         final missions = snapshot.data ?? const [];
         if (missions.isEmpty) {
           return const Center(
-            child: CircularProgressIndicator(color: Colors.cyanAccent),
+            child: CircularProgressIndicator(color: GameThemeColors.cyan),
           );
         }
         return _tabList(
@@ -193,7 +195,7 @@ class _MissionScreenState extends State<MissionScreen> {
         text,
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: Colors.cyanAccent,
+          color: GameThemeColors.cyan,
           fontWeight: FontWeight.w900,
         ),
       ),
@@ -206,18 +208,11 @@ class _MissionScreenState extends State<MissionScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black54,
-          border: Border.all(
-            color: Colors.cyanAccent.withValues(alpha: 0.5),
-          ),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.cyanAccent.withValues(alpha: 0.16),
-              blurRadius: 8,
+            color: Colors.black54,
+            border: Border.all(
+              color: GameThemeColors.cyan.withValues(alpha: 0.5),
             ),
-          ],
-        ),
+            borderRadius: BorderRadius.circular(20)),
         child: Row(
           mainAxisSize: MainAxisSize.max,
           children: [
@@ -252,9 +247,13 @@ class _MissionScreenState extends State<MissionScreen> {
     final claimed = mission['claimed'] as bool? ?? false;
     final isDone = progress >= target;
     final canClaim = isDone && !claimed;
+    final stateColor = _missionStateColor(claimed: claimed);
     final adsRemoved = AppSettings.instance.adsRemoved.value;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
+    final displayTitle = isRewardedAdMission && adsRemoved
+        ? 'ログインボーナス'
+        : _missionDisplayTitle(mission);
     final canReroll = !claimed && !canClaim && !isRewardedAdMission;
 
     return InkWell(
@@ -276,6 +275,7 @@ class _MissionScreenState extends State<MissionScreen> {
       borderRadius: BorderRadius.circular(10),
       child: _missionContainer(
         canClaim: canClaim,
+        claimed: claimed,
         isAdMission: isRewardedAdMission && !claimed,
         isDone: isDone,
         child: Column(
@@ -284,22 +284,18 @@ class _MissionScreenState extends State<MissionScreen> {
             Row(
               children: [
                 if (isRewardedAdMission) ...[
-                  const Icon(
+                  Icon(
                     Icons.play_circle_fill_rounded,
                     size: 18,
-                    color: Colors.cyanAccent,
+                    color: stateColor,
                   ),
                   const SizedBox(width: 6),
                 ],
                 Expanded(
                   child: Text(
-                    _missionDisplayTitle(mission),
+                    displayTitle,
                     style: TextStyle(
-                      color: canClaim
-                          ? Colors.lightBlueAccent
-                          : isRewardedAdMission && !claimed
-                              ? Colors.cyanAccent
-                              : Colors.lightBlueAccent,
+                      color: stateColor,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -334,8 +330,7 @@ class _MissionScreenState extends State<MissionScreen> {
             _progressRow(
               progress: progress,
               target: target,
-              canClaim: canClaim,
-              isDone: isDone,
+              stateColor: stateColor,
             ),
           ],
         ),
@@ -350,6 +345,7 @@ class _MissionScreenState extends State<MissionScreen> {
     final canClaim = mission['claimable'] as bool? ?? false;
     final progressKey = mission['progressKey']?.toString() ?? '';
     final isAdMission = progressKey == 'rewarded_ad_views';
+    final stateColor = _missionStateColor();
 
     return InkWell(
       onTap: canClaim || !isAdMission
@@ -371,6 +367,7 @@ class _MissionScreenState extends State<MissionScreen> {
       borderRadius: BorderRadius.circular(10),
       child: _missionContainer(
         canClaim: canClaim,
+        claimed: false,
         isAdMission: isAdMission && !canClaim,
         isDone: canClaim,
         child: Column(
@@ -379,14 +376,19 @@ class _MissionScreenState extends State<MissionScreen> {
             Row(
               children: [
                 if (isAdMission) ...[
-                  const Icon(
+                  Icon(
                     Icons.play_circle_fill_rounded,
                     size: 18,
-                    color: Colors.cyanAccent,
+                    color: stateColor,
                   ),
                   const SizedBox(width: 6),
                 ],
-                Expanded(child: _regularMissionTitle(mission)),
+                Expanded(
+                  child: _regularMissionTitle(
+                    mission,
+                    stateColor: stateColor,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 _rewardBadge(
                   reward: reward,
@@ -417,8 +419,7 @@ class _MissionScreenState extends State<MissionScreen> {
             _progressRow(
               progress: progress,
               target: target,
-              canClaim: canClaim,
-              isDone: canClaim,
+              stateColor: stateColor,
               progressKey: progressKey,
             ),
           ],
@@ -429,33 +430,26 @@ class _MissionScreenState extends State<MissionScreen> {
 
   Widget _missionContainer({
     required bool canClaim,
+    required bool claimed,
     required bool isAdMission,
     required bool isDone,
     required Widget child,
   }) {
+    final stateColor = _missionStateColor(claimed: claimed);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: canClaim
-            ? Colors.lightBlueAccent.withValues(alpha: 0.12)
-            : isAdMission
-                ? Colors.cyanAccent.withValues(alpha: 0.12)
-                : isDone
-                    ? Colors.lightBlueAccent.withValues(alpha: 0.15)
-                    : Colors.cyanAccent.withValues(alpha: 0.05),
+        color: stateColor.withValues(
+          alpha: canClaim || claimed || isAdMission ? 0.12 : 0.05,
+        ),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: canClaim
-              ? Colors.lightBlueAccent.withValues(alpha: 0.48)
-              : isAdMission
-                  ? Colors.cyanAccent.withValues(alpha: 0.75)
-                  : isDone
-                      ? Colors.lightBlueAccent
-                      : Colors.cyanAccent.withValues(alpha: 0.3),
+          color: stateColor.withValues(
+            alpha: canClaim || claimed || isDone || isAdMission ? 0.75 : 0.3,
+          ),
           width: 1,
         ),
-        boxShadow: null,
       ),
       child: child,
     );
@@ -476,31 +470,27 @@ class _MissionScreenState extends State<MissionScreen> {
         duration: const Duration(milliseconds: 90),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: canClaim
-              ? (pressed ? const Color(0xFF0B5EA8) : const Color(0xFF1E88E5))
-              : Colors.white.withValues(alpha: 0.08),
+          color: claimed
+              ? GameThemeColors.blueSide.withValues(alpha: 0.12)
+              : canClaim
+                  ? GameThemeColors.blueSide
+                      .withValues(alpha: pressed ? 0.72 : 0.88)
+                  : Colors.white.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: canClaim
-                ? Colors.cyanAccent.withValues(alpha: pressed ? 1 : 0.75)
-                : Colors.white.withValues(alpha: 0.2),
+            color: claimed
+                ? GameThemeColors.blueSide.withValues(alpha: 0.75)
+                : canClaim
+                    ? GameThemeColors.blueSide
+                        .withValues(alpha: pressed ? 1 : 0.75)
+                    : Colors.white.withValues(alpha: 0.2),
           ),
-          boxShadow: canClaim
-              ? [
-                  BoxShadow(
-                    color: Colors.lightBlueAccent.withValues(
-                      alpha: pressed ? 0.10 : 0.28,
-                    ),
-                    blurRadius: pressed ? 4 : 12,
-                  ),
-                ]
-              : null,
         ),
         child: claimed
             ? const Text(
                 '受取済み',
                 style: TextStyle(
-                  color: Colors.grey,
+                  color: GameThemeColors.blueSide,
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
                 ),
@@ -543,8 +533,7 @@ class _MissionScreenState extends State<MissionScreen> {
   Widget _progressRow({
     required int progress,
     required int target,
-    required bool canClaim,
-    required bool isDone,
+    required Color stateColor,
     String progressKey = '',
   }) {
     return Row(
@@ -552,11 +541,7 @@ class _MissionScreenState extends State<MissionScreen> {
         Expanded(
           child: LinearProgressIndicator(
             value: target == 0 ? 0 : (progress / target).clamp(0, 1),
-            color: canClaim
-                ? Colors.cyanAccent.withValues(alpha: 0.5)
-                : isDone
-                    ? Colors.lightBlueAccent
-                    : Colors.cyanAccent.withValues(alpha: 0.5),
+            color: stateColor,
             backgroundColor: Colors.white12,
           ),
         ),
@@ -565,6 +550,7 @@ class _MissionScreenState extends State<MissionScreen> {
           progress: progress,
           target: target,
           progressKey: progressKey,
+          color: stateColor,
         ),
       ],
     );
@@ -574,12 +560,13 @@ class _MissionScreenState extends State<MissionScreen> {
     required int progress,
     required int target,
     required String progressKey,
+    required Color color,
   }) {
     if (progressKey == 'highest_rating') {
       return HexagonTrophyAmount(
         progress,
         suffix: ' / $target',
-        color: Colors.white70,
+        color: color,
         iconSize: 13,
         fontSize: 12,
         fontWeight: FontWeight.bold,
@@ -587,11 +574,14 @@ class _MissionScreenState extends State<MissionScreen> {
     }
     return Text(
       '$progress / $target',
-      style: const TextStyle(color: Colors.white70, fontSize: 12),
+      style: TextStyle(color: color, fontSize: 12),
     );
   }
 
-  Widget _regularMissionTitle(Map<String, dynamic> mission) {
+  Widget _regularMissionTitle(
+    Map<String, dynamic> mission, {
+    required Color stateColor,
+  }) {
     final progressKey = mission['progressKey']?.toString() ?? '';
     final target = (mission['target'] as num?)?.toInt() ?? 0;
     final title = mission['title']?.toString() ?? 'ミッション';
@@ -600,9 +590,7 @@ class _MissionScreenState extends State<MissionScreen> {
       return Text(
         title.replaceFirst('〇〇', '$target'),
         style: TextStyle(
-          color: progressKey == 'rewarded_ad_views'
-              ? Colors.cyanAccent
-              : Colors.lightBlueAccent,
+          color: stateColor,
           fontWeight: FontWeight.bold,
         ),
       );
@@ -612,26 +600,31 @@ class _MissionScreenState extends State<MissionScreen> {
       children: [
         Text(
           parts.first,
-          style: const TextStyle(
-            color: Colors.lightBlueAccent,
+          style: TextStyle(
+            color: stateColor,
             fontWeight: FontWeight.bold,
           ),
         ),
         HexagonTrophyAmount(
           target,
+          color: stateColor,
           iconSize: 14,
           fontSize: 13,
           fontWeight: FontWeight.bold,
         ),
         Text(
           parts.skip(1).join('〇〇'),
-          style: const TextStyle(
-            color: Colors.lightBlueAccent,
+          style: TextStyle(
+            color: stateColor,
             fontWeight: FontWeight.bold,
           ),
         ),
       ],
     );
+  }
+
+  Color _missionStateColor({bool claimed = false}) {
+    return claimed ? GameThemeColors.blueSide : GameThemeColors.cyan;
   }
 
   Widget _rerollButton({
@@ -662,30 +655,20 @@ class _MissionScreenState extends State<MissionScreen> {
         height: 34,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.cyanAccent.withValues(alpha: 0.24),
-              Colors.purpleAccent.withValues(alpha: 0.22),
-            ],
-          ),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.68)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.cyanAccent.withValues(alpha: 0.18),
-              blurRadius: 10,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                GameThemeColors.cyan.withValues(alpha: 0.24),
+                GameThemeColors.blueSide.withValues(alpha: 0.18),
+              ],
             ),
-            BoxShadow(
-              color: Colors.purpleAccent.withValues(alpha: 0.14),
-              blurRadius: 14,
-            ),
-          ],
-        ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: GameThemeColors.cyan.withValues(alpha: 0.68))),
         child: const Icon(
           Icons.sync_rounded,
-          color: Colors.cyanAccent,
+          color: GameThemeColors.cyan,
           size: 20,
         ),
       ),
@@ -701,23 +684,15 @@ class _MissionScreenState extends State<MissionScreen> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: canClaim
-            ? Colors.cyanAccent.withValues(alpha: 0.14)
+            ? GameThemeColors.blueSide.withValues(alpha: 0.14)
             : Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: canClaim
-              ? Colors.cyanAccent.withValues(alpha: 0.72)
+              ? GameThemeColors.blueSide.withValues(alpha: 0.72)
               : Colors.white.withValues(alpha: 0.2),
           width: canClaim ? 1.5 : 1,
         ),
-        boxShadow: canClaim
-            ? [
-                BoxShadow(
-                  color: Colors.cyanAccent.withValues(alpha: 0.16),
-                  blurRadius: 14,
-                ),
-              ]
-            : null,
       ),
       child: Row(
         children: [
@@ -725,7 +700,7 @@ class _MissionScreenState extends State<MissionScreen> {
             alreadyClaimed
                 ? Icons.check_circle_rounded
                 : Icons.ondemand_video_rounded,
-            color: canClaim ? Colors.cyanAccent : Colors.white54,
+            color: canClaim ? GameThemeColors.blueSide : Colors.white54,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -735,7 +710,7 @@ class _MissionScreenState extends State<MissionScreen> {
                 Text(
                   alreadyClaimed ? '全達成ボーナス受取済み' : '全達成ボーナス',
                   style: TextStyle(
-                    color: canClaim ? Colors.cyanAccent : Colors.white70,
+                    color: canClaim ? GameThemeColors.blueSide : Colors.white70,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -783,13 +758,13 @@ class _MissionScreenState extends State<MissionScreen> {
                 decoration: BoxDecoration(
                   color: canClaim
                       ? (_pressedClaimKeys.contains('all_clear')
-                          ? const Color(0xFF0B5EA8)
-                          : const Color(0xFF1E88E5))
+                          ? GameThemeColors.blueSide.withValues(alpha: 0.72)
+                          : GameThemeColors.blueSide.withValues(alpha: 0.88))
                       : Colors.white.withValues(alpha: 0.06),
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
                     color: canClaim
-                        ? Colors.cyanAccent.withValues(alpha: 0.75)
+                        ? GameThemeColors.blueSide.withValues(alpha: 0.75)
                         : Colors.white.withValues(alpha: 0.16),
                   ),
                 ),
@@ -823,12 +798,13 @@ class _MissionScreenState extends State<MissionScreen> {
           backgroundColor: const Color(0xFF151723),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: Colors.cyanAccent.withValues(alpha: 0.55)),
+            side:
+                BorderSide(color: GameThemeColors.cyan.withValues(alpha: 0.55)),
           ),
           title: Text(
             title,
             style: const TextStyle(
-              color: Colors.cyanAccent,
+              color: GameThemeColors.cyan,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -868,7 +844,7 @@ class _MissionPageTitle extends StatelessWidget {
         Text(
           subtitle,
           style: const TextStyle(
-            color: Colors.cyanAccent,
+            color: GameThemeColors.cyan,
             fontSize: 10,
             fontWeight: FontWeight.w900,
             letterSpacing: 3.5,
@@ -880,7 +856,6 @@ class _MissionPageTitle extends StatelessWidget {
             color: Colors.white,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
-            shadows: [Shadow(color: Colors.cyanAccent, blurRadius: 12)],
           ),
         ),
       ],
@@ -899,16 +874,10 @@ class _MissionNeonTabBar extends StatelessWidget {
       margin: const EdgeInsets.fromLTRB(18, 8, 18, 10),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xCC0B1020),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.28)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.cyanAccent.withValues(alpha: 0.12),
-            blurRadius: 18,
-          ),
-        ],
-      ),
+          color: const Color(0xCC0B1020),
+          borderRadius: BorderRadius.circular(18),
+          border:
+              Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.28))),
       child: TabBar(
         onTap: (_) => AppSfx.playUiTap(),
         dividerColor: Colors.transparent,
@@ -916,12 +885,13 @@ class _MissionNeonTabBar extends StatelessWidget {
         indicator: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              Colors.cyanAccent.withValues(alpha: 0.35),
+              GameThemeColors.cyan.withValues(alpha: 0.35),
               const Color(0xFF0B84FF).withValues(alpha: 0.28),
             ],
           ),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.85)),
+          border:
+              Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.85)),
         ),
         labelColor: Colors.white,
         unselectedLabelColor: Colors.white54,

@@ -101,8 +101,7 @@
       ".read": "auth != null",
       ".indexOn": ["publicId", "displayName", "updatedAt", "recordDate"],
       "$uid": {
-        ".write": "auth != null && auth.uid === $uid",
-        ".validate": "newData.child('ranked/dailyWinRankPlacements').val() === data.child('ranked/dailyWinRankPlacements').val()"
+        ".write": "auth != null && auth.uid === $uid"
       }
     },
     "playerNameLookup": {

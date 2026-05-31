@@ -298,18 +298,21 @@ void drawCyberSphere(
   BallColor color, {
   double alpha = 1,
   bool compact = false,
+  bool showOuterGlow = true,
 }) {
   final palette = _paletteFor(color);
   final bodyRect = Rect.fromCircle(center: center, radius: radius);
   final blur = compact ? 4.0 : 8.0;
 
-  canvas.drawCircle(
-    center,
-    radius * 1.22,
-    Paint()
-      ..color = palette.rim.withValues(alpha: 0.2 * alpha)
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
-  );
+  if (showOuterGlow) {
+    canvas.drawCircle(
+      center,
+      radius * 1.22,
+      Paint()
+        ..color = palette.rim.withValues(alpha: 0.2 * alpha)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
+    );
+  }
 
   final basePaint = Paint()
     ..shader = LinearGradient(
@@ -422,22 +425,30 @@ void _drawSpecularHighlights(
 class MiniBallWidget extends StatelessWidget {
   final BallColor ballColor;
   final double size;
+  final bool showOuterGlow;
 
   const MiniBallWidget(
-      {super.key, required this.ballColor, required this.size});
+      {super.key,
+      required this.ballColor,
+      required this.size,
+      this.showOuterGlow = true});
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
       size: Size(size, size),
-      painter: _MiniBallPainter(ballColor: ballColor),
+      painter: _MiniBallPainter(
+        ballColor: ballColor,
+        showOuterGlow: showOuterGlow,
+      ),
     );
   }
 }
 
 class _MiniBallPainter extends CustomPainter {
   final BallColor ballColor;
-  _MiniBallPainter({required this.ballColor});
+  final bool showOuterGlow;
+  _MiniBallPainter({required this.ballColor, required this.showOuterGlow});
 
   @override
   void paint(Canvas canvas, Size canvasSize) {
@@ -450,9 +461,11 @@ class _MiniBallPainter extends CustomPainter {
       r,
       ballColor,
       compact: true,
+      showOuterGlow: showOuterGlow,
     );
   }
 
   @override
-  bool shouldRepaint(_MiniBallPainter old) => old.ballColor != ballColor;
+  bool shouldRepaint(_MiniBallPainter old) =>
+      old.ballColor != ballColor || old.showOuterGlow != showOuterGlow;
 }

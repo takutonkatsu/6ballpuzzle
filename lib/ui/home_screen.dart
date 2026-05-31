@@ -37,6 +37,7 @@ import 'profile_screen.dart';
 import 'ranking_screen.dart';
 import 'record_screen.dart';
 import 'shop_screen.dart';
+import 'theme/game_theme_colors.dart';
 
 class HomeBootstrapData {
   const HomeBootstrapData({
@@ -97,6 +98,14 @@ class _SeasonResultViewData {
 }
 
 const Duration _homeBootstrapOnlineTimeout = Duration(seconds: 4);
+const Color _homeCyan = GameThemeColors.cyan;
+const Color _homeCyanBorder = GameThemeColors.cyanBorder;
+const Color _rankedPurple = GameThemeColors.ranked;
+const Color _rankedPurpleText = GameThemeColors.rankedText;
+const Color _endlessGreen = GameThemeColors.endless;
+const Color _computerYellow = GameThemeColors.computer;
+const Color _friendPink = GameThemeColors.friend;
+const Color _mutedButtonGrey = GameThemeColors.mutedButton;
 
 Future<HomeBootstrapData> prepareHomeBootstrapData() async {
   final multiplayerManager = MultiplayerManager();
@@ -430,15 +439,15 @@ class _HomeScreenState extends State<HomeScreen>
   Color _playerIconFrameColor(String frameId) {
     final frame = GameItemCatalog.byId(frameId);
     return switch (frame?.colorName) {
-      'red' => Colors.redAccent,
+      'red' => _friendPink,
       'orange' => Colors.orangeAccent,
-      'yellow' => Colors.yellowAccent,
+      'yellow' => _computerYellow,
       'lime' => Colors.limeAccent,
-      'green' => Colors.greenAccent,
-      'blue' => Colors.lightBlueAccent,
+      'green' => _endlessGreen,
+      'blue' => _homeCyan,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
-      _ => Colors.cyanAccent,
+      _ => _homeCyan,
     };
   }
 
@@ -665,6 +674,9 @@ class _HomeScreenState extends State<HomeScreen>
     _syncPlayerEconomyState();
     unawaited(_refreshPlayerEconomy());
     unawaited(_syncRankedSeasonState(showResultLog: true));
+    unawaited(
+      _syncPlayerProfileOnline(rating: bootstrapData.rating).catchError((_) {}),
+    );
 
     final pendingLevelUpRewardLog = bootstrapData.pendingLevelUpRewardLog;
     if (pendingLevelUpRewardLog != null && pendingLevelUpRewardLog.isNotEmpty) {
@@ -876,7 +888,7 @@ class _HomeScreenState extends State<HomeScreen>
           builder: (context, setDialogState) {
             final notice = selectedNotice;
             return _buildCyberDialog(
-              accentColor: Colors.cyanAccent,
+              accentColor: _homeCyan,
               title: notice == null ? 'お知らせ' : notice.title,
               child: notice == null
                   ? ConstrainedBox(
@@ -904,9 +916,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 color: Colors.black.withValues(alpha: 0.24),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: Colors.cyanAccent.withValues(
-                                    alpha: 0.28,
-                                  ),
+                                  color: _homeCyanBorder,
                                 ),
                               ),
                               child: Row(
@@ -943,7 +953,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   ),
                                   const Icon(
                                     Icons.chevron_right_rounded,
-                                    color: Colors.cyanAccent,
+                                    color: _homeCyan,
                                   ),
                                 ],
                               ),
@@ -980,7 +990,7 @@ class _HomeScreenState extends State<HomeScreen>
                             Expanded(
                               child: _buildCyberDialogButton(
                                 label: '一覧へ',
-                                accentColor: Colors.cyanAccent,
+                                accentColor: _homeCyan,
                                 onPressed: () {
                                   setDialogState(() {
                                     selectedNotice = null;
@@ -992,7 +1002,7 @@ class _HomeScreenState extends State<HomeScreen>
                             Expanded(
                               child: _buildCyberDialogButton(
                                 label: '閉じる',
-                                accentColor: Colors.cyanAccent,
+                                accentColor: _homeCyan,
                                 onPressed: () =>
                                     Navigator.of(dialogContext).pop(),
                               ),
@@ -1117,7 +1127,7 @@ class _HomeScreenState extends State<HomeScreen>
     await _playerDataManager.setPlayerName(trimmed);
     _multiplayerManager.setPlayerName(trimmed);
     _playerNameController.text = _playerDataManager.displayPlayerName;
-    unawaited(_syncPlayerNameOnline());
+    await _syncPlayerNameOnline();
     if (!mounted) {
       return;
     }
@@ -1126,22 +1136,49 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _syncPlayerNameOnline() async {
-    try {
-      await _multiplayerManager
-          .updateUserName(_playerDataManager.playerName)
-          .timeout(_nameRegistrationSyncTimeout);
-    } catch (_) {
-      // 名前はローカルに保存済みなので、オンライン同期の遅延で登録画面を止めない。
-    }
-    try {
-      await _rankingManager
-          .updateMyRating(
-            rating: _rating,
-            displayName: _playerDataManager.displayPlayerName,
-          )
-          .timeout(_nameRegistrationSyncTimeout);
-    } catch (_) {
-      // ランキング同期失敗で名前登録を巻き戻さない。
+    await _syncPlayerProfileOnline(rating: _rating);
+  }
+
+  Future<void> _syncPlayerProfileOnline({int? rating}) async {
+    final syncRating = rating ?? _playerDataManager.currentRating;
+    await Future.wait<void>(
+      [
+        _runRequiredProfileSyncTask(
+          () => _multiplayerManager
+              .updateUserName(_playerDataManager.playerName)
+              .timeout(_nameRegistrationSyncTimeout),
+        ),
+        _runRequiredProfileSyncTask(
+          () => _rankingManager
+              .updateMyRating(
+                rating: syncRating,
+                displayName: _playerDataManager.displayPlayerName,
+              )
+              .timeout(_nameRegistrationSyncTimeout),
+        ),
+        _runRequiredProfileSyncTask(
+          () => _playerDataManager
+              .syncRecordSummary(force: true, rethrowErrors: true)
+              .timeout(_nameRegistrationSyncTimeout),
+        ),
+      ],
+      eagerError: false,
+    );
+  }
+
+  Future<void> _runRequiredProfileSyncTask(
+    Future<void> Function() task,
+  ) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await task();
+        return;
+      } catch (_) {
+        if (attempt < 2) {
+          await Future<void>.delayed(
+              Duration(milliseconds: 250 * (attempt + 1)));
+        }
+      }
     }
   }
 
@@ -1191,7 +1228,7 @@ class _HomeScreenState extends State<HomeScreen>
               return PopScope(
                 canPop: false,
                 child: _buildCyberDialog(
-                  accentColor: Colors.cyanAccent,
+                  accentColor: _homeCyan,
                   title: '名前を登録',
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1218,20 +1255,18 @@ class _HomeScreenState extends State<HomeScreen>
                           counterStyle: const TextStyle(color: Colors.white38),
                           labelStyle: const TextStyle(color: Colors.white70),
                           errorText: errorText,
-                          enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: Colors.cyanAccent.withValues(alpha: 0.42),
-                            ),
+                          enabledBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: _homeCyanBorder),
                           ),
                           focusedBorder: const OutlineInputBorder(
-                            borderSide: BorderSide(color: Colors.cyanAccent),
+                            borderSide: BorderSide(color: _homeCyanBorder),
                           ),
                         ),
                       ),
                       const SizedBox(height: 10),
                       _buildCyberDialogButton(
                         label: isSubmitting ? '登録中...' : '登録',
-                        accentColor: Colors.cyanAccent,
+                        accentColor: _homeCyan,
                         onPressed: () {
                           if (isSubmitting) {
                             return;
@@ -1260,7 +1295,7 @@ class _HomeScreenState extends State<HomeScreen>
       body: Stack(
         children: [
           const HexagonGridBackground(
-            color: Colors.cyanAccent,
+            color: _homeCyan,
             opacity: 0.035,
             hexRadius: 30,
           ),
@@ -1335,15 +1370,9 @@ class _HomeScreenState extends State<HomeScreen>
                   decoration: BoxDecoration(
                     color: Colors.black54,
                     border: Border.all(
-                      color: Colors.cyanAccent.withValues(alpha: 0.5),
+                      color: _homeCyanBorder,
                     ),
                     borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.cyanAccent.withValues(alpha: 0.2),
-                        blurRadius: 8,
-                      ),
-                    ],
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -1353,7 +1382,7 @@ class _HomeScreenState extends State<HomeScreen>
                         child: Text(
                           'Lv.$_level',
                           style: const TextStyle(
-                            color: Colors.cyanAccent,
+                            color: _homeCyan,
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
                           ),
@@ -1372,14 +1401,8 @@ class _HomeScreenState extends State<HomeScreen>
                           widthFactor: _levelProgress,
                           child: Container(
                             decoration: BoxDecoration(
-                              color: Colors.cyanAccent,
+                              color: _homeCyan,
                               borderRadius: BorderRadius.circular(3),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Colors.cyanAccent,
-                                  blurRadius: 4,
-                                ),
-                              ],
                             ),
                           ),
                         ),
@@ -1409,18 +1432,11 @@ class _HomeScreenState extends State<HomeScreen>
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black54,
-                    border: Border.all(
-                      color: Colors.cyanAccent.withValues(alpha: 0.5),
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.cyanAccent.withValues(alpha: 0.16),
-                        blurRadius: 8,
+                      color: Colors.black54,
+                      border: Border.all(
+                        color: _homeCyanBorder,
                       ),
-                    ],
-                  ),
+                      borderRadius: BorderRadius.circular(20)),
                   child: Row(
                     mainAxisSize: MainAxisSize.max,
                     children: [
@@ -1470,18 +1486,11 @@ class _HomeScreenState extends State<HomeScreen>
         height: compact ? 34 : 36,
         padding: EdgeInsets.symmetric(horizontal: compact ? 7 : 10),
         decoration: BoxDecoration(
-          color: Colors.black54,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: Colors.cyanAccent.withValues(alpha: 0.58),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.cyanAccent.withValues(alpha: 0.18),
-              blurRadius: 8,
-            ),
-          ],
-        ),
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: _homeCyanBorder,
+            )),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1577,17 +1586,9 @@ class _HomeScreenState extends State<HomeScreen>
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: Colors.cyanAccent.withValues(alpha: 0.48)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.cyanAccent.withValues(alpha: 0.14),
-                    blurRadius: 14,
-                  ),
-                ],
-              ),
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _homeCyanBorder)),
               child: Row(
                 children: [
                   Column(
@@ -1596,7 +1597,7 @@ class _HomeScreenState extends State<HomeScreen>
                       Text(
                         _currentSeasonName,
                         style: const TextStyle(
-                          color: Colors.cyanAccent,
+                          color: _homeCyan,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 1.2,
@@ -1613,12 +1614,6 @@ class _HomeScreenState extends State<HomeScreen>
                               color: Colors.amberAccent,
                               fontSize: 15,
                               fontWeight: FontWeight.w900,
-                              shadows: [
-                                Shadow(
-                                  color: Color(0xAAFFD54F),
-                                  blurRadius: 8,
-                                ),
-                              ],
                             ),
                           ),
                           if (!_isLoadingProfile) ...[
@@ -1648,7 +1643,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 10),
                   const Icon(
                     Icons.chevron_right_rounded,
-                    color: Colors.cyanAccent,
+                    color: _homeCyan,
                     size: 22,
                   ),
                 ],
@@ -1663,7 +1658,7 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   _buildRoundIcon(
                     Icons.notifications,
-                    Colors.cyanAccent,
+                    _homeCyan,
                     () => unawaited(_loadRemoteNotice(forceDialog: true)),
                     tooltip: 'お知らせ',
                     badgeCount: _unreadNoticeCount,
@@ -1671,14 +1666,14 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 6),
                   _buildRoundIcon(
                     Icons.question_mark,
-                    Colors.cyanAccent,
+                    _homeCyan,
                     () => unawaited(_showHowToDialog()),
                     tooltip: '遊び方',
                   ),
                   const SizedBox(width: 6),
                   _buildRoundIcon(
                     Icons.settings,
-                    Colors.cyanAccent,
+                    _homeCyan,
                     () => unawaited(_showSettingsDialog()),
                     tooltip: '設定',
                   ),
@@ -1686,7 +1681,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(width: 6),
                     _buildRoundIcon(
                       Icons.bug_report,
-                      Colors.cyanAccent,
+                      _homeCyan,
                       () => unawaited(_showDebugMenu()),
                       tooltip: 'デバッグ',
                     ),
@@ -1696,7 +1691,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(width: 6),
                     _buildRoundIcon(
                       Icons.block,
-                      Colors.cyanAccent,
+                      _homeCyan,
                       () => unawaited(_showAdRemovalDialog(context)),
                       tooltip: '広告削除',
                     ),
@@ -1761,9 +1756,6 @@ class _HomeScreenState extends State<HomeScreen>
                   decoration: BoxDecoration(
                     color: Colors.pinkAccent,
                     borderRadius: BorderRadius.circular(10),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.pinkAccent, blurRadius: 8),
-                    ],
                   ),
                   child: Text(
                     '$badgeCount',
@@ -1815,88 +1807,126 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (dialogContext) {
         return _buildCyberDialog(
           title: 'レベルステータス',
-          accentColor: Colors.cyanAccent,
+          accentColor: _homeCyan,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
                 decoration: BoxDecoration(
-                  color: Colors.cyanAccent.withValues(alpha: 0.08),
+                  color: const Color(0xFF101827),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: Colors.cyanAccent.withValues(alpha: 0.42),
+                    color: _homeCyanBorder,
+                    width: 1.4,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.cyanAccent.withValues(alpha: 0.15),
-                      blurRadius: 18,
-                    ),
-                  ],
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      '現在のレベル  $currentLevel',
-                      style: const TextStyle(
-                        color: Colors.cyanAccent,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text(
+                          '現在のレベル',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '$currentLevel',
+                          style: const TextStyle(
+                            color: _homeCyan,
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 12,
-                        backgroundColor: Colors.white12,
-                        valueColor:
-                            const AlwaysStoppedAnimation(Colors.cyanAccent),
+                    const SizedBox(height: 14),
+                    Container(
+                      height: 13,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.34),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: progress,
+                            child: Container(color: _homeCyan),
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Text(
-                      'EXP  $currentLevelExp / $requiredExp',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '次のレベルまで あと $remainingExp EXP',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
                     Row(
                       children: [
-                        const Text(
-                          '次のレベルアップ報酬： ',
-                          style: TextStyle(
-                            color: Colors.amberAccent,
+                        Text(
+                          'EXP  $currentLevelExp / $requiredExp',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'あと $remainingExp',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.28),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Colors.amberAccent.withValues(alpha: 0.32),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              '次のレベルアップ報酬',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          _buildCoinAmount(
+                            nextRewardCoins,
+                            color: const Color(0xFFEAF6FF),
+                            iconSize: 15,
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
                           ),
-                        ),
-                        _buildCoinAmount(
-                          nextRewardCoins,
-                          color: const Color(0xFFEAF6FF),
-                          iconSize: 15,
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -1904,7 +1934,7 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(height: 18),
               _buildCyberDialogButton(
                 label: '閉じる',
-                accentColor: Colors.cyanAccent,
+                accentColor: _homeCyan,
                 onPressed: () => Navigator.of(dialogContext).pop(),
               ),
             ],
@@ -1955,6 +1985,7 @@ class _HomeScreenState extends State<HomeScreen>
                   child: MiniBallWidget(
                     ballColor: ball.color,
                     size: ball.size,
+                    showOuterGlow: false,
                   ),
                 ),
             ],
@@ -1976,14 +2007,14 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Row(
                   children: [
                     Expanded(
-                        child: _buildGridButton('エンドレス', Colors.greenAccent,
-                            () => _startGame(context, false),
+                        child: _buildGridButton('エンドレス', _endlessGreen,
+                            () => _showEndlessStartDialog(context),
                             alignment: Alignment.topLeft)),
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
                             'フレンド',
-                            Colors.redAccent,
+                            _friendPink,
                             _isBusy
                                 ? null
                                 : () => _showFriendBattleDialog(context),
@@ -1998,15 +2029,14 @@ class _HomeScreenState extends State<HomeScreen>
                     Expanded(
                         child: _buildGridButton(
                             'コンピュータ',
-                            Colors.yellowAccent,
+                            _computerYellow,
                             _isBusy
                                 ? null
                                 : () => _showCpuDifficultyDialog(context),
                             alignment: Alignment.bottomLeft)),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: _buildArenaGridButton(
-                            Colors.lightBlueAccent, null,
+                        child: _buildArenaGridButton(_homeCyan, null,
                             alignment: Alignment.bottomRight)),
                   ],
                 ),
@@ -2018,9 +2048,6 @@ class _HomeScreenState extends State<HomeScreen>
             child: AnimatedBuilder(
               animation: _animController,
               builder: (context, child) {
-                const glowAlpha = 0.4;
-                const glowBlur = 28.0;
-
                 return InkWell(
                   onTap: _isBusy || _isLoadingProfile
                       ? null
@@ -2042,53 +2069,27 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     child: Container(
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.purpleAccent.withValues(alpha: 0.18),
-                        border: Border.all(
-                          color: Colors.purpleAccent,
-                          width: 3,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.purpleAccent.withValues(
-                              alpha: glowAlpha,
-                            ),
-                            blurRadius: glowBlur,
-                            spreadRadius: 3,
-                          ),
-                          BoxShadow(
-                            color: Colors.pinkAccent.withValues(alpha: 0.18),
-                            blurRadius: 16,
-                          ),
-                        ],
-                      ),
+                          shape: BoxShape.circle,
+                          color: const Color(0xFF171125),
+                          border: Border.all(
+                            color: _rankedPurple,
+                            width: 2.4,
+                          )),
                       child: Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
+                            const Text(
                               'ランク戦',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: Colors.white,
+                                color: _rankedPurpleText,
                                 fontWeight: FontWeight.w900,
                                 fontSize: 18,
                                 letterSpacing: 2,
-                                shadows: [
-                                  const Shadow(
-                                    color: Colors.purpleAccent,
-                                    blurRadius: 11,
-                                  ),
-                                  Shadow(
-                                    color: Colors.pinkAccent.withValues(
-                                      alpha: 0.45,
-                                    ),
-                                    blurRadius: 6,
-                                  ),
-                                ],
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
@@ -2098,24 +2099,12 @@ class _HomeScreenState extends State<HomeScreen>
                                 color: Colors.black.withValues(alpha: 0.62),
                                 borderRadius: BorderRadius.circular(999),
                                 border: Border.all(
-                                  color: Colors.purpleAccent.withValues(
-                                    alpha: 0.82,
-                                  ),
+                                  color: _rankedPurple.withValues(alpha: 0.82),
                                 ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Text(
-                                    '現在',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 0.8,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 3),
                                   const HexagonTrophyIcon(size: 12),
                                   const SizedBox(width: 3),
                                   Text(
@@ -2125,12 +2114,6 @@ class _HomeScreenState extends State<HomeScreen>
                                       fontSize: 11,
                                       fontWeight: FontWeight.w900,
                                       letterSpacing: 0.8,
-                                      shadows: [
-                                        Shadow(
-                                          color: Color(0xAAFFD54F),
-                                          blurRadius: 7,
-                                        ),
-                                      ],
                                     ),
                                   ),
                                 ],
@@ -2175,22 +2158,12 @@ class _HomeScreenState extends State<HomeScreen>
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: accentColor.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(16),
-          border:
-              Border.all(color: accentColor.withValues(alpha: 0.58), width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: accentColor.withValues(alpha: 0.18),
-              blurRadius: 12,
-              spreadRadius: 1,
-            ),
-            BoxShadow(
-              color: accentColor.withValues(alpha: 0.08),
-              blurRadius: 22,
-            ),
-          ],
-        ),
+            color: const Color(0xFF111722),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: accentColor.withValues(alpha: 0.56),
+              width: 2.4,
+            )),
         child: Align(
           alignment: alignment,
           child: Padding(
@@ -2199,17 +2172,10 @@ class _HomeScreenState extends State<HomeScreen>
               title,
               textAlign: textAlign,
               style: TextStyle(
-                color: accentColor,
+                color: accentColor.withValues(alpha: 0.96),
                 fontWeight: FontWeight.w900,
-                fontSize: 18,
-                letterSpacing: 2,
-                shadows: [
-                  Shadow(color: accentColor, blurRadius: 8),
-                  Shadow(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    blurRadius: 2,
-                  ),
-                ],
+                fontSize: 17,
+                letterSpacing: 1.2,
               ),
             ),
           ),
@@ -2232,20 +2198,12 @@ class _HomeScreenState extends State<HomeScreen>
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: disabledArenaColor.withValues(alpha: 0.18),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: disabledArenaColor.withValues(alpha: 0.42),
-            width: 1.2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 12,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
+            color: const Color(0xFF151922),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: disabledArenaColor.withValues(alpha: 0.42),
+              width: 2.4,
+            )),
         child: Align(
           alignment: alignment,
           child: Padding(
@@ -2253,18 +2211,14 @@ class _HomeScreenState extends State<HomeScreen>
             child: FittedBox(
               fit: BoxFit.scaleDown,
               alignment: alignment,
-              child: Text(
+              child: const Text(
                 'Coming Soon...',
-                textAlign: alignment.x > 0 ? TextAlign.right : TextAlign.left,
-                style: const TextStyle(
-                  color: Color(0xFFE1E6EC),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: Color(0xFFB8C0CA),
                   fontWeight: FontWeight.w900,
-                  fontSize: 18,
-                  letterSpacing: 1.6,
-                  shadows: [
-                    Shadow(color: Color(0x668B96A3), blurRadius: 8),
-                    Shadow(color: Colors.black54, blurRadius: 2),
-                  ],
+                  fontSize: 17,
+                  letterSpacing: 1.2,
                 ),
               ),
             ),
@@ -2284,7 +2238,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.lightBlueAccent,
+          accentColor: _homeCyan,
           title: 'アリーナ再入場',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2319,7 +2273,7 @@ class _HomeScreenState extends State<HomeScreen>
                   Expanded(
                     child: _buildCyberDialogButton(
                       label: '再入場',
-                      accentColor: Colors.lightBlueAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => Navigator.of(dialogContext).pop(true),
                     ),
                   ),
@@ -2338,7 +2292,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.lightBlueAccent,
+          accentColor: _homeCyan,
           title: 'アリーナ入場',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2372,7 +2326,7 @@ class _HomeScreenState extends State<HomeScreen>
                   Expanded(
                     child: _buildCyberDialogButton(
                       label: '入場',
-                      accentColor: Colors.lightBlueAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => Navigator.of(dialogContext).pop(true),
                     ),
                   ),
@@ -2392,7 +2346,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.lightBlueAccent,
+          accentColor: _homeCyan,
           title: 'アリーナ報酬',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2421,7 +2375,7 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(height: 14),
               _buildCyberDialogButton(
                 label: 'OK',
-                accentColor: Colors.lightBlueAccent,
+                accentColor: _homeCyan,
                 onPressed: () => Navigator.of(dialogContext).pop(),
               ),
             ],
@@ -2437,10 +2391,10 @@ class _HomeScreenState extends State<HomeScreen>
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.lightBlueAccent.withValues(alpha: 0.08),
+        color: _homeCyan.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: Colors.lightBlueAccent.withValues(alpha: 0.32),
+          color: _homeCyanBorder,
         ),
       ),
       child: Row(
@@ -2560,7 +2514,7 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Icon(
                   icon,
-                  color: Colors.cyanAccent.withValues(alpha: 0.88),
+                  color: _homeCyan.withValues(alpha: 0.88),
                   size: 24,
                 ),
                 const SizedBox(height: 4),
@@ -2569,7 +2523,7 @@ class _HomeScreenState extends State<HomeScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: Colors.cyanAccent.withValues(alpha: 0.88),
+                    color: _homeCyan.withValues(alpha: 0.88),
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
                   ),
@@ -2587,15 +2541,8 @@ class _HomeScreenState extends State<HomeScreen>
                       ? EdgeInsets.zero
                       : const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.redAccent.withValues(alpha: 0.42),
-                        blurRadius: 8,
-                      ),
-                    ],
-                  ),
+                      color: _friendPink,
+                      borderRadius: BorderRadius.circular(999)),
                   child: showDot && badgeCount <= 0
                       ? null
                       : Text(
@@ -2663,7 +2610,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
+          accentColor: _homeCyan,
           title: '広告削除',
           child: ValueListenableBuilder<bool>(
             valueListenable: AppSettings.instance.adsRemoved,
@@ -2688,7 +2635,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(height: 16),
                     _buildCyberDialogButton(
                       label: '広告を再度つける',
-                      accentColor: Colors.lightBlueAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => unawaited(_enableAdsFromAdRemovalDialog(
                         dialogContext,
                       )),
@@ -2711,7 +2658,7 @@ class _HomeScreenState extends State<HomeScreen>
                     priceLabel == null ? '価格を取得中...' : '価格 $priceLabel',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: Colors.cyanAccent,
+                      color: _homeCyan,
                       fontSize: 18,
                       fontWeight: FontWeight.w900,
                     ),
@@ -2736,7 +2683,7 @@ class _HomeScreenState extends State<HomeScreen>
                       label: priceLabel == null
                           ? '広告削除を購入する'
                           : '広告削除を購入する $priceLabel',
-                      accentColor: Colors.cyanAccent,
+                      accentColor: _homeCyan,
                       onPressed: () async {
                         final started =
                             await AdRemovalPurchaseManager.instance.buy();
@@ -2792,7 +2739,7 @@ class _HomeScreenState extends State<HomeScreen>
         context: context,
         builder: (dialogContext) {
           return _buildCyberDialog(
-            accentColor: Colors.cyanAccent,
+            accentColor: _homeCyan,
             title: 'ギフトコード',
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -2810,7 +2757,7 @@ class _HomeScreenState extends State<HomeScreen>
                         '広告削除は有効です。',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Colors.cyanAccent,
+                          color: _homeCyan,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -2821,23 +2768,21 @@ class _HomeScreenState extends State<HomeScreen>
                   controller: giftCodeController,
                   textCapitalization: TextCapitalization.characters,
                   style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'ギフトコード',
-                    labelStyle: const TextStyle(color: Colors.white70),
+                    labelStyle: TextStyle(color: Colors.white70),
                     enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(
-                        color: Colors.cyanAccent.withValues(alpha: 0.42),
-                      ),
+                      borderSide: BorderSide(color: _homeCyanBorder),
                     ),
-                    focusedBorder: const OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.cyanAccent),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: _homeCyanBorder),
                     ),
                   ),
                 ),
                 const SizedBox(height: 10),
                 _buildCyberDialogButton(
                   label: 'コードを使う',
-                  accentColor: Colors.cyanAccent,
+                  accentColor: _homeCyan,
                   onPressed: () async {
                     final redeemed =
                         await AppSettings.instance.redeemAdRemovalGiftCode(
@@ -2882,7 +2827,7 @@ class _HomeScreenState extends State<HomeScreen>
             padding: EdgeInsets.only(top: 1),
             child: Icon(
               Icons.check_circle_rounded,
-              color: Colors.cyanAccent,
+              color: _homeCyan,
               size: 18,
             ),
           ),
@@ -2921,34 +2866,118 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _showEndlessStartDialog(BuildContext context) {
+    final highScore = _playerDataManager.highestEndlessScore;
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _endlessGreen,
+          title: 'エンドレス',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'ハイスコアに挑戦しますか？',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: _endlessGreen.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _endlessGreen.withValues(alpha: 0.48),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      'ハイスコア',
+                      style: TextStyle(
+                        color: _endlessGreen.withValues(alpha: 0.9),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$highScore',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'キャンセル',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: '開始',
+                      accentColor: _endlessGreen,
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        _startGame(context, false);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _showCpuDifficultyDialog(BuildContext context) {
     const options = [
       (
         label: '弱い',
         subtitle: 'ゆっくり考えて、よく迷う',
         difficulty: CPUDifficulty.easy,
-        color: Colors.greenAccent,
+        color: _computerYellow,
         level: '入門'
       ),
       (
         label: '普通',
         subtitle: 'ほどよく考える標準コンピュータ',
         difficulty: CPUDifficulty.normal,
-        color: Colors.cyanAccent,
+        color: _computerYellow,
         level: '標準'
       ),
       (
         label: '強い',
         subtitle: '速く読んでミスが少ない',
         difficulty: CPUDifficulty.hard,
-        color: Colors.yellowAccent,
+        color: _computerYellow,
         level: '上級'
       ),
       (
         label: '鬼',
         subtitle: '最速でほぼ最適解を狙う',
         difficulty: CPUDifficulty.oni,
-        color: Colors.redAccent,
+        color: _computerYellow,
         level: '最強'
       ),
     ];
@@ -2957,7 +2986,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.yellowAccent,
+          accentColor: _computerYellow,
           title: 'コンピュータ対戦',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2979,6 +3008,12 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 if (option != options.last) const SizedBox(height: 10),
               ],
+              const SizedBox(height: 14),
+              _buildCyberDialogButton(
+                label: 'キャンセル',
+                accentColor: _computerYellow,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
             ],
           ),
         );
@@ -3077,7 +3112,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.redAccent,
+          accentColor: _friendPink,
           title: 'フレンド対戦',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -3086,8 +3121,8 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: '作成',
-                      accentColor: Colors.redAccent,
+                      label: '部屋を作成',
+                      accentColor: _friendPink,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
                         unawaited(_createRoom(context));
@@ -3097,8 +3132,8 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 12),
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: '参加',
-                      accentColor: Colors.lightBlueAccent,
+                      label: '部屋に参加',
+                      accentColor: _friendPink,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
                         unawaited(_joinRoom(context));
@@ -3156,7 +3191,7 @@ class _HomeScreenState extends State<HomeScreen>
             final maxDialogHeight = MediaQuery.of(context).size.height * 0.78;
 
             return _buildCyberDialog(
-              accentColor: Colors.cyanAccent,
+              accentColor: _homeCyan,
               title: 'ミッション',
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: maxDialogHeight),
@@ -3182,7 +3217,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   Text(
                                     '$_completedMissionCount / ${dialogMissions.length} 達成',
                                     style: const TextStyle(
-                                      color: Colors.cyanAccent,
+                                      color: _homeCyan,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
@@ -3278,7 +3313,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(height: 14),
                     _buildCyberDialogButton(
                       label: '閉じる',
-                      accentColor: Colors.cyanAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => Navigator.of(dialogContext).pop(),
                     ),
                   ],
@@ -3301,7 +3336,7 @@ class _HomeScreenState extends State<HomeScreen>
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.24),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.32)),
+        border: Border.all(color: _homeCyanBorder),
       ),
       child: Row(
         children: [
@@ -3316,29 +3351,18 @@ class _HomeScreenState extends State<HomeScreen>
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: selectedIndex == i
-                        ? Colors.cyanAccent.withValues(alpha: 0.18)
+                        ? _homeCyan.withValues(alpha: 0.18)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(9),
                     border: Border.all(
-                      color: selectedIndex == i
-                          ? Colors.cyanAccent.withValues(alpha: 0.85)
-                          : Colors.transparent,
+                      color:
+                          selectedIndex == i ? _homeCyan : Colors.transparent,
                     ),
-                    boxShadow: selectedIndex == i
-                        ? [
-                            BoxShadow(
-                              color: Colors.cyanAccent.withValues(alpha: 0.18),
-                              blurRadius: 10,
-                            ),
-                          ]
-                        : null,
                   ),
                   child: Text(
                     labels[i],
                     style: TextStyle(
-                      color: selectedIndex == i
-                          ? Colors.cyanAccent
-                          : Colors.white70,
+                      color: selectedIndex == i ? _homeCyan : Colors.white70,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -3376,23 +3400,13 @@ class _HomeScreenState extends State<HomeScreen>
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: canClaim
-              ? Colors.greenAccent.withValues(alpha: 0.14)
-              : Colors.cyanAccent.withValues(alpha: 0.05),
+              ? GameThemeColors.blueSide.withValues(alpha: 0.14)
+              : _homeCyan.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: canClaim
-                ? Colors.greenAccent
-                : Colors.cyanAccent.withValues(alpha: 0.3),
+            color: canClaim ? GameThemeColors.blueSide : _homeCyan,
             width: canClaim ? 2 : 1,
           ),
-          boxShadow: canClaim
-              ? [
-                  BoxShadow(
-                    color: Colors.greenAccent.withValues(alpha: 0.28),
-                    blurRadius: 12,
-                  ),
-                ]
-              : null,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3408,12 +3422,12 @@ class _HomeScreenState extends State<HomeScreen>
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
                     color: canClaim
-                        ? Colors.greenAccent.withValues(alpha: 0.18)
+                        ? GameThemeColors.blueSide.withValues(alpha: 0.18)
                         : Colors.white.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
                       color: canClaim
-                          ? Colors.greenAccent
+                          ? GameThemeColors.blueSide
                           : Colors.white.withValues(alpha: 0.2),
                     ),
                   ),
@@ -3424,7 +3438,7 @@ class _HomeScreenState extends State<HomeScreen>
                         const Text(
                           '受け取る',
                           style: TextStyle(
-                            color: Colors.greenAccent,
+                            color: GameThemeColors.blueSide,
                             fontSize: 12,
                             fontWeight: FontWeight.w900,
                           ),
@@ -3433,7 +3447,9 @@ class _HomeScreenState extends State<HomeScreen>
                       ],
                       _buildCoinAmount(
                         reward,
-                        color: canClaim ? Colors.greenAccent : Colors.white70,
+                        color: canClaim
+                            ? GameThemeColors.blueSide
+                            : Colors.white70,
                         iconSize: 13,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
@@ -3449,7 +3465,7 @@ class _HomeScreenState extends State<HomeScreen>
                 Expanded(
                   child: LinearProgressIndicator(
                     value: target == 0 ? 0 : (progress / target).clamp(0, 1),
-                    color: canClaim ? Colors.greenAccent : Colors.cyanAccent,
+                    color: canClaim ? GameThemeColors.blueSide : _homeCyan,
                     backgroundColor: Colors.white12,
                   ),
                 ),
@@ -3476,7 +3492,7 @@ class _HomeScreenState extends State<HomeScreen>
       return Text(
         title.replaceFirst('〇〇', '$target'),
         style: const TextStyle(
-          color: Colors.lightBlueAccent,
+          color: _homeCyan,
           fontWeight: FontWeight.bold,
         ),
       );
@@ -3487,7 +3503,7 @@ class _HomeScreenState extends State<HomeScreen>
         Text(
           parts.first,
           style: const TextStyle(
-            color: Colors.lightBlueAccent,
+            color: _homeCyan,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -3500,7 +3516,7 @@ class _HomeScreenState extends State<HomeScreen>
         Text(
           parts.skip(1).join('〇〇'),
           style: const TextStyle(
-            color: Colors.lightBlueAccent,
+            color: _homeCyan,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -3541,9 +3557,13 @@ class _HomeScreenState extends State<HomeScreen>
     final claimed = mission['claimed'] as bool? ?? false;
     final isDone = progress >= target;
     final canClaim = isDone && !claimed;
+    final stateColor = claimed ? GameThemeColors.blueSide : _homeCyan;
     final adsRemoved = AppSettings.instance.adsRemoved.value;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
+    final displayTitle = isRewardedAdMission && adsRemoved
+        ? 'ログインボーナス'
+        : _missionDisplayTitle(mission);
     final isLoginRewardMission =
         MissionCatalog.isLoginRewardMissionId(missionId);
     final canReroll =
@@ -3591,32 +3611,28 @@ class _HomeScreenState extends State<HomeScreen>
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: canClaim
-                  ? Colors.greenAccent.withValues(alpha: 0.14)
-                  : isRewardedAdMission && !claimed
-                      ? Colors.cyanAccent.withValues(alpha: 0.12)
-                      : isDone
-                          ? Colors.lightBlueAccent.withValues(alpha: 0.15)
-                          : Colors.cyanAccent.withValues(alpha: 0.05),
+              color: claimed
+                  ? GameThemeColors.blueSide.withValues(alpha: 0.14)
+                  : canClaim
+                      ? _homeCyan.withValues(alpha: 0.12)
+                      : isRewardedAdMission && !claimed
+                          ? _homeCyan.withValues(alpha: 0.12)
+                          : isDone
+                              ? _homeCyan.withValues(alpha: 0.15)
+                              : _homeCyan.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: canClaim
-                    ? Colors.greenAccent
-                    : isRewardedAdMission && !claimed
-                        ? Colors.cyanAccent.withValues(alpha: 0.75)
-                        : isDone
-                            ? Colors.lightBlueAccent
-                            : Colors.cyanAccent.withValues(alpha: 0.3),
+                color: claimed
+                    ? GameThemeColors.blueSide
+                    : canClaim
+                        ? _homeCyan
+                        : isRewardedAdMission && !claimed
+                            ? _homeCyan
+                            : isDone
+                                ? _homeCyan
+                                : _homeCyan,
                 width: canClaim ? 2 : 1,
               ),
-              boxShadow: canClaim
-                  ? [
-                      BoxShadow(
-                        color: Colors.greenAccent.withValues(alpha: 0.28),
-                        blurRadius: 12,
-                      ),
-                    ]
-                  : null,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -3627,20 +3643,15 @@ class _HomeScreenState extends State<HomeScreen>
                       Icon(
                         Icons.play_circle_fill_rounded,
                         size: 18,
-                        color:
-                            canClaim ? Colors.greenAccent : Colors.cyanAccent,
+                        color: stateColor,
                       ),
                       const SizedBox(width: 6),
                     ],
                     Expanded(
                       child: Text(
-                        _missionDisplayTitle(mission),
+                        displayTitle,
                         style: TextStyle(
-                          color: canClaim
-                              ? Colors.greenAccent
-                              : isRewardedAdMission && !claimed
-                                  ? Colors.cyanAccent
-                                  : Colors.lightBlueAccent,
+                          color: stateColor,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -3651,14 +3662,19 @@ class _HomeScreenState extends State<HomeScreen>
                         vertical: 5,
                       ),
                       decoration: BoxDecoration(
-                        color: canClaim
-                            ? Colors.greenAccent.withValues(alpha: 0.18)
-                            : Colors.white.withValues(alpha: 0.08),
+                        color: claimed
+                            ? GameThemeColors.blueSide.withValues(alpha: 0.12)
+                            : canClaim
+                                ? GameThemeColors.blueSide
+                                    .withValues(alpha: 0.18)
+                                : Colors.white.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
-                          color: canClaim
-                              ? Colors.greenAccent
-                              : Colors.white.withValues(alpha: 0.2),
+                          color: claimed
+                              ? GameThemeColors.blueSide.withValues(alpha: 0.75)
+                              : canClaim
+                                  ? GameThemeColors.blueSide
+                                  : Colors.white.withValues(alpha: 0.2),
                         ),
                       ),
                       child: _buildMissionRewardBadgeContent(
@@ -3702,38 +3718,25 @@ class _HomeScreenState extends State<HomeScreen>
                           height: 34,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Colors.cyanAccent.withValues(alpha: 0.24),
-                                Colors.purpleAccent.withValues(alpha: 0.22),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.cyanAccent.withValues(alpha: 0.68),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    Colors.cyanAccent.withValues(alpha: 0.18),
-                                blurRadius: 10,
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  _homeCyan.withValues(alpha: 0.24),
+                                  Colors.purpleAccent.withValues(alpha: 0.22),
+                                ],
                               ),
-                              BoxShadow(
-                                color:
-                                    Colors.purpleAccent.withValues(alpha: 0.14),
-                                blurRadius: 14,
-                              ),
-                            ],
-                          ),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: _homeCyanBorder,
+                              )),
                           child: Stack(
                             alignment: Alignment.center,
                             children: [
                               if (adsRemoved)
                                 const Icon(
                                   Icons.sync_rounded,
-                                  color: Colors.cyanAccent,
+                                  color: _homeCyan,
                                   size: 20,
                                 )
                               else
@@ -3742,7 +3745,7 @@ class _HomeScreenState extends State<HomeScreen>
                                   children: [
                                     const Icon(
                                       Icons.sync_rounded,
-                                      color: Colors.cyanAccent,
+                                      color: _homeCyan,
                                       size: 20,
                                     ),
                                     const SizedBox(width: 2),
@@ -3754,15 +3757,14 @@ class _HomeScreenState extends State<HomeScreen>
                                             .withValues(alpha: 0.72),
                                         shape: BoxShape.circle,
                                         border: Border.all(
-                                          color:
-                                              Colors.lightBlueAccent.withValues(
+                                          color: _homeCyanBorder.withValues(
                                             alpha: 0.72,
                                           ),
                                         ),
                                       ),
                                       child: const Icon(
                                         Icons.play_arrow_rounded,
-                                        color: Colors.lightBlueAccent,
+                                        color: _homeCyan,
                                         size: 12,
                                       ),
                                     ),
@@ -3782,17 +3784,14 @@ class _HomeScreenState extends State<HomeScreen>
                       child: LinearProgressIndicator(
                         value:
                             target == 0 ? 0 : (progress / target).clamp(0, 1),
-                        color: isDone
-                            ? Colors.lightBlueAccent
-                            : Colors.cyanAccent.withValues(alpha: 0.5),
+                        color: stateColor,
                         backgroundColor: Colors.white12,
                       ),
                     ),
                     const SizedBox(width: 10),
                     Text(
                       '$progress / $target',
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 12),
+                      style: TextStyle(color: stateColor, fontSize: 12),
                     ),
                   ],
                 ),
@@ -3837,23 +3836,13 @@ class _HomeScreenState extends State<HomeScreen>
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: canClaim
-              ? Colors.cyanAccent.withValues(alpha: 0.14)
+              ? _homeCyan.withValues(alpha: 0.14)
               : Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: canClaim
-                ? Colors.cyanAccent.withValues(alpha: 0.72)
-                : Colors.white.withValues(alpha: 0.2),
+            color: canClaim ? _homeCyan : Colors.white.withValues(alpha: 0.2),
             width: canClaim ? 1.5 : 1,
           ),
-          boxShadow: canClaim
-              ? [
-                  BoxShadow(
-                    color: Colors.cyanAccent.withValues(alpha: 0.16),
-                    blurRadius: 14,
-                  ),
-                ]
-              : null,
         ),
         child: Row(
           children: [
@@ -3861,7 +3850,7 @@ class _HomeScreenState extends State<HomeScreen>
               alreadyClaimed
                   ? Icons.check_circle_rounded
                   : Icons.ondemand_video_rounded,
-              color: canClaim ? Colors.cyanAccent : Colors.white54,
+              color: canClaim ? _homeCyan : Colors.white54,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -3871,7 +3860,7 @@ class _HomeScreenState extends State<HomeScreen>
                   Text(
                     alreadyClaimed ? '全達成ボーナス受取済み' : '全達成ボーナス',
                     style: TextStyle(
-                      color: canClaim ? Colors.cyanAccent : Colors.white70,
+                      color: canClaim ? _homeCyan : Colors.white70,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -3915,7 +3904,7 @@ class _HomeScreenState extends State<HomeScreen>
       return const Text(
         '受取済み',
         style: TextStyle(
-          color: Colors.grey,
+          color: GameThemeColors.blueSide,
           fontSize: 12,
           fontWeight: FontWeight.w900,
           letterSpacing: 0.8,
@@ -3939,7 +3928,7 @@ class _HomeScreenState extends State<HomeScreen>
           const Text(
             '受け取る',
             style: TextStyle(
-              color: Colors.greenAccent,
+              color: GameThemeColors.blueSide,
               fontSize: 12,
               fontWeight: FontWeight.w900,
               letterSpacing: 0.8,
@@ -3948,7 +3937,7 @@ class _HomeScreenState extends State<HomeScreen>
         if (canClaim) const SizedBox(width: 5),
         _buildCoinAmount(
           reward,
-          color: canClaim ? Colors.greenAccent : Colors.white70,
+          color: canClaim ? GameThemeColors.blueSide : Colors.white70,
           iconSize: 13,
           fontSize: 12,
           fontWeight: FontWeight.w900,
@@ -4028,7 +4017,7 @@ class _HomeScreenState extends State<HomeScreen>
           barrierDismissible: false,
           builder: (dialogContext) {
             return _buildCyberDialog(
-              accentColor: Colors.lightBlueAccent,
+              accentColor: _homeCyan,
               title: 'アリーナ',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -4080,16 +4069,15 @@ class _HomeScreenState extends State<HomeScreen>
                     height: 56,
                     child: Center(
                       child: CircularProgressIndicator(
-                        color: Colors.lightBlueAccent,
-                        backgroundColor:
-                            Colors.lightBlueAccent.withValues(alpha: 0.12),
+                        color: _homeCyan,
+                        backgroundColor: _homeCyan.withValues(alpha: 0.12),
                       ),
                     ),
                   ),
                   const SizedBox(height: 24),
                   _buildCyberDialogButton(
                     label: 'キャンセル',
-                    accentColor: Colors.lightBlueAccent,
+                    accentColor: _homeCyan,
                     onPressed: () {
                       unawaited(_multiplayerManager.cancelArenaMatchmaking());
                       Navigator.of(dialogContext).pop();
@@ -4166,9 +4154,10 @@ class _HomeScreenState extends State<HomeScreen>
       final rating = await _multiplayerManager
           .initializeUser(name: savedName)
           .timeout(_nameRegistrationSyncTimeout);
-      unawaited(_playerDataManager.setCurrentRating(rating));
+      await _playerDataManager.setCurrentRating(rating);
       await _syncRankedSeasonState(showResultLog: true)
           .timeout(_nameRegistrationSyncTimeout);
+      await _syncPlayerProfileOnline(rating: _playerDataManager.currentRating);
       if (!mounted) {
         return;
       }
@@ -4188,6 +4177,7 @@ class _HomeScreenState extends State<HomeScreen>
       _scheduleInitialNameRegistrationIfNeeded();
       unawaited(_playerDataManager.setCurrentRating(_rating));
       unawaited(_syncRankedSeasonState(showResultLog: true));
+      unawaited(_syncPlayerProfileOnline(rating: _rating).catchError((_) {}));
     }
   }
 
@@ -4341,7 +4331,7 @@ class _HomeScreenState extends State<HomeScreen>
           barrierDismissible: false,
           builder: (dialogContext) {
             return _buildCyberDialog(
-              accentColor: Colors.pinkAccent,
+              accentColor: _rankedPurple,
               title: 'ランク戦',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -4359,9 +4349,8 @@ class _HomeScreenState extends State<HomeScreen>
                     height: 56,
                     child: Center(
                       child: CircularProgressIndicator(
-                        color: Colors.pinkAccent,
-                        backgroundColor:
-                            Colors.pinkAccent.withValues(alpha: 0.12),
+                        color: _rankedPurple,
+                        backgroundColor: _rankedPurple.withValues(alpha: 0.12),
                       ),
                     ),
                   ),
@@ -4369,7 +4358,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 24),
                   _buildCyberDialogButton(
                     label: 'キャンセル',
-                    accentColor: Colors.pinkAccent,
+                    accentColor: _rankedPurple,
                     onPressed: () {
                       cancelledByUser = true;
                       unawaited(_multiplayerManager.cancelMatchmaking());
@@ -4584,7 +4573,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
+          accentColor: _homeCyan,
           title: 'ルーム参加',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -4612,13 +4601,11 @@ class _HomeScreenState extends State<HomeScreen>
                   fillColor: Colors.black.withValues(alpha: 0.35),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: Colors.cyanAccent.withValues(alpha: 0.45),
-                    ),
+                    borderSide: const BorderSide(color: _homeCyanBorder),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: Colors.cyanAccent),
+                    borderSide: const BorderSide(color: _homeCyanBorder),
                   ),
                 ),
               ),
@@ -4635,8 +4622,8 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 12),
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: '参加',
-                      accentColor: Colors.cyanAccent,
+                      label: '部屋に参加',
+                      accentColor: _homeCyan,
                       onPressed: () {
                         final roomId = controller.text.trim();
                         if (RegExp(r'^\d{6}$').hasMatch(roomId)) {
@@ -4666,7 +4653,7 @@ class _HomeScreenState extends State<HomeScreen>
       barrierDismissible: false,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
+          accentColor: _homeCyan,
           title: title,
           child: isSeasonResult
               ? _buildSeasonResultLog(message, dialogContext)
@@ -4686,7 +4673,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(height: 20),
                     _buildCyberDialogButton(
                       label: 'OK',
-                      accentColor: Colors.cyanAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => Navigator.of(dialogContext).pop(),
                     ),
                   ],
@@ -4759,10 +4746,10 @@ class _HomeScreenState extends State<HomeScreen>
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.cyanAccent.withValues(alpha: 0.08),
+            color: _homeCyan.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: Colors.cyanAccent.withValues(alpha: 0.42),
+              color: _homeCyanBorder,
               width: 1.2,
             ),
           ),
@@ -4787,7 +4774,7 @@ class _HomeScreenState extends State<HomeScreen>
               Text(
                 'FINAL RATE',
                 style: TextStyle(
-                  color: Colors.cyanAccent.withValues(alpha: 0.78),
+                  color: _homeCyan.withValues(alpha: 0.78),
                   fontSize: 11,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 2,
@@ -4810,7 +4797,7 @@ class _HomeScreenState extends State<HomeScreen>
         const SizedBox(height: 20),
         _buildCyberDialogButton(
           label: 'OK',
-          accentColor: Colors.cyanAccent,
+          accentColor: _homeCyan,
           onPressed: () => Navigator.of(dialogContext).pop(),
         ),
       ],
@@ -4863,7 +4850,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
+          accentColor: _homeCyan,
           title: title,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -4887,7 +4874,7 @@ class _HomeScreenState extends State<HomeScreen>
               const SizedBox(height: 20),
               _buildCyberDialogButton(
                 label: 'OK',
-                accentColor: Colors.cyanAccent,
+                accentColor: _homeCyan,
                 onPressed: () => Navigator.of(dialogContext).pop(),
               ),
             ],
@@ -4902,7 +4889,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: Colors.cyanAccent,
+          accentColor: _homeCyan,
           title: '遊び方',
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 520),
@@ -4948,7 +4935,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 16),
                   _buildCyberDialogButton(
                     label: '閉じる',
-                    accentColor: Colors.cyanAccent,
+                    accentColor: _homeCyan,
                     onPressed: () => Navigator.of(dialogContext).pop(),
                   ),
                 ],
@@ -4970,7 +4957,7 @@ class _HomeScreenState extends State<HomeScreen>
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.24),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.24)),
+        border: Border.all(color: _homeCyanBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4978,7 +4965,7 @@ class _HomeScreenState extends State<HomeScreen>
           Text(
             title,
             style: const TextStyle(
-              color: Colors.cyanAccent,
+              color: _homeCyan,
               fontSize: 13,
               fontWeight: FontWeight.w900,
             ),
@@ -5050,7 +5037,7 @@ class _HomeScreenState extends State<HomeScreen>
             }
 
             return _buildCyberDialog(
-              accentColor: Colors.cyanAccent,
+              accentColor: _homeCyan,
               title: '設定',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -5058,7 +5045,7 @@ class _HomeScreenState extends State<HomeScreen>
                 children: [
                   _buildCyberDialogButton(
                     label: '音量設定',
-                    accentColor: Colors.cyanAccent,
+                    accentColor: _homeCyan,
                     onPressed: () => unawaited(
                       _showAudioSettingsDialog(
                         dialogContext,
@@ -5076,7 +5063,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 10),
                   _buildCyberDialogButton(
                     label: '操作設定',
-                    accentColor: Colors.cyanAccent,
+                    accentColor: _homeCyan,
                     onPressed: () => unawaited(
                       _showControlSettingsDialog(
                         dialogContext,
@@ -5090,7 +5077,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 10),
                   _buildCyberDialogButton(
                     label: 'チュートリアル',
-                    accentColor: Colors.cyanAccent,
+                    accentColor: _homeCyan,
                     onPressed: () => unawaited(
                       _openOnboardingFromSettings(dialogContext),
                     ),
@@ -5100,7 +5087,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(height: 10),
                     _buildCyberDialogButton(
                       label: '広告削除',
-                      accentColor: Colors.cyanAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => unawaited(
                         _showAdRemovalDialog(dialogContext),
                       ),
@@ -5111,7 +5098,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(height: 10),
                     _buildCyberDialogButton(
                       label: 'ギフトコード入力',
-                      accentColor: Colors.cyanAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => unawaited(
                         _showAdRemovalGiftCodeDialog(dialogContext),
                       ),
@@ -5121,7 +5108,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(height: 10),
                     _buildCyberDialogButton(
                       label: 'プライバシーポリシー',
-                      accentColor: Colors.cyanAccent,
+                      accentColor: _homeCyan,
                       onPressed: () => unawaited(
                         _openExternalUri(AppReviewConfig.privacyPolicyUrl),
                       ),
@@ -5172,7 +5159,7 @@ class _HomeScreenState extends State<HomeScreen>
             }
 
             return _buildCyberDialog(
-              accentColor: Colors.cyanAccent,
+              accentColor: _homeCyan,
               title: '音量設定',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -5224,7 +5211,7 @@ class _HomeScreenState extends State<HomeScreen>
             }
 
             return _buildCyberDialog(
-              accentColor: Colors.cyanAccent,
+              accentColor: _homeCyan,
               title: '操作設定',
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -5279,7 +5266,7 @@ class _HomeScreenState extends State<HomeScreen>
           Slider(
             value: value,
             onChanged: onChanged,
-            activeColor: Colors.cyanAccent,
+            activeColor: _homeCyan,
           ),
         ],
       ),
@@ -5328,13 +5315,11 @@ class _HomeScreenState extends State<HomeScreen>
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: selected
-              ? Colors.cyanAccent.withValues(alpha: 0.12)
+              ? _homeCyan.withValues(alpha: 0.12)
               : Colors.white.withValues(alpha: 0.04),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: selected
-                ? Colors.cyanAccent.withValues(alpha: 0.72)
-                : Colors.white.withValues(alpha: 0.12),
+            color: selected ? _homeCyan : Colors.white.withValues(alpha: 0.12),
           ),
         ),
         child: Row(
@@ -5351,12 +5336,12 @@ class _HomeScreenState extends State<HomeScreen>
                           color: const Color(0x1100FFFF),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: Colors.cyanAccent.withValues(alpha: 0.28),
+                            color: _homeCyanBorder,
                           ),
                         ),
                         child: Icon(
                           icon,
-                          color: Colors.cyanAccent,
+                          color: _homeCyan,
                           size: 22,
                         ),
                       ),
@@ -5368,7 +5353,7 @@ class _HomeScreenState extends State<HomeScreen>
             if (selected)
               const Icon(
                 Icons.check_circle,
-                color: Colors.cyanAccent,
+                color: _homeCyan,
               ),
           ],
         ),
@@ -5392,7 +5377,9 @@ class _HomeScreenState extends State<HomeScreen>
           color: const Color(0xFF141421),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: accentColor.withValues(alpha: 0.78),
+            color: accentColor == _homeCyan
+                ? _homeCyanBorder
+                : accentColor.withValues(alpha: 0.78),
             width: 1.5,
           ),
         ),
@@ -5422,15 +5409,19 @@ class _HomeScreenState extends State<HomeScreen>
     required Color accentColor,
     required VoidCallback onPressed,
   }) {
+    final effectiveAccentColor =
+        label == '閉じる' || label == 'キャンセル' ? _mutedButtonGrey : accentColor;
     return OutlinedButton(
       onPressed: () {
         _playUiTap();
         onPressed();
       },
       style: OutlinedButton.styleFrom(
-        foregroundColor: accentColor,
+        foregroundColor: effectiveAccentColor,
         side: BorderSide(
-          color: accentColor.withValues(alpha: 0.75),
+          color: effectiveAccentColor == _homeCyan
+              ? _homeCyanBorder
+              : effectiveAccentColor.withValues(alpha: 0.75),
           width: 1.4,
         ),
         padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 18),
@@ -5563,12 +5554,6 @@ class _HomeScreenState extends State<HomeScreen>
                             color: Colors.purpleAccent,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 2,
-                            shadows: [
-                              Shadow(
-                                color: Colors.purpleAccent,
-                                blurRadius: 4,
-                              )
-                            ],
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -5643,7 +5628,7 @@ class _HomeScreenState extends State<HomeScreen>
                               arenaActive = value;
                             });
                           },
-                          activeThumbColor: Colors.lightBlueAccent,
+                          activeThumbColor: _homeCyan,
                           title: const Text(
                             'アリーナ エントリー中',
                             style: TextStyle(
@@ -5654,7 +5639,7 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                         _buildCyberDialogButton(
                           label: '値を反映',
-                          accentColor: Colors.cyanAccent,
+                          accentColor: _homeCyan,
                           onPressed: () => unawaited(applyDebugValues()),
                         ),
                         const SizedBox(height: 16),
@@ -5665,7 +5650,7 @@ class _HomeScreenState extends State<HomeScreen>
                             Expanded(
                               child: _buildCyberDialogButton(
                                 label: 'EXP +',
-                                accentColor: Colors.greenAccent,
+                                accentColor: _endlessGreen,
                                 onPressed: () => unawaited(adjustExp(1)),
                               ),
                             ),
@@ -5673,7 +5658,7 @@ class _HomeScreenState extends State<HomeScreen>
                             Expanded(
                               child: _buildCyberDialogButton(
                                 label: 'EXP -',
-                                accentColor: Colors.redAccent,
+                                accentColor: _friendPink,
                                 onPressed: () => unawaited(adjustExp(-1)),
                               ),
                             ),
@@ -5744,13 +5729,11 @@ class _HomeScreenState extends State<HomeScreen>
         fillColor: Colors.white.withValues(alpha: 0.06),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(
-            color: Colors.cyanAccent.withValues(alpha: 0.3),
-          ),
+          borderSide: const BorderSide(color: _homeCyanBorder),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Colors.cyanAccent),
+          borderSide: const BorderSide(color: _homeCyanBorder),
         ),
       ),
     );
@@ -5779,7 +5762,6 @@ class _HomeScreenState extends State<HomeScreen>
                   color: Colors.purpleAccent,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 2,
-                  shadows: [Shadow(color: Colors.purpleAccent, blurRadius: 4)],
                 ),
               ),
               const SizedBox(height: 8),
@@ -5947,7 +5929,7 @@ class _RankedMatchmakingEstimateState
         'マッチング推定$remaining秒',
         textAlign: TextAlign.center,
         style: TextStyle(
-          color: Colors.pinkAccent.withValues(alpha: 0.92),
+          color: _rankedPurpleText.withValues(alpha: 0.92),
           fontSize: 13,
           fontWeight: FontWeight.w900,
           letterSpacing: 0.2,
@@ -5958,14 +5940,14 @@ class _RankedMatchmakingEstimateState
 }
 
 class _ModeButtonBorderOverlayPainter extends CustomPainter {
-  static const double _strokeWidth = 2;
+  static const double _strokeWidth = 2.4;
   static const double _arcRadius = 76.3;
   static const double _arcGap = 0.065;
 
   final List<Color> _colors = [
-    Colors.greenAccent,
-    Colors.redAccent,
-    Colors.yellowAccent,
+    _endlessGreen,
+    _friendPink,
+    _computerYellow,
     const Color(0xFF8B96A3),
   ];
 

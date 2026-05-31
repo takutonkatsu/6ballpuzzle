@@ -915,7 +915,7 @@ class PlayerDataManager {
     final previousName = _playerName;
     _playerName = ModerationManager.instance.sanitizePlayerName(name);
     await _savePublicProfile();
-    _syncRecordSummaryInBackground(force: previousName != _playerName);
+    await _syncRecordSummarySafely(force: previousName != _playerName);
   }
 
   Future<void> setCurrentRating(int rating) async {
@@ -928,7 +928,7 @@ class PlayerDataManager {
     }
     await _savePublicProfile();
     await _saveStats();
-    _syncRecordSummaryInBackground(force: true);
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> setEquippedBadgeIds(List<String> badgeIds) async {
@@ -942,6 +942,7 @@ class PlayerDataManager {
         .take(2)
         .toList();
     await _savePublicProfile();
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> setEquippedStampIds(List<String> stampIds) async {
@@ -953,6 +954,7 @@ class PlayerDataManager {
     _equippedStampIds =
         stampIds.where(ownedStampIds.contains).toSet().take(6).toList();
     await _saveEquippedStamps();
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> setSeasonRankBadges(List<SeasonRankBadge> badges) async {
@@ -973,7 +975,7 @@ class PlayerDataManager {
         .toList();
     await _saveSeasonRankBadges();
     await _savePublicProfile();
-    _syncRecordSummaryInBackground(force: true);
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> setEquippedBallSkinId(String skinId) async {
@@ -984,6 +986,7 @@ class PlayerDataManager {
     }
     _equippedBallSkinId = normalized;
     await _savePublicProfile();
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> setEquippedPlayerIconId(String iconId) async {
@@ -994,6 +997,7 @@ class PlayerDataManager {
     }
     _equippedPlayerIconId = normalized;
     await _savePublicProfile();
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> setEquippedIconFrameId(String frameId) async {
@@ -1004,6 +1008,7 @@ class PlayerDataManager {
     }
     _equippedIconFrameId = normalized;
     await _savePublicProfile();
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> recordArenaChallengeStarted() async {
@@ -1151,9 +1156,7 @@ class PlayerDataManager {
     _trimMatchHistory();
     await _savePublicProfile();
     await _saveStats();
-    if (ratingAfter != null) {
-      _syncRecordSummaryInBackground(force: true);
-    }
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> updateLatestRankedHistory({
@@ -1190,7 +1193,7 @@ class PlayerDataManager {
     }
     await _savePublicProfile();
     await _saveStats();
-    _syncRecordSummaryInBackground(force: true);
+    await _syncRecordSummarySafely(force: true);
   }
 
   void _trimMatchHistory() {
@@ -1308,7 +1311,10 @@ class PlayerDataManager {
     await _saveStats();
   }
 
-  Future<void> syncRecordSummary({bool force = false}) async {
+  Future<void> syncRecordSummary({
+    bool force = false,
+    bool rethrowErrors = false,
+  }) async {
     await load();
     await AppSettings.instance.load();
     final uid = await AuthManager.instance.ensureSignedIn();
@@ -1338,27 +1344,34 @@ class PlayerDataManager {
       return;
     }
 
-    try {
-      final database = AppFirebaseDatabase.ref();
-      if (nameChanged && previousName.trim().isNotEmpty) {
-        final previousKey = _nameLookupKey(previousName);
-        final nextKey = _nameLookupKey(displayPlayerName);
-        if (previousKey != nextKey) {
-          await database.child('playerNameLookup/$previousKey/$uid').remove();
-        }
+    final database = AppFirebaseDatabase.ref();
+    final syncedAt = DateTime.now();
+    final nextLookupKey = _nameLookupKey(displayPlayerName);
+    final previousLookupKey = _nameLookupKey(previousName);
+    Object? syncError;
+    StackTrace? syncStackTrace;
+
+    Future<void> runSyncStep(Future<void> Function() step) async {
+      try {
+        await step();
+      } catch (error, stackTrace) {
+        syncError ??= error;
+        syncStackTrace ??= stackTrace;
       }
-      final syncedAt = DateTime.now();
-      await database.child('playerRecordSummaries/$uid').update(
-            _flattenSummaryForUpdate({
-              ...summary,
-              'updatedAt': ServerValue.timestamp,
-              'updatedAtText': _formatDateTimeForDatabase(syncedAt),
-              'lastSeenAtText': _formatDateTimeForDatabase(syncedAt),
-            }),
-          );
-      await database
-          .child('playerNameLookup/${_nameLookupKey(displayPlayerName)}/$uid')
-          .set({
+    }
+
+    var lookupSynced = false;
+    var recordSynced = false;
+
+    await runSyncStep(() async {
+      if (nameChanged &&
+          previousName.trim().isNotEmpty &&
+          previousLookupKey != nextLookupKey) {
+        await database
+            .child('playerNameLookup/$previousLookupKey/$uid')
+            .remove();
+      }
+      await database.child('playerNameLookup/$nextLookupKey/$uid').set({
         'uid': uid,
         'publicId': _playerId,
         'displayName': displayPlayerName,
@@ -1366,6 +1379,21 @@ class PlayerDataManager {
         'totalMatches': _totalMatches,
         'updatedAt': ServerValue.timestamp,
       });
+      lookupSynced = true;
+    });
+
+    await runSyncStep(() async {
+      final recordPayload = await _recordSummaryPayloadForDatabase(
+        database: database,
+        uid: uid,
+        summary: summary,
+        syncedAt: syncedAt,
+      );
+      await database.child('playerRecordSummaries/$uid').set(recordPayload);
+      recordSynced = true;
+    });
+
+    if (lookupSynced && recordSynced) {
       await prefs.setString(_recordSummaryLastHashKey, hash);
       await prefs.setInt(_recordSummaryLastSyncAtKey, now);
       await prefs.setString(_recordSummaryLastNameKey, displayPlayerName);
@@ -1373,7 +1401,20 @@ class PlayerDataManager {
         _recordSummarySchemaVersionKey,
         _recordSummarySchemaVersion,
       );
-    } catch (_) {
+      return;
+    }
+
+    if (lookupSynced) {
+      await prefs.setString(_recordSummaryLastNameKey, displayPlayerName);
+    }
+
+    if (rethrowErrors && syncError != null) {
+      Error.throwWithStackTrace(
+        syncError!,
+        syncStackTrace ?? StackTrace.current,
+      );
+    }
+    if (syncError != null) {
       // 管理用サマリーの同期失敗で、プレイ中の保存処理は止めない。
     }
   }
@@ -1382,34 +1423,69 @@ class PlayerDataManager {
     unawaited(_syncRecordSummarySafely(force: force));
   }
 
-  Map<String, Object?> _flattenSummaryForUpdate(Map<String, dynamic> source) {
-    final updates = <String, Object?>{};
+  Future<Map<String, Object?>> _recordSummaryPayloadForDatabase({
+    required DatabaseReference database,
+    required String uid,
+    required Map<String, dynamic> summary,
+    required DateTime syncedAt,
+  }) async {
+    final payload = Map<String, dynamic>.from(summary);
+    final ranked = Map<String, dynamic>.from(
+      (payload['ranked'] as Map?) ?? const <String, dynamic>{},
+    );
+    final remotePlacements = await _remoteDailyWinRankPlacements(
+      database: database,
+      uid: uid,
+    );
+    final placements = <String, int>{...remotePlacements};
+    for (final entry in _dailyWinRankPlacements.entries) {
+      placements[entry.key] = max(placements[entry.key] ?? 0, entry.value);
+    }
+    if (placements.isNotEmpty) {
+      ranked['dailyWinRankPlacements'] = placements;
+    }
+    payload['ranked'] = ranked;
+    payload['updatedAt'] = ServerValue.timestamp;
+    payload['updatedAtText'] = _formatDateTimeForDatabase(syncedAt);
+    payload['lastSeenAtText'] = _formatDateTimeForDatabase(syncedAt);
+    return Map<String, Object?>.from(_sanitizeDatabaseValue(payload) as Map);
+  }
 
-    void visit(String prefix, Object? value) {
-      if (value is Map) {
-        // Firebase server values contain special keys such as ".sv".
-        // Keep them as leaf values instead of turning them into update paths.
-        if (value.keys.any((key) => key.toString().startsWith('.'))) {
-          updates[prefix] = value;
-          return;
-        }
-        if (value.isEmpty) {
-          updates[prefix] = value;
-          return;
-        }
-        for (final entry in value.entries) {
-          final key = entry.key.toString();
-          visit(prefix.isEmpty ? key : '$prefix/$key', entry.value);
-        }
-        return;
+  Future<Map<String, int>> _remoteDailyWinRankPlacements({
+    required DatabaseReference database,
+    required String uid,
+  }) async {
+    try {
+      final snapshot = await database
+          .child('playerRecordSummaries/$uid/ranked/dailyWinRankPlacements')
+          .get()
+          .timeout(const Duration(seconds: 2));
+      return _intMapFromDynamic(snapshot.value);
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Object? _sanitizeDatabaseValue(Object? value) {
+    if (value is Map) {
+      if (value.keys.any((key) => key.toString().startsWith('.'))) {
+        return value;
       }
-      updates[prefix] = value;
+      return {
+        for (final entry in value.entries)
+          _databasePathKey(entry.key): _sanitizeDatabaseValue(entry.value),
+      };
     }
+    if (value is List) {
+      return value.map(_sanitizeDatabaseValue).toList();
+    }
+    return value;
+  }
 
-    for (final entry in source.entries) {
-      visit(entry.key, entry.value);
-    }
-    return updates;
+  String _databasePathKey(Object? key) {
+    final sanitized =
+        key.toString().trim().replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_');
+    return sanitized.isEmpty ? 'unknown' : sanitized;
   }
 
   Future<void> _syncRecordSummarySafely({bool force = false}) async {

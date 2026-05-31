@@ -95,7 +95,6 @@ class RankingManager {
   static const int _finalTop100SchemaVersion = 6;
   static const Duration _rankingCacheTtl = Duration(seconds: 45);
   static const Duration _summaryCacheTtl = Duration(seconds: 30);
-  static const Duration _sameRatingPushInterval = Duration(minutes: 10);
   static const String _lastPushPrefix = 'ranking_last_push_v2_';
 
   List<RankingEntry>? _topRatingCache;
@@ -184,30 +183,6 @@ class RankingManager {
     final legacyEntryRef = _legacyRankingRef().child(resolvedUid);
     final prefs = await SharedPreferences.getInstance();
     final pushKey = '$_lastPushPrefix${seasonId}_$resolvedUid';
-    if (!incrementDailyWin &&
-        !incrementSeasonLoss &&
-        _canSkipSameRatingPush(
-          prefs: prefs,
-          key: pushKey,
-          displayName: resolvedName,
-          publicId: publicId,
-          rating: rating,
-          highestEndlessScore: highestEndlessScore,
-        )) {
-      final snapshots = await Future.wait([
-        seasonEntryRef.get(),
-        legacyEntryRef.get(),
-      ]);
-      if (snapshots.every((snapshot) => snapshot.exists)) {
-        await _syncProfileRatingFields(
-          uid: resolvedUid,
-          displayName: resolvedName,
-          publicId: publicId,
-          rating: rating,
-        );
-        return;
-      }
-    }
 
     final seasonPayload = await _buildRankingUpdatePayload(
       entryRef: seasonEntryRef,
@@ -260,17 +235,32 @@ class RankingManager {
     required int rating,
   }) async {
     final lookupKey = _nameLookupKey(displayName);
+    String previousLookupKey = '';
+    try {
+      final previousNameSnapshot =
+          await _db.child('playerRecordSummaries/$uid/displayName').get();
+      previousLookupKey =
+          _nameLookupKey(previousNameSnapshot.value?.toString() ?? '');
+    } catch (_) {
+      previousLookupKey = '';
+    }
+    final syncedAtText = DateTime.now().toIso8601String();
     final payload = <String, Object?>{
       'playerRecordSummaries/$uid/displayName': displayName,
       'playerRecordSummaries/$uid/publicId': publicId,
       'playerRecordSummaries/$uid/ranked/currentRating': rating,
       'playerRecordSummaries/$uid/updatedAt': ServerValue.timestamp,
+      'playerRecordSummaries/$uid/updatedAtText': syncedAtText,
+      'playerRecordSummaries/$uid/lastSeenAtText': syncedAtText,
       'playerNameLookup/$lookupKey/$uid/uid': uid,
       'playerNameLookup/$lookupKey/$uid/publicId': publicId,
       'playerNameLookup/$lookupKey/$uid/displayName': displayName,
       'playerNameLookup/$lookupKey/$uid/currentRating': rating,
       'playerNameLookup/$lookupKey/$uid/updatedAt': ServerValue.timestamp,
     };
+    if (previousLookupKey.isNotEmpty && previousLookupKey != lookupKey) {
+      payload['playerNameLookup/$previousLookupKey/$uid'] = null;
+    }
     await _db.update(payload);
   }
 
@@ -316,8 +306,33 @@ class RankingManager {
       'highestEndlessScore': highestEndlessScore,
       'updatedAt': ServerValue.timestamp,
     });
+    await _syncProfileRatingFields(
+      uid: resolvedUid,
+      displayName: resolvedName,
+      publicId: publicId,
+      rating: PlayerDataManager.instance.currentRating,
+    );
     _topEndlessCache = null;
     _topEndlessCacheAt = null;
+  }
+
+  Future<RankingEntry?> fetchCurrentEntryForPlayer({
+    required String uid,
+    required String publicId,
+  }) async {
+    final clock = await _rankingClock(forceRefresh: true);
+    final seasonId = clock.currentSeasonId;
+    final seasonEntry = await _fetchEntryByUidOrPublicId(
+      _seasonRankingRef(seasonId),
+      uid: uid,
+      publicId: publicId,
+    );
+    final legacyEntry = await _fetchEntryByUidOrPublicId(
+      _legacyRankingRef(),
+      uid: uid,
+      publicId: publicId,
+    );
+    return _newerEntry(seasonEntry, legacyEntry);
   }
 
   Future<List<RankingEntry>> fetchTopRankings({
@@ -846,6 +861,42 @@ class RankingManager {
     return _entriesFromSnapshot(snapshot);
   }
 
+  Future<RankingEntry?> _fetchEntryByUidOrPublicId(
+    DatabaseReference ref, {
+    required String uid,
+    required String publicId,
+  }) async {
+    if (uid.isNotEmpty) {
+      final snapshot = await ref.child(uid).get();
+      if (snapshot.value is Map) {
+        return RankingEntry.fromMap(
+          uid,
+          Map<dynamic, dynamic>.from(snapshot.value as Map),
+        );
+      }
+    }
+    if (publicId.isEmpty) {
+      return null;
+    }
+    final snapshot = await ref
+        .orderByChild('publicId')
+        .equalTo(publicId)
+        .limitToFirst(1)
+        .get();
+    final entries = _entriesFromSnapshot(snapshot);
+    return entries.isEmpty ? null : entries.first;
+  }
+
+  RankingEntry? _newerEntry(RankingEntry? first, RankingEntry? second) {
+    if (first == null) {
+      return second;
+    }
+    if (second == null) {
+      return first;
+    }
+    return (second.updatedAt ?? 0) > (first.updatedAt ?? 0) ? second : first;
+  }
+
   Future<List<RankingEntry>> _fetchDailyEntriesForDate(
     String dateKey, {
     required String currentSeasonId,
@@ -1149,25 +1200,6 @@ class RankingManager {
 
   DatabaseReference _legacyRankingRef() {
     return _db.child('rankings/global');
-  }
-
-  bool _canSkipSameRatingPush({
-    required SharedPreferences prefs,
-    required String key,
-    required String displayName,
-    required String publicId,
-    required int rating,
-    required int highestEndlessScore,
-  }) {
-    final pushedAt = prefs.getInt('${key}_at') ?? 0;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - pushedAt >= _sameRatingPushInterval.inMilliseconds) {
-      return false;
-    }
-    return prefs.getInt('${key}_rating') == rating &&
-        prefs.getInt('${key}_highestEndlessScore') == highestEndlessScore &&
-        prefs.getString('${key}_displayName') == displayName &&
-        prefs.getString('${key}_publicId') == publicId;
   }
 
   Future<void> _saveLastPush({

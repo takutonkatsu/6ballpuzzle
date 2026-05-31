@@ -94,23 +94,6 @@ class _StampWidgetState extends State<StampWidget>
       _ => 19.0,
     };
     final textColor = level <= 1 ? Colors.white : glowColor;
-    final shadows = [
-      Shadow(
-        color: Colors.black.withValues(alpha: 0.72),
-        blurRadius: 2.5 * scale,
-      ),
-      if (level >= 2)
-        Shadow(
-          color: glowColor.withValues(alpha: level >= 4 ? 0.96 : 0.72),
-          blurRadius: (level >= 3 ? 10 : 7) * scale,
-        ),
-      if (level >= 4)
-        Shadow(
-          color: Colors.white.withValues(alpha: 0.46),
-          blurRadius: 4.5 * scale,
-        ),
-    ];
-
     final content = Row(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -120,7 +103,6 @@ class _StampWidgetState extends State<StampWidget>
             iconData,
             color: textColor,
             size: (level >= 3 ? 20 : 17) * scale,
-            shadows: shadows,
           ),
           SizedBox(width: 6 * scale),
         ],
@@ -132,7 +114,6 @@ class _StampWidgetState extends State<StampWidget>
             fontSize: fontSize * scale,
             fontFamily: 'Courier',
             fontWeight: level <= 1 ? FontWeight.bold : FontWeight.w900,
-            shadows: shadows,
             letterSpacing: level >= 3 ? 0.4 * scale : 0,
           ),
         ),

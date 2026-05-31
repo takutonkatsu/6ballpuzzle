@@ -13,6 +13,7 @@ import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/season_rank_badge_icon.dart';
+import 'theme/game_theme_colors.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
@@ -39,8 +40,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _loading = true;
   _ProfileViewData? _profile;
   String? _selectedEquippedBadgeId;
-
-  static const Color _basicInfoAccent = Color(0xFFFFD36A);
 
   bool get _isOwnProfile {
     final playerUid = widget.playerUid;
@@ -90,8 +89,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadRemoteProfile() async {
     _ProfileViewData? profile;
     final rankLabel = await _fetchRemoteRankLabel();
+    final uid = widget.playerUid ?? widget.initialEntry?.uid ?? '';
+    final publicId = widget.initialEntry?.publicId ?? '';
+    final currentEntry = await _fetchCurrentRankingEntry(
+      uid: uid,
+      publicId: publicId,
+    );
+    final liveUserData = await _fetchLiveUserData(uid);
+    final fallbackEntry = currentEntry ?? widget.initialEntry;
     try {
-      final uid = widget.playerUid ?? '';
       if (uid.isNotEmpty) {
         final snapshot = await AppFirebaseDatabase.ref()
             .child('playerRecordSummaries/$uid')
@@ -100,7 +106,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (raw is Map) {
           profile = _ProfileViewData.fromRecordSummary(
             Map<dynamic, dynamic>.from(raw),
-            fallbackEntry: widget.initialEntry,
+            fallbackEntry: fallbackEntry,
             currentRankLabel: rankLabel,
           );
         }
@@ -109,8 +115,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       profile = null;
     }
     profile ??= _ProfileViewData.fromRankingEntry(
-      widget.initialEntry,
+      fallbackEntry,
       currentRankLabel: rankLabel,
+    );
+    profile = profile.withCurrentProfileFields(
+      rankingEntry: currentEntry,
+      liveUserData: liveUserData,
     );
     final seasonBadges = await _fetchRemoteSeasonRankBadges(profile);
     if (seasonBadges.isNotEmpty) {
@@ -123,6 +133,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _profile = profile;
       _loading = false;
     });
+  }
+
+  Future<RankingEntry?> _fetchCurrentRankingEntry({
+    required String uid,
+    required String publicId,
+  }) async {
+    try {
+      return await _rankingManager.fetchCurrentEntryForPlayer(
+        uid: uid,
+        publicId: publicId,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<dynamic, dynamic>?> _fetchLiveUserData(String uid) async {
+    if (uid.isEmpty) {
+      return null;
+    }
+    try {
+      final snapshot =
+          await AppFirebaseDatabase.ref().child('users/$uid').get();
+      final raw = snapshot.value;
+      return raw is Map ? Map<dynamic, dynamic>.from(raw) : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String> _fetchRemoteRankLabel() async {
@@ -188,7 +226,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const Positioned.fill(child: _ScanlineBackground()),
           if (_loading)
             const Center(
-              child: CircularProgressIndicator(color: Colors.cyanAccent),
+              child: CircularProgressIndicator(color: GameThemeColors.cyan),
             )
           else
             SafeArea(
@@ -231,21 +269,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       constraints: const BoxConstraints(maxWidth: 420),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF101423).withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.cyanAccent, width: 1.4),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.cyanAccent.withValues(alpha: 0.28),
-            blurRadius: 30,
-            spreadRadius: 1,
-          ),
-          BoxShadow(
-            color: _basicInfoAccent.withValues(alpha: 0.12),
-            blurRadius: 48,
-          ),
-        ],
-      ),
+          color: const Color(0xFF101423).withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: GameThemeColors.cyan, width: 1.4)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -309,16 +335,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               width: 62,
               height: 62,
               decoration: BoxDecoration(
-                color: iconFrameColor.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-                border: Border.all(color: iconFrameColor, width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: iconFrameColor.withValues(alpha: 0.24),
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
+                  color: iconFrameColor.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: iconFrameColor, width: 2)),
               child: Icon(
                 _playerIconData(profile.playerIconId),
                 color: Colors.white,
@@ -485,17 +504,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       width: 220,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: badge.color.withValues(alpha: 0.72)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.75),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: badge.color.withValues(alpha: 0.72))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -609,16 +620,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       height: 86,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.34)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.08),
-            blurRadius: 14,
-          ),
-        ],
-      ),
+          color: Colors.black.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.34))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1024,7 +1028,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _sectionTitle(
     String title, {
-    Color accentColor = Colors.cyanAccent,
+    Color accentColor = GameThemeColors.cyan,
   }) {
     return Container(
       width: double.infinity,
@@ -1040,15 +1044,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             width: 5,
             height: 18,
             decoration: BoxDecoration(
-              color: accentColor,
-              borderRadius: BorderRadius.circular(4),
-              boxShadow: [
-                BoxShadow(
-                  color: accentColor.withValues(alpha: 0.55),
-                  blurRadius: 10,
-                ),
-              ],
-            ),
+                color: accentColor, borderRadius: BorderRadius.circular(4)),
           ),
           const SizedBox(width: 9),
           Expanded(
@@ -1079,14 +1075,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
             side: BorderSide(
-              color: Colors.cyanAccent.withValues(alpha: 0.58),
+              color: GameThemeColors.cyan.withValues(alpha: 0.58),
               width: 1.4,
             ),
           ),
           title: const Text(
             '名前変更',
             style: TextStyle(
-              color: Colors.cyanAccent,
+              color: GameThemeColors.cyan,
               fontSize: 18,
               fontWeight: FontWeight.w900,
               letterSpacing: 0,
@@ -1134,7 +1130,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 controller: controller,
                 maxLength: 10,
                 maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                cursorColor: Colors.cyanAccent,
+                cursorColor: GameThemeColors.cyan,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w800,
@@ -1147,13 +1143,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: BorderSide(
-                      color: Colors.cyanAccent.withValues(alpha: 0.36),
+                      color: GameThemeColors.cyan.withValues(alpha: 0.36),
                     ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: const BorderSide(
-                      color: Colors.cyanAccent,
+                      color: GameThemeColors.cyan,
                       width: 1.4,
                     ),
                   ),
@@ -1183,7 +1179,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: const Text(
                 '保存',
                 style: TextStyle(
-                  color: Colors.cyanAccent,
+                  color: GameThemeColors.cyan,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -1367,13 +1363,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return switch (frame?.colorName) {
       'red' => Colors.redAccent,
       'orange' => Colors.orangeAccent,
-      'yellow' => Colors.yellowAccent,
+      'yellow' => GameThemeColors.computer,
       'lime' => Colors.limeAccent,
-      'green' => Colors.greenAccent,
-      'blue' => Colors.lightBlueAccent,
+      'green' => GameThemeColors.endless,
+      'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
-      _ => Colors.cyanAccent,
+      _ => GameThemeColors.cyan,
     };
   }
 }
@@ -1433,6 +1429,41 @@ class _ProfileViewData {
     );
   }
 
+  _ProfileViewData withCurrentProfileFields({
+    RankingEntry? rankingEntry,
+    Map<dynamic, dynamic>? liveUserData,
+  }) {
+    final liveName = _stringValue(liveUserData?['name']);
+    final rankingName = rankingEntry?.displayName.trim();
+    final livePublicId = _stringValue(liveUserData?['publicId']);
+    final liveIconId = _stringValue(liveUserData?['playerIconId']);
+    final liveFrameId = _stringValue(liveUserData?['playerIconFrameId']);
+    final liveBadgeIds = _stringListValue(liveUserData?['badgeIds']);
+    final liveRating = _intValue(liveUserData?['rating']);
+    return _ProfileViewData(
+      displayName: liveName ??
+          (rankingName == null || rankingName.isEmpty ? null : rankingName) ??
+          displayName,
+      publicId: livePublicId ?? rankingEntry?.publicId ?? publicId,
+      playerIconId: liveIconId ?? playerIconId,
+      playerIconFrameId: liveFrameId ?? playerIconFrameId,
+      equippedBadgeIds: liveBadgeIds.isEmpty ? equippedBadgeIds : liveBadgeIds,
+      unlockedBadgeIds: unlockedBadgeIds,
+      seasonRankBadges: seasonRankBadges,
+      totalWins: totalWins,
+      level: level,
+      currentRating: liveRating ?? rankingEntry?.rating ?? currentRating,
+      currentRankLabel: currentRankLabel,
+      totalClearedBalls: totalClearedBalls,
+      highestRating: max(
+        highestRating,
+        liveRating ?? rankingEntry?.rating ?? currentRating,
+      ),
+      bestRankedRank: bestRankedRank,
+      wazaCounts: wazaCounts,
+    );
+  }
+
   factory _ProfileViewData.fromLocal(
     PlayerDataManager playerData, {
     required String currentRankLabel,
@@ -1479,8 +1510,8 @@ class _ProfileViewData {
       seasonRankBadges: _seasonRankBadgesValue(collection['seasonRankBadges']),
       totalWins: _intValue(overall['totalWins']) ?? 0,
       level: _intValue(economy['level']) ?? 1,
-      currentRating: fallbackEntry?.rating ??
-          _intValue(ranked['currentRating']) ??
+      currentRating: _intValue(ranked['currentRating']) ??
+          fallbackEntry?.rating ??
           MultiplayerManager.initialRating,
       currentRankLabel: currentRankLabel,
       totalClearedBalls: _intValue(overall['totalClearedBalls']) ?? 0,
@@ -1614,7 +1645,7 @@ class _ProfilePageTitle extends StatelessWidget {
         Text(
           subtitle,
           style: const TextStyle(
-            color: Colors.cyanAccent,
+            color: GameThemeColors.cyan,
             fontSize: 10,
             fontWeight: FontWeight.w900,
             letterSpacing: 3.5,
@@ -1626,9 +1657,6 @@ class _ProfilePageTitle extends StatelessWidget {
             color: Colors.white,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
-            shadows: [
-              Shadow(color: Colors.cyanAccent, blurRadius: 12),
-            ],
           ),
         ),
       ],
@@ -1660,7 +1688,7 @@ class _ScanlinePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.cyanAccent.withValues(alpha: 0.035)
+      ..color = GameThemeColors.cyan.withValues(alpha: 0.035)
       ..strokeWidth = 1;
     for (var y = 0.0; y < size.height; y += 6) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);

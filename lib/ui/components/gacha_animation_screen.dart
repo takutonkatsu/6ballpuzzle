@@ -246,24 +246,15 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
                             _iconForItem(item),
                             size: 100,
                             color: accent,
-                            shadows: [
-                              Shadow(
-                                color: accent,
-                                blurRadius: 30,
-                              )
-                            ],
                           ),
                           const SizedBox(height: 30),
                           Text(
                             item.name,
-                            style: TextStyle(
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 32,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 2,
-                              shadows: [
-                                Shadow(color: accent, blurRadius: 10),
-                              ],
                             ),
                           ),
                           const SizedBox(height: 16),

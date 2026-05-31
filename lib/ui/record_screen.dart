@@ -9,6 +9,7 @@ import '../network/ranking_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/hexagon_grid_background.dart';
 import 'profile_screen.dart';
+import 'theme/game_theme_colors.dart';
 
 class RecordScreen extends StatefulWidget {
   const RecordScreen({super.key});
@@ -52,7 +53,7 @@ class _RecordScreenState extends State<RecordScreen> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        backgroundColor: const Color(0xFF080A12),
+        backgroundColor: GameThemeColors.background,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -93,13 +94,15 @@ class _RecordScreenState extends State<RecordScreen> {
         body: Stack(
           children: [
             const HexagonGridBackground(
-              color: Colors.cyanAccent,
+              color: GameThemeColors.cyan,
               opacity: 0.04,
               hexRadius: 30,
             ),
             _loading
                 ? const Center(
-                    child: CircularProgressIndicator(color: Colors.cyanAccent),
+                    child: CircularProgressIndicator(
+                      color: GameThemeColors.cyan,
+                    ),
                   )
                 : TabBarView(
                     children: [
@@ -158,7 +161,7 @@ class _RecordScreenState extends State<RecordScreen> {
         _sectionTitle('エンドレス'),
         _statGrid([
           _StatItem('挑戦回数', '${counts['SOLO'] ?? 0}'),
-          _StatItem('最高スコア', '${_playerData.highestEndlessScore}'),
+          _StatItem('ハイスコア', '${_playerData.highestEndlessScore}'),
         ]),
       ],
     );
@@ -222,7 +225,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
-      decoration: _panelDecoration(Colors.purpleAccent),
+      decoration: _panelDecoration(GameThemeColors.ranked),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -271,12 +274,14 @@ class _RecordScreenState extends State<RecordScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _sectionTitle('フォーメーション累計'),
-        _barStat('ヘキサゴン', counts['hexagon'] ?? 0, maxCount, Colors.pinkAccent),
+        _barStat(
+            'ヘキサゴン', counts['hexagon'] ?? 0, maxCount, GameThemeColors.friend),
         const SizedBox(height: 10),
         _barStat(
-            'ピラミッド', counts['pyramid'] ?? 0, maxCount, Colors.purpleAccent),
+            'ピラミッド', counts['pyramid'] ?? 0, maxCount, GameThemeColors.ranked),
         const SizedBox(height: 10),
-        _barStat('ストレート', counts['straight'] ?? 0, maxCount, Colors.cyanAccent),
+        _barStat(
+            'ストレート', counts['straight'] ?? 0, maxCount, GameThemeColors.cyan),
       ],
     );
   }
@@ -339,8 +344,7 @@ class _RecordScreenState extends State<RecordScreen> {
         final item = items[index];
         return Container(
           padding: const EdgeInsets.all(12),
-          decoration:
-              _panelDecoration(Colors.cyanAccent.withValues(alpha: 0.7)),
+          decoration: _panelDecoration(GameThemeColors.cyan),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -413,56 +417,102 @@ class _RecordScreenState extends State<RecordScreen> {
     final color = _modeColor(entry.mode);
     final title = entry.mode == 'SOLO' ? 'エンドレス' : entry.opponentName;
     final canOpenProfile = _canOpenOpponentProfile(entry);
+    final resultColor =
+        entry.isWin ? GameThemeColors.blueSide : GameThemeColors.redSide;
     return InkWell(
       onTap: canOpenProfile ? () => _openOpponentProfile(entry) : null,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: _panelDecoration(color).copyWith(
-          color: color.withValues(alpha: 0.12),
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101827).withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: color.withValues(alpha: 0.56),
+            width: 1.3,
+          ),
         ),
         child: Row(
           children: [
-            Container(
-              width: 58,
-              alignment: Alignment.center,
-              child: entry.mode == 'SOLO'
-                  ? const SizedBox.shrink()
-                  : Text(
-                      _resultLabel(entry),
-                      style: TextStyle(
-                        color:
-                            entry.isWin ? Colors.cyanAccent : Colors.pinkAccent,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-            ),
-            const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
+              child: SizedBox(
+                height: 58,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (canOpenProfile) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.chevron_right,
+                            color: color.withValues(alpha: 0.75),
+                            size: 18,
+                          ),
+                        ],
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${_localizedMode(entry.mode)}  ${_formatDateTime(entry.playedAt)}',
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                ],
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: color.withValues(alpha: 0.42),
+                            ),
+                          ),
+                          child: Text(
+                            _localizedMode(entry.mode),
+                            style: TextStyle(
+                              color: color,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _formatDateTime(entry.playedAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 10),
             if (entry.mode == 'SOLO' && entry.score != null)
               _scoreSummary(entry.score!)
-            else if (entry.ratingAfter != null)
-              _ratingSummary(entry),
+            else if (entry.mode != 'SOLO')
+              _ratingSummary(entry, resultColor: resultColor),
           ],
         ),
       ),
@@ -500,6 +550,21 @@ class _RecordScreenState extends State<RecordScreen> {
     var publicId = entry.opponentPublicId.trim();
     var displayName = entry.opponentName.trim();
     var rating = entry.ratingAfter ?? 1000;
+
+    try {
+      final currentEntry = await _rankingManager.fetchCurrentEntryForPlayer(
+        uid: uid,
+        publicId: publicId,
+      );
+      if (currentEntry != null) {
+        uid = currentEntry.uid;
+        publicId = currentEntry.publicId;
+        displayName = currentEntry.displayName;
+        rating = currentEntry.rating;
+      }
+    } catch (_) {
+      // ランキング側から現在プロフィールを解決できない場合は保存済みIDで続行する。
+    }
 
     if (uid.isEmpty) {
       try {
@@ -577,7 +642,7 @@ class _RecordScreenState extends State<RecordScreen> {
         Text(
           '$score',
           style: const TextStyle(
-            color: Colors.greenAccent,
+            color: GameThemeColors.endless,
             fontWeight: FontWeight.w900,
           ),
         ),
@@ -585,16 +650,26 @@ class _RecordScreenState extends State<RecordScreen> {
     );
   }
 
-  Widget _ratingSummary(MatchHistoryEntry entry) {
+  Widget _ratingSummary(MatchHistoryEntry entry, {required Color resultColor}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        HexagonTrophyAmount(
-          entry.ratingAfter!,
-          color: Colors.amberAccent,
-          iconSize: 15,
-          fontSize: 14,
+        Text(
+          _resultLabel(entry),
+          style: TextStyle(
+            color: resultColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
         ),
+        const SizedBox(height: 2),
+        if (entry.ratingAfter != null)
+          HexagonTrophyAmount(
+            entry.ratingAfter!,
+            color: Colors.amberAccent,
+            iconSize: 15,
+            fontSize: 14,
+          ),
         if (entry.ratingDelta != null)
           Text(
             entry.ratingDelta! >= 0
@@ -602,8 +677,8 @@ class _RecordScreenState extends State<RecordScreen> {
                 : '${entry.ratingDelta}',
             style: TextStyle(
               color: entry.ratingDelta! >= 0
-                  ? Colors.cyanAccent
-                  : Colors.pinkAccent,
+                  ? GameThemeColors.blueSide
+                  : GameThemeColors.redSide,
               fontSize: 12,
               fontWeight: FontWeight.w900,
             ),
@@ -643,12 +718,6 @@ class _RecordScreenState extends State<RecordScreen> {
       color: const Color(0xFF111827).withValues(alpha: 0.92),
       borderRadius: BorderRadius.circular(12),
       border: Border.all(color: color.withValues(alpha: 0.36)),
-      boxShadow: [
-        BoxShadow(
-          color: color.withValues(alpha: 0.08),
-          blurRadius: 14,
-        ),
-      ],
     );
   }
 
@@ -674,11 +743,11 @@ class _RecordScreenState extends State<RecordScreen> {
 
   Color _modeColor(String mode) {
     return switch (mode) {
-      'RANKED' => Colors.purpleAccent,
-      'FRIEND' => Colors.redAccent,
-      'CPU' => Colors.amberAccent,
-      'ARENA' => Colors.lightBlueAccent,
-      'SOLO' => Colors.greenAccent,
+      'RANKED' => GameThemeColors.ranked,
+      'FRIEND' => GameThemeColors.friend,
+      'CPU' => GameThemeColors.computer,
+      'ARENA' => GameThemeColors.arena,
+      'SOLO' => GameThemeColors.endless,
       _ => Colors.white54,
     };
   }
@@ -712,7 +781,7 @@ class _RecordPageTitle extends StatelessWidget {
         Text(
           subtitle,
           style: const TextStyle(
-            color: Colors.cyanAccent,
+            color: GameThemeColors.cyan,
             fontSize: 10,
             fontWeight: FontWeight.w900,
             letterSpacing: 3.5,
@@ -724,9 +793,6 @@ class _RecordPageTitle extends StatelessWidget {
             color: Colors.white,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
-            shadows: [
-              Shadow(color: Colors.cyanAccent, blurRadius: 12),
-            ],
           ),
         ),
       ],
@@ -747,13 +813,9 @@ class _RecordNeonTabBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xCC0B1020),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.28)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.cyanAccent.withValues(alpha: 0.12),
-            blurRadius: 18,
-          ),
-        ],
+        border: Border.all(
+          color: GameThemeColors.cyanBorder.withValues(alpha: 0.34),
+        ),
       ),
       child: TabBar(
         onTap: (_) => AppSfx.playUiTap(),
@@ -762,12 +824,12 @@ class _RecordNeonTabBar extends StatelessWidget {
         indicator: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              Colors.cyanAccent.withValues(alpha: 0.35),
-              const Color(0xFF0B84FF).withValues(alpha: 0.28),
+              GameThemeColors.cyan.withValues(alpha: 0.2),
+              GameThemeColors.blueSide.withValues(alpha: 0.18),
             ],
           ),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.85)),
+          border: Border.all(color: GameThemeColors.cyanBorder),
         ),
         labelColor: Colors.white,
         unselectedLabelColor: Colors.white54,
@@ -818,14 +880,14 @@ class _RadarChartPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     final axisPaint = Paint()
-      ..color = Colors.cyanAccent.withValues(alpha: 0.18)
+      ..color = GameThemeColors.cyan.withValues(alpha: 0.18)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     final fillPaint = Paint()
-      ..color = Colors.purpleAccent.withValues(alpha: 0.24)
+      ..color = GameThemeColors.ranked.withValues(alpha: 0.24)
       ..style = PaintingStyle.fill;
     final linePaint = Paint()
-      ..color = Colors.cyanAccent
+      ..color = GameThemeColors.cyan
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.2;
 
@@ -860,7 +922,7 @@ class _RadarChartPainter extends CustomPainter {
             TextSpan(
               text: details[i],
               style: const TextStyle(
-                color: Colors.cyanAccent,
+                color: GameThemeColors.cyan,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
               ),

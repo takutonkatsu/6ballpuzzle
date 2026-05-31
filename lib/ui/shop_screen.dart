@@ -12,6 +12,7 @@ import 'components/gacha_animation_screen.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'theme/game_theme_colors.dart';
 
 class ShopScreen extends StatefulWidget {
   const ShopScreen({super.key});
@@ -21,9 +22,9 @@ class ShopScreen extends StatefulWidget {
 }
 
 class _ShopScreenState extends State<ShopScreen> {
-  static const Color _shopPanelColor = Color(0xFF102033);
-  static const Color _shopPanelAccent = Color(0xFF7FE7FF);
-  static const Color _shopPanelAccentStrong = Color(0xFFBEEFFF);
+  static const Color _shopPanelColor = GameThemeColors.surface;
+  static const Color _shopPanelAccent = GameThemeColors.cyan;
+  static const Color _shopPanelAccentStrong = Color(0xFFEAF6FF);
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final GachaManager _gachaManager = GachaManager.instance;
@@ -271,7 +272,7 @@ class _ShopScreenState extends State<ShopScreen> {
     if (item.type == ItemType.frame) {
       return _colorFromFrameName(item.colorName);
     }
-    return Colors.cyanAccent;
+    return GameThemeColors.cyan;
   }
 
   String _subtitleFor(GameItem item) {
@@ -358,7 +359,7 @@ class _ShopScreenState extends State<ShopScreen> {
   Widget build(BuildContext context) {
     final adsRemoved = AppSettings.instance.adsRemoved.value;
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0F),
+      backgroundColor: GameThemeColors.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -396,13 +397,13 @@ class _ShopScreenState extends State<ShopScreen> {
       body: Stack(
         children: [
           const HexagonGridBackground(
-            color: Colors.cyanAccent,
+            color: GameThemeColors.cyan,
             opacity: 0.04,
             hexRadius: 30,
           ),
           _isLoading
               ? const Center(
-                  child: CircularProgressIndicator(color: Colors.cyanAccent),
+                  child: CircularProgressIndicator(color: GameThemeColors.cyan),
                 )
               : SafeArea(
                   child: ListView(
@@ -418,7 +419,7 @@ class _ShopScreenState extends State<ShopScreen> {
                         child: Text(
                           '本日のショップ',
                           style: TextStyle(
-                            color: Colors.cyanAccent,
+                            color: GameThemeColors.cyan,
                             fontWeight: FontWeight.w900,
                             fontSize: 16,
                             letterSpacing: 1,
@@ -444,18 +445,11 @@ class _ShopScreenState extends State<ShopScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF12273C),
-            _shopPanelColor,
-          ],
-        ),
+        color: _shopPanelColor.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: accent.withValues(alpha: 0.4),
-          width: 1.5,
+          color: accent.withValues(alpha: 0.54),
+          width: 1.3,
         ),
       ),
       child: Row(
@@ -464,14 +458,7 @@ class _ShopScreenState extends State<ShopScreen> {
             width: 60,
             height: 60,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  accent.withValues(alpha: 0.24),
-                  _shopPanelAccentStrong.withValues(alpha: 0.08),
-                ],
-              ),
+              color: accent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: accent.withValues(alpha: 0.5)),
             ),
@@ -583,7 +570,7 @@ class _ShopScreenState extends State<ShopScreen> {
           child: Text(
             'ガチャ',
             style: TextStyle(
-              color: Colors.cyanAccent,
+              color: GameThemeColors.cyan,
               fontWeight: FontWeight.w900,
               fontSize: 16,
               letterSpacing: 1,
@@ -596,8 +583,8 @@ class _ShopScreenState extends State<ShopScreen> {
             color: const Color(0xFF0F1E2D).withValues(alpha: 0.94),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: _shopPanelAccent.withValues(alpha: 0.56),
-              width: 1.5,
+              color: GameThemeColors.cyanBorder,
+              width: 1.4,
             ),
           ),
           child: Column(
@@ -658,13 +645,13 @@ class _ShopScreenState extends State<ShopScreen> {
                         unawaited(_rollGacha());
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _shopPanelAccent.withValues(alpha: 0.18),
+                  backgroundColor: _shopPanelAccent.withValues(alpha: 0.14),
                   foregroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(
-                      color: _shopPanelAccent.withValues(alpha: 0.88),
+                    side: const BorderSide(
+                      color: GameThemeColors.cyanBorder,
                       width: 1.4,
                     ),
                   ),
@@ -788,7 +775,7 @@ class _ShopScreenState extends State<ShopScreen> {
         decoration: BoxDecoration(
           color: Colors.black54,
           border: Border.all(
-            color: Colors.cyanAccent.withValues(alpha: 0.5),
+            color: GameThemeColors.cyanBorder,
           ),
           borderRadius: BorderRadius.circular(20),
         ),
@@ -823,13 +810,13 @@ class _ShopScreenState extends State<ShopScreen> {
     return switch (colorName) {
       'red' => Colors.redAccent,
       'orange' => Colors.orangeAccent,
-      'yellow' => Colors.yellowAccent,
+      'yellow' => GameThemeColors.computer,
       'lime' => Colors.limeAccent,
-      'green' => Colors.greenAccent,
-      'blue' => Colors.lightBlueAccent,
+      'green' => GameThemeColors.endless,
+      'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
-      _ => Colors.cyanAccent,
+      _ => GameThemeColors.cyan,
     };
   }
 }
@@ -851,7 +838,7 @@ class _ShopPageTitle extends StatelessWidget {
         Text(
           subtitle,
           style: const TextStyle(
-            color: Colors.cyanAccent,
+            color: GameThemeColors.cyan,
             fontSize: 10,
             fontWeight: FontWeight.w900,
             letterSpacing: 3.5,
