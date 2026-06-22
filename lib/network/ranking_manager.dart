@@ -93,8 +93,9 @@ class RankingManager {
   static const int _rankingLimit = 100;
   static const int _minimumListedRating = 1001;
   static const int _finalTop100SchemaVersion = 6;
-  static const Duration _rankingCacheTtl = Duration(seconds: 45);
-  static const Duration _summaryCacheTtl = Duration(seconds: 30);
+  static const Duration _rankingCacheTtl = Duration(minutes: 5);
+  static const Duration _summaryCacheTtl = Duration(minutes: 5);
+  static const Duration _unchangedPushTtl = Duration(minutes: 10);
   static const String _lastPushPrefix = 'ranking_last_push_v2_';
 
   List<RankingEntry>? _topRatingCache;
@@ -105,6 +106,12 @@ class RankingManager {
   String? _topDailyCacheKey;
   List<RankingEntry>? _topEndlessCache;
   DateTime? _topEndlessCacheAt;
+  List<String>? _archivedSeasonIdsCache;
+  DateTime? _archivedSeasonIdsCacheAt;
+  final Map<String, List<RankingEntry>> _seasonRankingsCache = {};
+  final Map<String, DateTime> _seasonRankingsCacheAt = {};
+  final Map<String, List<SeasonRankBadge>> _seasonRankBadgesCache = {};
+  final Map<String, DateTime> _seasonRankBadgesCacheAt = {};
   RankingSummary? _summaryCache;
   DateTime? _summaryCacheAt;
   String? _summaryCacheSeasonId;
@@ -155,34 +162,43 @@ class RankingManager {
     bool incrementDailyWin = false,
     bool incrementSeasonLoss = false,
   }) async {
-    final multiplayerManager = MultiplayerManager.instance;
-    final resolvedUid = uid ??
-        multiplayerManager.myUid ??
-        await AuthManager.instance.ensureSignedIn();
+    final clock = await _rankingClock(forceRefresh: true);
+    final authUid = await AuthManager.instance.ensureSignedIn();
+    MultiplayerManager.instance.myUid = authUid;
+    final resolvedUid = (uid != null && uid == authUid) ? uid : authUid;
     if (resolvedUid.isEmpty) {
       return;
     }
 
     await PlayerDataManager.instance.load();
     final savedPlayerName = PlayerDataManager.instance.playerName.trim();
-    if (savedPlayerName.isEmpty) {
-      return;
-    }
-    final resolvedName = (displayName ?? savedPlayerName).trim();
-    if (resolvedName.isEmpty) {
-      return;
-    }
+    final resolvedName = (displayName ?? savedPlayerName).trim().isEmpty
+        ? PlayerDataManager.instance.displayPlayerName
+        : (displayName ?? savedPlayerName).trim();
+    final seasonId = clock.currentSeasonId;
     final publicId = PlayerDataManager.instance.playerId;
     final highestEndlessScore = PlayerDataManager.instance.highestEndlessScore
         .clamp(0, PlayerDataManager.maxEndlessScore)
         .toInt();
-    final clock = await _rankingClock();
     final today = _dateKey(clock.nowJst);
-    final seasonId = clock.currentSeasonId;
     final seasonEntryRef = _seasonRankingRef(seasonId).child(resolvedUid);
     final legacyEntryRef = _legacyRankingRef().child(resolvedUid);
     final prefs = await SharedPreferences.getInstance();
     final pushKey = '$_lastPushPrefix${seasonId}_$resolvedUid';
+    final previousPushName = prefs.getString('${pushKey}_displayName') ?? '';
+
+    if (!incrementDailyWin &&
+        !incrementSeasonLoss &&
+        _isRecentUnchangedPush(
+          prefs: prefs,
+          key: pushKey,
+          displayName: resolvedName,
+          publicId: publicId,
+          rating: rating,
+          highestEndlessScore: highestEndlessScore,
+        )) {
+      return;
+    }
 
     final seasonPayload = await _buildRankingUpdatePayload(
       entryRef: seasonEntryRef,
@@ -195,16 +211,12 @@ class RankingManager {
       incrementDailyWin: incrementDailyWin,
       incrementSeasonLoss: incrementSeasonLoss,
     );
-    final legacyPayload = await _buildRankingUpdatePayload(
-      entryRef: legacyEntryRef,
+    final legacyPayload = _buildLegacyRankingUpdatePayload(
       uid: resolvedUid,
       publicId: publicId,
       displayName: resolvedName,
       rating: rating,
       highestEndlessScore: highestEndlessScore,
-      today: today,
-      incrementDailyWin: incrementDailyWin,
-      incrementSeasonLoss: incrementSeasonLoss,
     );
 
     await Future.wait([
@@ -215,6 +227,7 @@ class RankingManager {
         displayName: resolvedName,
         publicId: publicId,
         rating: rating,
+        previousDisplayName: previousPushName,
       ),
     ]);
     await _saveLastPush(
@@ -233,17 +246,12 @@ class RankingManager {
     required String displayName,
     required String publicId,
     required int rating,
+    String previousDisplayName = '',
   }) async {
     final lookupKey = _nameLookupKey(displayName);
-    String previousLookupKey = '';
-    try {
-      final previousNameSnapshot =
-          await _db.child('playerRecordSummaries/$uid/displayName').get();
-      previousLookupKey =
-          _nameLookupKey(previousNameSnapshot.value?.toString() ?? '');
-    } catch (_) {
-      previousLookupKey = '';
-    }
+    final previousLookupKey = previousDisplayName.trim().isEmpty
+        ? ''
+        : _nameLookupKey(previousDisplayName);
     final syncedAtText = DateTime.now().toIso8601String();
     final payload = <String, Object?>{
       'playerRecordSummaries/$uid/displayName': displayName,
@@ -252,6 +260,8 @@ class RankingManager {
       'playerRecordSummaries/$uid/updatedAt': ServerValue.timestamp,
       'playerRecordSummaries/$uid/updatedAtText': syncedAtText,
       'playerRecordSummaries/$uid/lastSeenAtText': syncedAtText,
+      'users/$uid/rating': rating,
+      'users/$uid/updatedAt': ServerValue.timestamp,
       'playerNameLookup/$lookupKey/$uid/uid': uid,
       'playerNameLookup/$lookupKey/$uid/publicId': publicId,
       'playerNameLookup/$lookupKey/$uid/displayName': displayName,
@@ -311,6 +321,7 @@ class RankingManager {
       displayName: resolvedName,
       publicId: publicId,
       rating: PlayerDataManager.instance.currentRating,
+      previousDisplayName: savedPlayerName,
     );
     _topEndlessCache = null;
     _topEndlessCacheAt = null;
@@ -333,6 +344,18 @@ class RankingManager {
       publicId: publicId,
     );
     return _newerEntry(seasonEntry, legacyEntry);
+  }
+
+  Future<RankingEntry?> fetchCurrentSeasonEntryForPlayer({
+    required String uid,
+    required String publicId,
+  }) async {
+    final clock = await _rankingClock(forceRefresh: true);
+    return _fetchEntryByUidOrPublicId(
+      _seasonRankingRef(clock.currentSeasonId),
+      uid: uid,
+      publicId: publicId,
+    );
   }
 
   Future<List<RankingEntry>> fetchTopRankings({
@@ -363,16 +386,7 @@ class RankingManager {
     required String uid,
     required String publicId,
   }) async {
-    final clock = await _rankingClock(forceRefresh: true);
-    final entries = _rankableEntries(
-        await _fetchTopRatingEntries(seasonId: clock.currentSeasonId))
-      ..sort((a, b) {
-        final ratingDiff = b.rating.compareTo(a.rating);
-        if (ratingDiff != 0) {
-          return ratingDiff;
-        }
-        return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
-      });
+    final entries = await fetchTopRankings();
     final index = entries.indexWhere(
       (entry) =>
           (uid.isNotEmpty && entry.uid == uid) ||
@@ -409,26 +423,9 @@ class RankingManager {
             mySnapshot.value as Map<dynamic, dynamic>,
           )
         : null;
-    final ratingEntries =
-        _rankableEntries(await _fetchTopRatingEntries(seasonId: seasonId))
-          ..sort((a, b) {
-            final ratingDiff = b.rating.compareTo(a.rating);
-            if (ratingDiff != 0) {
-              return ratingDiff;
-            }
-            return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
-          });
-    final dailyEntries = _rankableEntries(await _fetchDailyEntriesForDate(
-      today,
-      currentSeasonId: currentSeasonId,
-    ))
-      ..sort((a, b) {
-        final winDiff = b.dailyWins.compareTo(a.dailyWins);
-        if (winDiff != 0) {
-          return winDiff;
-        }
-        return b.rating.compareTo(a.rating);
-      });
+    final ratingEntries = await fetchTopRankings(forceRefresh: forceRefresh);
+    final dailyEntries =
+        await fetchTopDailyWinRankings(forceRefresh: forceRefresh);
     final myIndex = ratingEntries.indexWhere(
       (entry) => _matchesCurrentPlayer(
         entry: entry,
@@ -487,10 +484,10 @@ class RankingManager {
         _isCacheFresh(_topDailyCacheAt)) {
       return List<RankingEntry>.from(_topDailyCache!);
     }
-    final entries = _rankableEntries(await _fetchDailyEntriesForDate(
+    final entries = await _fetchDailyEntriesForDate(
       today,
       currentSeasonId: clock.currentSeasonId,
-    ))
+    )
       ..sort((a, b) {
         final winDiff = b.dailyWins.compareTo(a.dailyWins);
         if (winDiff != 0) {
@@ -507,10 +504,10 @@ class RankingManager {
   Future<List<RankingEntry>> fetchYesterdayDailyWinRankings() async {
     final clock = await _rankingClock(forceRefresh: true);
     final yesterday = _dateKey(clock.nowJst.subtract(const Duration(days: 1)));
-    final entries = _rankableEntries(await _fetchDailyEntriesForDate(
+    final entries = await _fetchDailyEntriesForDate(
       yesterday,
       currentSeasonId: clock.currentSeasonId,
-    ))
+    )
       ..sort((a, b) {
         final winDiff = b.dailyWins.compareTo(a.dailyWins);
         if (winDiff != 0) {
@@ -545,9 +542,14 @@ class RankingManager {
   }
 
   Future<List<String>> fetchArchivedSeasonIds() async {
+    if (_isCacheFresh(_archivedSeasonIdsCacheAt, const Duration(minutes: 5))) {
+      return List<String>.from(_archivedSeasonIdsCache!);
+    }
     final snapshot = await _db.child('rankedSeasons/seasons').get();
     final raw = snapshot.value;
     if (raw is! Map) {
+      _archivedSeasonIdsCache = const [];
+      _archivedSeasonIdsCacheAt = DateTime.now();
       return const [];
     }
     final clock = await _rankingClock();
@@ -565,7 +567,10 @@ class RankingManager {
         })
         .map((entry) => '${entry.key}')
         .toList();
-    return seasonIds.toList()..sort((a, b) => b.compareTo(a));
+    final sorted = seasonIds.toList()..sort((a, b) => b.compareTo(a));
+    _archivedSeasonIdsCache = sorted;
+    _archivedSeasonIdsCacheAt = DateTime.now();
+    return List<String>.from(sorted);
   }
 
   Future<List<RankingEntry>> fetchSeasonRankings(
@@ -574,12 +579,21 @@ class RankingManager {
   }) async {
     final clock = await _rankingClock();
     if (seasonId == clock.currentSeasonId) {
-      return fetchTopRankings(forceRefresh: true);
+      return fetchTopRankings();
+    }
+    final cacheKey = '$seasonId|$finalizedOnly';
+    if (_isCacheFresh(
+        _seasonRankingsCacheAt[cacheKey], const Duration(minutes: 5))) {
+      return List<RankingEntry>.from(_seasonRankingsCache[cacheKey]!);
     }
     final ref = finalizedOnly
         ? _db.child('rankedSeasons/seasons/$seasonId/finalTop100')
         : _seasonRankingRef(seasonId);
-    return _fetchRankingsFromRef(ref, applyRatingFilter: !finalizedOnly);
+    final entries =
+        await _fetchRankingsFromRef(ref, applyRatingFilter: !finalizedOnly);
+    _seasonRankingsCache[cacheKey] = entries;
+    _seasonRankingsCacheAt[cacheKey] = DateTime.now();
+    return List<RankingEntry>.from(entries);
   }
 
   Future<List<RankingEntry>> _fetchRankingsFromRef(
@@ -626,6 +640,11 @@ class RankingManager {
         await AuthManager.instance.ensureSignedIn();
     await PlayerDataManager.instance.load();
     final publicId = PlayerDataManager.instance.playerId;
+    final currentEntry = await _fetchEntryByUidOrPublicId(
+      _seasonRankingRef(currentSeasonId),
+      uid: uid,
+      publicId: publicId,
+    );
     final previousEntries = await fetchSeasonRankings(previousSeasonId);
     final previousIndex = previousEntries.indexWhere(
       (entry) => _matchesCurrentPlayer(
@@ -641,6 +660,12 @@ class RankingManager {
 
     await PlayerDataManager.instance.ensureRankedSeason(
       currentSeasonId: currentSeasonId,
+      currentSeasonRating: _hasSeasonRecord(currentEntry)
+          ? currentEntry?.rating
+          : MultiplayerManager.initialRating,
+      hasCurrentSeasonRecord: _hasSeasonRecord(currentEntry),
+      currentSeasonWins: currentEntry?.seasonWins,
+      currentSeasonLosses: currentEntry?.seasonLosses,
       previousSeasonName: RankedSeasonManager.seasonName(previousSeasonId),
       previousFinalRank: previousRank,
       previousFinalRating: previousEntry?.rating,
@@ -668,45 +693,40 @@ class RankingManager {
     required String uid,
     required String publicId,
   }) async {
-    final snapshot = await _db.child('rankedSeasons/seasons').get();
-    final raw = snapshot.value;
-    if (raw is! Map) {
-      return const [];
+    final cacheKey = '$uid|$publicId';
+    if (_isCacheFresh(
+      _seasonRankBadgesCacheAt[cacheKey],
+      const Duration(minutes: 5),
+    )) {
+      return List<SeasonRankBadge>.from(_seasonRankBadgesCache[cacheKey]!);
     }
     final badges = <SeasonRankBadge>[];
-    for (final seasonEntry in raw.entries) {
-      final seasonId = '${seasonEntry.key}';
-      if (RankedSeasonManager.seasonNumber(seasonId) <
-          RankedSeasonManager.baseSeasonNumber) {
+    final seasonIds = await fetchArchivedSeasonIds();
+    for (final seasonId in seasonIds) {
+      final entries = await fetchSeasonRankings(seasonId);
+      RankingEntry? entry;
+      for (final candidate in entries) {
+        if (_matchesCurrentPlayer(
+          entry: candidate,
+          uid: uid,
+          publicId: publicId,
+        )) {
+          entry = candidate;
+          break;
+        }
+      }
+      if (entry == null || entry.finalRank == null) {
         continue;
       }
-      final season = seasonEntry.value is Map
-          ? seasonEntry.value as Map<dynamic, dynamic>
-          : const <dynamic, dynamic>{};
-      if (season['finalized'] != true) {
-        continue;
-      }
-      final finalTop = season['finalTop100'];
-      if (finalTop == null) {
-        continue;
-      }
-      final entry = _findFinalTopEntryForPlayer(
-        finalTop,
-        uid: uid,
-        publicId: publicId,
-      );
-      if (entry == null) {
-        continue;
-      }
-      final rank = RankingEntry._intValue(entry['rank']);
-      if (rank == null || rank <= 0 || rank > _rankingLimit) {
+      final rank = entry.finalRank!;
+      if (rank <= 0 || rank > _rankingLimit) {
         continue;
       }
       badges.add(
         SeasonRankBadge(
           seasonId: seasonId,
           rank: rank,
-          rating: RankingEntry._intValue(entry['rating']),
+          rating: entry.rating,
         ),
       );
     }
@@ -717,7 +737,9 @@ class RankingManager {
       }
       return a.rank.compareTo(b.rank);
     });
-    return badges;
+    _seasonRankBadgesCache[cacheKey] = badges;
+    _seasonRankBadgesCacheAt[cacheKey] = DateTime.now();
+    return List<SeasonRankBadge>.from(badges);
   }
 
   Future<void> finalizeSeasonIfNeeded(String seasonId) async {
@@ -857,7 +879,10 @@ class RankingManager {
   }
 
   Future<List<RankingEntry>> _fetchTopEndlessEntries() async {
-    final snapshot = await _legacyRankingRef().get();
+    final snapshot = await _legacyRankingRef()
+        .orderByChild('highestEndlessScore')
+        .limitToLast(_rankingLimit)
+        .get();
     return _entriesFromSnapshot(snapshot);
   }
 
@@ -1002,6 +1027,23 @@ class RankingManager {
     }
 
     return updatePayload;
+  }
+
+  Map<String, Object?> _buildLegacyRankingUpdatePayload({
+    required String uid,
+    required String publicId,
+    required String displayName,
+    required int rating,
+    required int highestEndlessScore,
+  }) {
+    return {
+      'uid': uid,
+      'publicId': publicId,
+      'displayName': displayName,
+      'rating': rating,
+      'highestEndlessScore': highestEndlessScore,
+      'updatedAt': ServerValue.timestamp,
+    };
   }
 
   List<RankingEntry> _mergeRankingEntries({
@@ -1220,6 +1262,26 @@ class RankingManager {
     ]);
   }
 
+  bool _isRecentUnchangedPush({
+    required SharedPreferences prefs,
+    required String key,
+    required String displayName,
+    required String publicId,
+    required int rating,
+    required int highestEndlessScore,
+  }) {
+    final lastSyncedAt = prefs.getInt('${key}_at') ?? 0;
+    if (lastSyncedAt <= 0 ||
+        DateTime.now().millisecondsSinceEpoch - lastSyncedAt >
+            _unchangedPushTtl.inMilliseconds) {
+      return false;
+    }
+    return prefs.getInt('${key}_rating') == rating &&
+        prefs.getInt('${key}_highestEndlessScore') == highestEndlessScore &&
+        (prefs.getString('${key}_displayName') ?? '') == displayName &&
+        (prefs.getString('${key}_publicId') ?? '') == publicId;
+  }
+
   bool _isCacheFresh(DateTime? fetchedAt, [Duration ttl = _rankingCacheTtl]) {
     return fetchedAt != null && DateTime.now().difference(fetchedAt) < ttl;
   }
@@ -1233,6 +1295,12 @@ class RankingManager {
     _topDailyCacheKey = null;
     _topEndlessCache = null;
     _topEndlessCacheAt = null;
+    _archivedSeasonIdsCache = null;
+    _archivedSeasonIdsCacheAt = null;
+    _seasonRankingsCache.clear();
+    _seasonRankingsCacheAt.clear();
+    _seasonRankBadgesCache.clear();
+    _seasonRankBadgesCacheAt.clear();
     _summaryCache = null;
     _summaryCacheAt = null;
     _summaryCacheSeasonId = null;

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app_settings.dart';
 import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
 import '../data/models/game_item.dart';
@@ -91,17 +92,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final rankLabel = await _fetchRemoteRankLabel();
     final uid = widget.playerUid ?? widget.initialEntry?.uid ?? '';
     final publicId = widget.initialEntry?.publicId ?? '';
-    final currentEntry = await _fetchCurrentRankingEntry(
-      uid: uid,
-      publicId: publicId,
-    );
-    final liveUserData = await _fetchLiveUserData(uid);
-    final fallbackEntry = currentEntry ?? widget.initialEntry;
+    final currentEntry = widget.initialEntry;
+    final fallbackEntry = currentEntry;
     try {
       if (uid.isNotEmpty) {
-        final snapshot = await AppFirebaseDatabase.ref()
-            .child('playerRecordSummaries/$uid')
-            .get();
+        final snapshot =
+            await AppFirebaseDatabase.ref().child('publicProfiles/$uid').get();
         final raw = snapshot.value;
         if (raw is Map) {
           profile = _ProfileViewData.fromRecordSummary(
@@ -114,12 +110,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } catch (_) {
       profile = null;
     }
+    if (profile == null) {
+      try {
+        if (uid.isNotEmpty) {
+          final snapshot = await AppFirebaseDatabase.ref()
+              .child('playerRecordSummaries/$uid')
+              .get();
+          final raw = snapshot.value;
+          if (raw is Map) {
+            profile = _ProfileViewData.fromRecordSummary(
+              Map<dynamic, dynamic>.from(raw),
+              fallbackEntry: fallbackEntry,
+              currentRankLabel: rankLabel,
+            );
+          }
+        }
+      } catch (_) {
+        profile = null;
+      }
+    }
     profile ??= _ProfileViewData.fromRankingEntry(
       fallbackEntry,
       currentRankLabel: rankLabel,
     );
+    final currentEntryFromRanking = await _fetchCurrentRankingEntry(
+      uid: uid,
+      publicId: publicId,
+    );
+    final liveUserData = await _fetchLiveUserData(uid);
     profile = profile.withCurrentProfileFields(
-      rankingEntry: currentEntry,
+      rankingEntry: currentEntryFromRanking ?? currentEntry,
       liveUserData: liveUserData,
     );
     final seasonBadges = await _fetchRemoteSeasonRankBadges(profile);
@@ -331,18 +351,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 62,
-              height: 62,
-              decoration: BoxDecoration(
-                  color: iconFrameColor.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: iconFrameColor, width: 2)),
-              child: Icon(
-                _playerIconData(profile.playerIconId),
-                color: Colors.white,
-                size: 34,
-              ),
+            _buildPlayerIconAvatar(
+              iconId: profile.playerIconId,
+              frameId: profile.playerIconFrameId,
+              color: iconFrameColor,
+              size: 62,
+              iconSize: 34,
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -394,6 +408,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const SizedBox(height: 10),
         _smallInfoLine('プレイヤーID：', profile.publicId),
       ],
+    );
+  }
+
+  Widget _buildPlayerIconAvatar({
+    required String iconId,
+    required String frameId,
+    required Color color,
+    required double size,
+    required double iconSize,
+  }) {
+    final icon = Icon(
+      _playerIconData(iconId),
+      color: Colors.white,
+      size: iconSize,
+    );
+    if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
+      return Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(4),
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: SweepGradient(
+            colors: [
+              Color(0xFFFF4D6D),
+              Color(0xFFFFD54A),
+              Color(0xFF35F0FF),
+              Color(0xFFB91DFF),
+              Color(0xFFFF4D6D),
+            ],
+          ),
+        ),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF111827),
+            shape: BoxShape.circle,
+          ),
+          child: Center(child: icon),
+        ),
+      );
+    }
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: 2),
+      ),
+      child: icon,
     );
   }
 
@@ -501,12 +565,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildEquippedBadgeOverlay(_BadgeDisplay badge) {
     return Container(
-      width: 220,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      width: 260,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: badge.color.withValues(alpha: 0.72))),
+        color: const Color(0xFF000000),
+        border: Border.all(color: badge.color.withValues(alpha: 0.72)),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black,
+            blurRadius: 0,
+            spreadRadius: 14,
+          ),
+        ],
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -628,7 +699,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            label,
+            AppSettings.instance.translate(label),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
@@ -782,8 +853,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (profile == null) {
       return _emptyPanel('戦績を読み込めませんでした');
     }
-    final bestRank =
-        profile.bestRankedRank <= 0 ? '圏外' : '${profile.bestRankedRank}位';
     final wazaCounts = profile.wazaCounts;
     return Column(
       children: [
@@ -831,8 +900,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               showTrophy: true,
             ),
             _MetricData(
-              label: 'ランク戦最高到達順位',
-              value: bestRank,
+              label: 'エンドレス最高スコア',
+              value: _formatNumber(profile.highestEndlessScore),
               color: Colors.white,
             ),
           ],
@@ -903,7 +972,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   if (badge.rating != null) ...[
-                    const SizedBox(width: 10),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        '/',
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
                     HexagonTrophyAmount(
                       badge.rating!,
                       color: Colors.amberAccent,
@@ -911,12 +990,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       fontSize: 20,
                     ),
                   ],
-                  const SizedBox(width: 10),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      '/',
+                      style: TextStyle(
+                        color: Colors.white38,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
                   Text(
                     badge.seasonName,
                     style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
+                      color: Colors.white70,
+                      fontSize: 14,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -1049,7 +1138,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(width: 9),
           Expanded(
             child: Text(
-              title,
+              AppSettings.instance.translate(title),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
@@ -1369,6 +1458,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
+      'rainbow' => const Color(0xFFFFD54A),
       _ => GameThemeColors.cyan,
     };
   }
@@ -1390,6 +1480,7 @@ class _ProfileViewData {
     required this.totalClearedBalls,
     required this.highestRating,
     required this.bestRankedRank,
+    required this.highestEndlessScore,
     required this.wazaCounts,
   });
 
@@ -1407,6 +1498,7 @@ class _ProfileViewData {
   final int totalClearedBalls;
   final int highestRating;
   final int bestRankedRank;
+  final int highestEndlessScore;
   final Map<String, int> wazaCounts;
 
   _ProfileViewData copyWithSeasonRankBadges(List<SeasonRankBadge> badges) {
@@ -1425,6 +1517,7 @@ class _ProfileViewData {
       totalClearedBalls: totalClearedBalls,
       highestRating: highestRating,
       bestRankedRank: bestRankedRank,
+      highestEndlessScore: highestEndlessScore,
       wazaCounts: wazaCounts,
     );
   }
@@ -1460,6 +1553,10 @@ class _ProfileViewData {
         liveRating ?? rankingEntry?.rating ?? currentRating,
       ),
       bestRankedRank: bestRankedRank,
+      highestEndlessScore: max(
+        highestEndlessScore,
+        rankingEntry?.highestEndlessScore ?? 0,
+      ),
       wazaCounts: wazaCounts,
     );
   }
@@ -1483,6 +1580,7 @@ class _ProfileViewData {
       totalClearedBalls: playerData.totalClearedBalls,
       highestRating: playerData.highestRating,
       bestRankedRank: playerData.bestRankedRank,
+      highestEndlessScore: playerData.highestEndlessScore,
       wazaCounts: playerData.wazaCounts,
     );
   }
@@ -1496,6 +1594,7 @@ class _ProfileViewData {
     final economy = _mapValue(data['economy']);
     final collection = _mapValue(data['collection']);
     final ranked = _mapValue(data['ranked']);
+    final endless = _mapValue(data['endless']);
     final wazaCounts = _intMapValue(data['wazaCounts']);
     return _ProfileViewData(
       displayName: _stringValue(data['displayName']) ??
@@ -1520,6 +1619,10 @@ class _ProfileViewData {
         fallbackEntry?.rating ?? MultiplayerManager.initialRating,
       ),
       bestRankedRank: _intValue(ranked['bestRankedRank']) ?? 0,
+      highestEndlessScore: max(
+        _intValue(endless['highestScore']) ?? 0,
+        fallbackEntry?.highestEndlessScore ?? 0,
+      ),
       wazaCounts: wazaCounts,
     );
   }
@@ -1543,6 +1646,7 @@ class _ProfileViewData {
       totalClearedBalls: 0,
       highestRating: entry?.rating ?? MultiplayerManager.initialRating,
       bestRankedRank: 0,
+      highestEndlessScore: entry?.highestEndlessScore ?? 0,
       wazaCounts: const {},
     );
   }
@@ -1652,7 +1756,7 @@ class _ProfilePageTitle extends StatelessWidget {
           ),
         ),
         Text(
-          title,
+          AppSettings.instance.translate(title),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w900,

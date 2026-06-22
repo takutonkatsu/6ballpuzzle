@@ -14,6 +14,7 @@ class ActivePieceComponent extends PositionComponent {
   double fallSpeed;
   bool isLocked = false;
   final bool isGhost;
+  final String ballSkinId;
 
   double logicalAngle = 0.0;
   double _rotationStartAngle = 0.0;
@@ -35,6 +36,7 @@ class ActivePieceComponent extends PositionComponent {
     this.isGhost = false,
     List<BallColor>? presetColors,
     this.fallSpeed = 50.0,
+    this.ballSkinId = 'default',
   }) : super(position: position) {
     final random = Random();
     final allColors = [
@@ -66,6 +68,7 @@ class ActivePieceComponent extends PositionComponent {
         radius: ballRadius,
         ballColor: c,
         isGhost: isGhost,
+        ballSkinId: ballSkinId,
       )..state = BallState.locked);
     }
   }

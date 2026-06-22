@@ -19,23 +19,23 @@
     "platforms": {
       "android": {
         "default": {
-          "projectId": "hexagon-puzzle-prod",
-          "appId": "1:599331155949:android:321bcf7d017f2a7cee81e4",
+          "projectId": "hexagon-puzzle-prod-e811c",
+          "appId": "1:92968589553:android:e29607415d086ccb3b3150",
           "fileOutput": "android/app/google-services.json"
         }
       },
       "ios": {
         "default": {
-          "projectId": "hexagon-puzzle-prod",
-          "appId": "1:599331155949:ios:319666fdce2a48bdee81e4",
+          "projectId": "hexagon-puzzle-prod-e811c",
+          "appId": "1:92968589553:ios:c2c67d4b11deffcc3b3150",
           "uploadDebugSymbols": false,
           "fileOutput": "ios/Runner/GoogleService-Info.plist"
         }
       },
       "macos": {
         "default": {
-          "projectId": "hexagon-puzzle-prod",
-          "appId": "1:599331155949:ios:319666fdce2a48bdee81e4",
+          "projectId": "hexagon-puzzle-prod-e811c",
+          "appId": "1:92968589553:ios:c2c67d4b11deffcc3b3150",
           "uploadDebugSymbols": false,
           "fileOutput": "macos/Runner/GoogleService-Info.plist"
         }
@@ -52,11 +52,11 @@
           }
         },
         "lib/firebase_options_prod.dart": {
-          "projectId": "hexagon-puzzle-prod",
+          "projectId": "hexagon-puzzle-prod-e811c",
           "configurations": {
-            "android": "1:599331155949:android:321bcf7d017f2a7cee81e4",
-            "ios": "1:599331155949:ios:319666fdce2a48bdee81e4",
-            "macos": "1:599331155949:ios:319666fdce2a48bdee81e4",
+            "android": "1:92968589553:android:e29607415d086ccb3b3150",
+            "ios": "1:92968589553:ios:c2c67d4b11deffcc3b3150",
+            "macos": "1:92968589553:ios:c2c67d4b11deffcc3b3150",
             "web": "1:599331155949:web:6d3b92b3b247ab13ee81e4",
             "windows": "1:599331155949:web:a5ae16d21d90a153ee81e4"
           }

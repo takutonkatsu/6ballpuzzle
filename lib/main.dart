@@ -158,7 +158,8 @@ Future<FirebaseApp> _initializeFirebaseApp({
   required FirebaseOptions options,
   required String flavor,
 }) async {
-  final appName = 'hexagon-$flavor';
+  final useDefaultApp = Platform.isMacOS;
+  final appName = useDefaultApp ? null : 'hexagon-$flavor';
   try {
     return await Firebase.initializeApp(
       name: appName,
@@ -168,7 +169,8 @@ Future<FirebaseApp> _initializeFirebaseApp({
     if (error.code != 'duplicate-app') {
       rethrow;
     }
-    final existingApp = Firebase.app(appName);
+    final existingApp =
+        appName == null ? Firebase.app() : Firebase.app(appName);
     if (_sameFirebaseProject(existingApp.options, options)) {
       return existingApp;
     }
@@ -211,6 +213,7 @@ class StartupLoadingScreen extends StatefulWidget {
 class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     with SingleTickerProviderStateMixin {
   static const Duration _bootstrapTimeout = Duration(seconds: 8);
+  static const Duration _connectionStartupWaitTimeout = Duration(seconds: 8);
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
 
   late final AnimationController _progressController;
@@ -267,10 +270,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       _bootstrapTimeout,
       onTimeout: () {
         debugPrint('Home bootstrap timed out; continuing with local defaults.');
-        return const HomeBootstrapData(
-          playerName: '',
-          rating: 1000,
-        );
+        return _localHomeBootstrapFallback();
       },
     );
     HomeBootstrapData bootstrapData;
@@ -284,10 +284,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       debugPrint(
           'Home bootstrap failed; continuing with local defaults: $error');
       debugPrintStack(stackTrace: stackTrace);
-      bootstrapData = const HomeBootstrapData(
-        playerName: '',
-        rating: 1000,
-      );
+      bootstrapData = await _localHomeBootstrapFallback();
     }
     if (!mounted) {
       return;
@@ -339,16 +336,37 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     );
   }
 
+  Future<HomeBootstrapData> _localHomeBootstrapFallback() async {
+    final playerDataManager = PlayerDataManager.instance;
+    try {
+      await playerDataManager.load();
+      return HomeBootstrapData(
+        playerName: playerDataManager.displayPlayerName,
+        rating: playerDataManager.currentRating,
+      );
+    } catch (_) {
+      return const HomeBootstrapData(
+        playerName: 'プレイヤー',
+        rating: 1000,
+      );
+    }
+  }
+
   Future<void> _waitForRealtimeDatabaseConnection() async {
-    while (mounted) {
+    final startedAt = DateTime.now();
+    while (mounted &&
+        DateTime.now().difference(startedAt) < _connectionStartupWaitTimeout) {
       final connected = await RealtimeConnectionGuard.waitForConnected(
-        timeout: const Duration(seconds: 5),
+        timeout: const Duration(seconds: 2),
       );
       if (connected) {
         return;
       }
-      await Future<void>.delayed(const Duration(seconds: 1));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
+    debugPrint(
+      'Realtime Database connection check timed out; continuing startup.',
+    );
   }
 
   Future<String> _showStartupNameRegistrationDialog({
@@ -537,8 +555,12 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     }
     try {
       await rankingManager
+          .syncSeasonStateForCurrentPlayer()
+          .timeout(_nameRegistrationSyncTimeout);
+      await playerDataManager.load().timeout(_nameRegistrationSyncTimeout);
+      await rankingManager
           .updateMyRating(
-            rating: rating,
+            rating: playerDataManager.currentRating,
             displayName: playerDataManager.displayPlayerName,
           )
           .timeout(_nameRegistrationSyncTimeout);

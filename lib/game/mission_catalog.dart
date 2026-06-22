@@ -1,3 +1,5 @@
+import '../app_settings.dart';
+
 class MissionDefinition {
   const MissionDefinition({
     required this.id,
@@ -18,7 +20,9 @@ class MissionDefinition {
   Map<String, dynamic> toMissionMap() {
     return {
       'id': id,
-      'title': MissionCatalog.localizedTitleForId(id) ?? title,
+      'title': AppSettings.instance.translate(
+        MissionCatalog.localizedTitleForId(id) ?? title,
+      ),
       'description': description,
       'eventKey': eventKey,
       'target': target,
@@ -253,7 +257,7 @@ class MissionCatalog {
       progressKey: 'daily_win_rank_1',
       initialTarget: 1,
       targetStep: 1,
-      rewardCoins: 10000,
+      rewardCoins: 50000,
     ),
     RegularMissionDefinition(
       id: 'regular_hexagon_count',

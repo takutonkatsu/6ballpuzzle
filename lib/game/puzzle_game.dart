@@ -33,6 +33,30 @@ class _QueuedPreviewOjamaTask {
   });
 }
 
+class _RemoteBoardCell {
+  final BallColor color;
+  final double hitOffsetX;
+
+  const _RemoteBoardCell({
+    required this.color,
+    this.hitOffsetX = 0,
+  });
+}
+
+class _ResolvedDropCell {
+  final HexCoordinate hex;
+  final Vector2 position;
+  final BallColor color;
+  final double hitOffsetX;
+
+  const _ResolvedDropCell({
+    required this.hex,
+    required this.position,
+    required this.color,
+    required this.hitOffsetX,
+  });
+}
+
 class _ActiveBallContactState {
   const _ActiveBallContactState({
     required this.isTouching,
@@ -80,6 +104,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final bool useConstantFallSpeed;
   final bool manualPieceSpawning;
   final bool renderDetectedFormationEffects;
+  String ballSkinId;
   late Random _rng;
   Random? syncDropRng;
   int currentDropSeed = 0;
@@ -116,6 +141,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     int rotation,
     List<BallColor> colors,
     int dropSeed,
+    List<Map<String, dynamic>>? lockedCells,
   )? onActivePieceChanged;
   Function(List<dynamic>, int)? onOjamaSpawned;
 
@@ -164,7 +190,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   bool _hasRemoteOjamaInFlight = false;
   DateTime? _remoteOjamaSpawnedAt;
   bool _isApplyingRemoteHardDrop = false;
-  Map<HexCoordinate, BallColor>? _pendingSpectatorBoardState;
+  Map<HexCoordinate, _RemoteBoardCell>? _pendingSpectatorBoardState;
   async.Timer? _deferredRemoteBoardTimer;
   Map<String, dynamic>? _deferredRemoteBoardState;
   int _remoteAttackFormationGeneration = 0;
@@ -347,6 +373,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       presetColors: task.presetColors == null
           ? null
           : List<BallColor>.from(task.presetColors!),
+      ballSkinId: task.ballSkinId,
+      effectSkinId: task.effectSkinId,
     );
   }
 
@@ -434,6 +462,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       position: Vector2(spawnX, grid.offset.y - _ojamaSpawnYOffset),
       startColor: task.type == OjamaType.straightSet ? task.startColor : null,
       presetColors: _colorsForOjamaSet(task),
+      ballSkinId: ballSkinId,
+      effectSkinId: task.effectSkinId,
     );
   }
 
@@ -605,6 +635,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     this.manualPieceSpawning = false,
     this.renderDetectedFormationEffects = true,
     this.wallColor,
+    this.ballSkinId = 'default',
   }) {
     _rng = seed != null ? Random(seed) : Random();
     grid = GridSystem(ballRadius: _ballRadius);
@@ -702,6 +733,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       ballRadius: _ballRadius,
       fallSpeed: currentFallSpeed,
       presetColors: currentColors,
+      ballSkinId: ballSkinId,
     )..priority = 10;
     add(activePiece!);
     _markGhostPositionDirty();
@@ -717,6 +749,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       isGhost: true,
       fallSpeed: currentFallSpeed,
       presetColors: currentColors,
+      ballSkinId: ballSkinId,
     )..priority = 0;
     add(ghostPiece!);
     _markGhostPositionDirty();
@@ -756,6 +789,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         position: grid.hexToPixel(entry.key),
         radius: _ballRadius,
         ballColor: entry.value,
+        ballSkinId: ballSkinId,
       );
       add(ball);
       grid.lockedBalls[entry.key] = ball;
@@ -786,6 +820,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       ballRadius: _ballRadius,
       fallSpeed: fallSpeed,
       presetColors: colors,
+      ballSkinId: ballSkinId,
     )..priority = 10;
     activePiece!.setRotationIndex(rotation);
     add(activePiece!);
@@ -821,6 +856,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   }
 
   double? get activePieceX => activePiece?.position.x;
+  double get boardOriginX => grid.offset.x;
+  double get boardOriginY => grid.offset.y;
 
   void setFixedPieceX(double x) {
     if (activePiece == null || activePiece!.isLocked) {
@@ -1168,6 +1205,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final oldActive = activePiece!;
       final oldGhost = ghostPiece;
 
+      _notifyActivePieceState(force: true, action: 'lock');
+
       oldActive.isLocked = true;
       remove(oldActive);
       if (oldGhost != null) {
@@ -1289,21 +1328,31 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   Future<void> _executeLogicDrop(
     List<Vector2> positions,
-    List<BallColor> colors,
-  ) async {
+    List<BallColor> colors, {
+    List<HexCoordinate>? lockedHexes,
+    List<Map<String, dynamic>>? lockedCells,
+  }) async {
     _clearHints();
-    for (int i = 0; i < 3; i++) {
-      var hex = grid.pixelToHex(positions[i]);
-      hex = grid.findNearestEmpty(hex);
+    final resolvedCells = lockedCells != null && lockedCells.isNotEmpty
+        ? _resolveDropCellsFromLockedPayload(colors, lockedCells)
+        : lockedHexes == null
+            ? _resolveDropCells(positions, colors)
+            : _resolveDropCellsFromLockedHexes(positions, colors, lockedHexes);
 
+    for (final cell in resolvedCells) {
+      final existingBall = grid.lockedBalls.remove(cell.hex);
+      if (existingBall != null && existingBall.parent != null) {
+        existingBall.removeFromParent();
+      }
       var newBall = BallComponent(
-        position: positions[i],
+        position: cell.position,
         radius: 15.0,
-        ballColor: colors[i],
+        ballColor: cell.color,
+        ballSkinId: ballSkinId,
       );
-      newBall.hitOffsetX = positions[i].x - grid.hexToPixel(hex).x;
+      newBall.hitOffsetX = cell.hitOffsetX;
       add(newBall);
-      grid.lockedBalls[hex] = newBall;
+      grid.lockedBalls[cell.hex] = newBall;
     }
     _markBoardChanged();
 
@@ -1316,6 +1365,111 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (isRemotePlayerMode && _autonomousRemotePreviewEnabled) {
       _scheduleRemotePreviewRespawn();
     }
+  }
+
+  List<_ResolvedDropCell> _resolveDropCells(
+    List<Vector2> positions,
+    List<BallColor> colors,
+  ) {
+    final resolved = <_ResolvedDropCell>[];
+    final reserved = <HexCoordinate>{};
+    final count = min(positions.length, colors.length);
+    for (var i = 0; i < count; i++) {
+      final hex = _findNearestEmptyForDrop(
+        grid.pixelToHex(positions[i]),
+        reserved,
+      );
+      reserved.add(hex);
+      resolved.add(
+        _ResolvedDropCell(
+          hex: hex,
+          position: positions[i].clone(),
+          color: colors[i],
+          hitOffsetX: positions[i].x - grid.hexToPixel(hex).x,
+        ),
+      );
+    }
+    return resolved;
+  }
+
+  List<_ResolvedDropCell> _resolveDropCellsFromLockedHexes(
+    List<Vector2> positions,
+    List<BallColor> colors,
+    List<HexCoordinate> lockedHexes,
+  ) {
+    final resolved = <_ResolvedDropCell>[];
+    final count = min(min(positions.length, colors.length), lockedHexes.length);
+    for (var i = 0; i < count; i++) {
+      final hex = lockedHexes[i];
+      resolved.add(
+        _ResolvedDropCell(
+          hex: hex,
+          position: positions[i].clone(),
+          color: colors[i],
+          hitOffsetX: positions[i].x - grid.hexToPixel(hex).x,
+        ),
+      );
+    }
+    return resolved;
+  }
+
+  List<_ResolvedDropCell> _resolveDropCellsFromLockedPayload(
+    List<BallColor> colors,
+    List<Map<String, dynamic>> lockedCells,
+  ) {
+    final resolved = <_ResolvedDropCell>[];
+    final count = min(colors.length, lockedCells.length);
+    for (var i = 0; i < count; i++) {
+      final raw = lockedCells[i];
+      final row = _asInt(raw['row']);
+      final col = _asInt(raw['col']);
+      if (row == null || col == null) {
+        continue;
+      }
+      final hex = HexCoordinate(col, row);
+      final hitOffsetX = _asDouble(raw['hitOffsetX']) ?? 0.0;
+      final basePosition = grid.hexToPixel(hex);
+      resolved.add(
+        _ResolvedDropCell(
+          hex: hex,
+          position: Vector2(basePosition.x + hitOffsetX, basePosition.y),
+          color: colors[i],
+          hitOffsetX: hitOffsetX,
+        ),
+      );
+    }
+    return resolved;
+  }
+
+  HexCoordinate _findNearestEmptyForDrop(
+    HexCoordinate start,
+    Set<HexCoordinate> reserved,
+  ) {
+    bool blocked(HexCoordinate? hex) {
+      return grid.isOutOfBounds(hex) ||
+          grid.isOccupied(hex) ||
+          (hex != null && reserved.contains(hex));
+    }
+
+    if (!blocked(start)) {
+      return start;
+    }
+
+    final queue = [start];
+    final visited = {start};
+    while (queue.isNotEmpty) {
+      final curr = queue.removeAt(0);
+      if (!blocked(curr)) {
+        return curr;
+      }
+      for (final dir in ['a', 'd', 'b', 'c', 'f', 'g']) {
+        final next = grid.getNeighbor(curr, dir);
+        if (next != null && !grid.isOutOfBounds(next) && visited.add(next)) {
+          queue.add(next);
+        }
+      }
+    }
+    return start;
   }
 
   bool _isProcessingGravity = false;
@@ -1598,10 +1752,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     applyRemoteBoardState(boardData);
   }
 
-  Map<HexCoordinate, BallColor> _parseRemoteBoardState(
+  Map<HexCoordinate, _RemoteBoardCell> _parseRemoteBoardState(
     Map<String, dynamic> boardData,
   ) {
-    final parsed = <HexCoordinate, BallColor>{};
+    final parsed = <HexCoordinate, _RemoteBoardCell>{};
     for (final entry in boardData.entries) {
       final key = entry.key.split(',');
       if (key.length != 2) {
@@ -1610,12 +1764,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       final row = int.tryParse(key[0]);
       final col = int.tryParse(key[1]);
-      final colorIndex = switch (entry.value) {
-        int value => value,
-        num value => value.toInt(),
-        String value => int.tryParse(value),
+      final value = entry.value;
+      final colorIndex = switch (value) {
+        int raw => raw,
+        num raw => raw.toInt(),
+        String raw => int.tryParse(raw),
+        Map raw => _asInt(raw['color']),
         _ => null,
       };
+      final hitOffsetX =
+          value is Map ? (_asDouble(value['hitOffsetX']) ?? 0) : 0.0;
 
       if (row == null ||
           col == null ||
@@ -1625,15 +1783,22 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         continue;
       }
 
-      parsed[HexCoordinate(col, row)] = BallColor.values[colorIndex];
+      parsed[HexCoordinate(col, row)] = _RemoteBoardCell(
+        color: BallColor.values[colorIndex],
+        hitOffsetX: hitOffsetX,
+      );
     }
     return parsed;
   }
 
-  void _replaceRemoteBoardState(Map<HexCoordinate, BallColor> boardData) {
+  void _replaceRemoteBoardState(
+    Map<HexCoordinate, _RemoteBoardCell> boardData,
+  ) {
     final preserveAutonomousPreviewPiece =
         isRemotePlayerMode && _autonomousRemotePreviewEnabled;
-    final preserveRemoteActivePiece = isRemotePlayerMode && activePiece != null;
+    final preserveRemoteActivePiece = isRemotePlayerMode &&
+        activePiece != null &&
+        !_remoteBoardIncludesActivePiece(boardData);
     _clearLockedBalls();
     _clearHints();
     if (!preserveAutonomousPreviewPiece && !preserveRemoteActivePiece) {
@@ -1645,8 +1810,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final ball = BallComponent(
         position: grid.hexToPixel(entry.key),
         radius: 15.0,
-        ballColor: entry.value,
+        ballColor: entry.value.color,
+        ballSkinId: ballSkinId,
       );
+      ball.hitOffsetX = entry.value.hitOffsetX;
       add(ball);
       grid.lockedBalls[entry.key] = ball;
     }
@@ -1655,13 +1822,17 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _updateHints();
   }
 
-  void _mergeRemoteBoardState(Map<HexCoordinate, BallColor> boardData) {
+  void _mergeRemoteBoardState(Map<HexCoordinate, _RemoteBoardCell> boardData) {
     _clearHints();
     _clearActiveOjamaBlocks();
+    if (_remoteBoardIncludesActivePiece(boardData)) {
+      clearRemoteActivePiece();
+    }
 
     for (final entry in grid.lockedBalls.entries.toList()) {
-      final color = boardData[entry.key];
-      if (color == entry.value.ballColor) {
+      final cell = boardData[entry.key];
+      if (cell != null && cell.color == entry.value.ballColor) {
+        entry.value.hitOffsetX = cell.hitOffsetX;
         entry.value.lockTo(grid.hexToPixel(entry.key));
         continue;
       }
@@ -1679,8 +1850,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final ball = BallComponent(
         position: grid.hexToPixel(entry.key),
         radius: 15.0,
-        ballColor: entry.value,
+        ballColor: entry.value.color,
+        ballSkinId: ballSkinId,
       );
+      ball.hitOffsetX = entry.value.hitOffsetX;
       add(ball);
       grid.lockedBalls[entry.key] = ball;
       _markBoardChanged();
@@ -1692,8 +1865,34 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Map<String, dynamic> exportBoardState() {
     return {
       for (final entry in grid.lockedBalls.entries)
-        '${entry.key.row},${entry.key.col}': entry.value.ballColor.index,
+        '${entry.key.row},${entry.key.col}': {
+          'color': entry.value.ballColor.index,
+          'hitOffsetX': double.parse(entry.value.hitOffsetX.toStringAsFixed(4)),
+        },
     };
+  }
+
+  bool _remoteBoardIncludesActivePiece(
+    Map<HexCoordinate, _RemoteBoardCell> boardData,
+  ) {
+    final piece = activePiece;
+    if (piece == null || piece.isLocked || piece.colors.length != 3) {
+      return false;
+    }
+    final resolvedCells = _resolveDropCells(
+      piece.absoluteBallPositions,
+      piece.colors,
+    );
+    if (resolvedCells.length != piece.colors.length) {
+      return false;
+    }
+    for (final cell in resolvedCells) {
+      final boardCell = boardData[cell.hex];
+      if (boardCell == null || boardCell.color != cell.color) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Map<String, dynamic> exportRestorableSnapshot() {
@@ -1709,6 +1908,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
               if (task.presetColors != null)
                 'presetColors':
                     task.presetColors!.map((color) => color.index).toList(),
+              if (task.ballSkinId != 'default') 'ballSkinId': task.ballSkinId,
+              if (task.effectSkinId != task.ballSkinId)
+                'effectSkinId': task.effectSkinId,
             },
           )
           .toList(),
@@ -1724,6 +1926,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           'movingLeft': isMovingLeft,
           'movingRight': isMovingRight,
           'contactSlideDirection': _activePieceContactSlideDirection,
+          if (ballSkinId != 'default') 'ballSkinId': ballSkinId,
         },
     };
   }
@@ -1800,6 +2003,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                 ? BallColor.values[startColorIndex]
                 : null,
             presetColors: _parseBallColors(item['presetColors']),
+            ballSkinId: item['ballSkinId']?.toString() ?? 'default',
+            effectSkinId: item['effectSkinId']?.toString(),
           ),
         );
       }
@@ -1812,6 +2017,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final y = _asDouble(activeSnapshot['y']);
       final rotation = _asInt(activeSnapshot['rotation']);
       final dropSeed = _asInt(activeSnapshot['dropSeed']);
+      final activeBallSkinId =
+          activeSnapshot['ballSkinId']?.toString() ?? ballSkinId;
       final contactSlideDirection =
           _asDouble(activeSnapshot['contactSlideDirection']);
       if (colors.length == 3 && x != null && y != null) {
@@ -1824,6 +2031,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           ballRadius: _ballRadius,
           fallSpeed: currentFallSpeed,
           presetColors: colors,
+          ballSkinId: activeBallSkinId,
         )..priority = 10;
         add(activePiece!);
         ghostPiece = ActivePieceComponent(
@@ -1832,6 +2040,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           isGhost: true,
           fallSpeed: currentFallSpeed,
           presetColors: colors,
+          ballSkinId: activeBallSkinId,
         )..priority = 0;
         add(ghostPiece!);
         if (rotation != null) {
@@ -1965,6 +2174,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       ballRadius: _ballRadius,
       fallSpeed: currentFallSpeed,
       presetColors: colors,
+      ballSkinId: ballSkinId,
     )..priority = 10;
     add(activePiece!);
 
@@ -1974,6 +2184,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       isGhost: true,
       fallSpeed: currentFallSpeed,
       presetColors: colors,
+      ballSkinId: ballSkinId,
     )..priority = 0;
     add(ghostPiece!);
     _updateGhostPosition();
@@ -2054,6 +2265,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           final colors = _parseBallColors(item['colors']);
           final startColorIndex = _asInt(item['startColor']);
           final itemDropSeed = _asInt(item['dropSeed']);
+          final itemBallSkinId = item['ballSkinId']?.toString() ?? 'default';
+          final itemEffectSkinId =
+              item['effectSkinId']?.toString() ?? itemBallSkinId;
           if (itemDropSeed != null) {
             syncDropRng = Random(itemDropSeed);
           }
@@ -2078,6 +2292,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                 ? BallColor.values[startColorIndex]
                 : null,
             presetColors: colors,
+            ballSkinId: itemBallSkinId,
+            effectSkinId: itemEffectSkinId,
           );
           activeOjamaBlocks.add(block);
           add(block);
@@ -2150,6 +2366,14 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     _activePieceSyncCooldown = _activePieceSyncInterval;
+    final lockedCells = action == 'hard_drop' || action == 'lock'
+        ? _resolvedDropCellsToPayload(
+            _resolveDropCells(
+              piece.absoluteBallPositions,
+              piece.colors,
+            ),
+          )
+        : null;
     onActivePieceChanged!(
       action,
       piece.position.x,
@@ -2157,7 +2381,22 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       activePieceRotation,
       List<BallColor>.from(piece.colors),
       currentDropSeed,
+      lockedCells,
     );
+  }
+
+  List<Map<String, dynamic>> _resolvedDropCellsToPayload(
+    List<_ResolvedDropCell> cells,
+  ) {
+    return cells
+        .map(
+          (cell) => {
+            'row': cell.hex.row,
+            'col': cell.hex.col,
+            'hitOffsetX': double.parse(cell.hitOffsetX.toStringAsFixed(4)),
+          },
+        )
+        .toList();
   }
 
   void onOjamaBlockLanded(OjamaBlockComponent block) {
@@ -2199,6 +2438,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   }
 
   bool _shouldDeferRemoteBoardState(Map<String, dynamic> boardData) {
+    if (isRemotePlayerMode &&
+        (_isApplyingRemoteHardDrop || _isProcessingGravity)) {
+      _pendingSpectatorBoardState = _parseRemoteBoardState(boardData);
+      return true;
+    }
+
     if (!isRemotePlayerMode ||
         !_hasRemoteOjamaInFlight ||
         activeOjamaBlocks.isEmpty) {
@@ -2266,6 +2511,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         'y': grid.offset.y - _ojamaSpawnYOffset,
         'colors': colorsPerSet[i].map((color) => color.index).toList(),
         'dropSeed': dropSeeds[i],
+        if (ballSkinId != 'default') 'ballSkinId': ballSkinId,
+        if (task.effectSkinId != ballSkinId) 'effectSkinId': task.effectSkinId,
       };
       if (task.type == OjamaType.straightSet && task.startColor != null) {
         spawnData['startColor'] = task.startColor!.index;
@@ -2294,6 +2541,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           startColor:
               task.type == OjamaType.straightSet ? task.startColor : null,
           presetColors: colors,
+          ballSkinId: ballSkinId,
+          effectSkinId: task.effectSkinId,
         );
         activeOjamaBlocks.add(block);
         add(block);
@@ -2612,6 +2861,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     double? x,
     double? y,
     int? rotation,
+    List<HexCoordinate>? lockedHexes,
+    List<Map<String, dynamic>>? lockedCells,
+    bool playHardDropEffects = true,
   }) async {
     if (!isRemotePlayerMode || activePiece == null || activePiece!.isLocked) {
       return;
@@ -2627,22 +2879,27 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       }
       if (x != null && y != null) {
         piece.position = Vector2(x, y);
+        ghostPiece?.position = piece.position.clone();
       } else if (ghostPiece != null) {
         piece.position = ghostPiece!.position.clone()..y += 5.0;
       }
 
       final dropPositions = piece.absoluteBallPositions;
       final pieceColors = piece.colors.toList(growable: false);
-      for (var i = 0; i < dropPositions.length && i < pieceColors.length; i++) {
-        add(
-          SparkEffect(
-            position: dropPositions[i].clone(),
-            sparkColor: pieceColors[i].glowColor,
-          ),
-        );
+      if (playHardDropEffects) {
+        for (var i = 0;
+            i < dropPositions.length && i < pieceColors.length;
+            i++) {
+          add(
+            SparkEffect(
+              position: dropPositions[i].clone(),
+              sparkColor: pieceColors[i].glowColor,
+            ),
+          );
+        }
       }
 
-      if (_playsBoardSfx) {
+      if (playHardDropEffects && _playsBoardSfx) {
         _playSfx(_hardDropSfx, volume: 0.85);
       }
 
@@ -2664,7 +2921,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       activePiece = null;
       ghostPiece = null;
 
-      await _executeLogicDrop(dropPositions, pieceColors);
+      await _executeLogicDrop(
+        dropPositions,
+        pieceColors,
+        lockedHexes: lockedHexes,
+        lockedCells: lockedCells,
+      );
     } finally {
       _isApplyingRemoteHardDrop = false;
       final pendingBoard = _pendingSpectatorBoardState;

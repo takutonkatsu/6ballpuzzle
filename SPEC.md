@@ -1,4 +1,4 @@
-# 6-Ball Puzzle Game - 要件定義書 (SPEC.md)
+# Hexagon Puzzle - 要件定義書 (SPEC.md)
 
 ## 1. プロジェクト概要
 * **ターゲット:** iOS / Android (Flutter開発)

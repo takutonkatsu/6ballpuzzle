@@ -245,14 +245,15 @@ class _MissionScreenState extends State<MissionScreen> {
     final target = (mission['target'] as num?)?.toInt() ?? 0;
     final reward = _missionManager.rewardCoinsFor(mission);
     final claimed = mission['claimed'] as bool? ?? false;
-    final isDone = progress >= target;
-    final canClaim = isDone && !claimed;
-    final stateColor = _missionStateColor(claimed: claimed);
     final adsRemoved = AppSettings.instance.adsRemoved.value;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
+    final isDone = progress >= target;
+    final canClaim =
+        (isDone || (isRewardedAdMission && adsRemoved)) && !claimed;
+    final stateColor = _missionStateColor(claimed: claimed);
     final displayTitle = isRewardedAdMission && adsRemoved
-        ? 'ログインボーナス'
+        ? AppSettings.instance.translate('ログインボーナス')
         : _missionDisplayTitle(mission);
     final canReroll = !claimed && !canClaim && !isRewardedAdMission;
 
@@ -283,7 +284,7 @@ class _MissionScreenState extends State<MissionScreen> {
           children: [
             Row(
               children: [
-                if (isRewardedAdMission) ...[
+                if (isRewardedAdMission && !adsRemoved) ...[
                   Icon(
                     Icons.play_circle_fill_rounded,
                     size: 18,
@@ -310,9 +311,14 @@ class _MissionScreenState extends State<MissionScreen> {
                           await _runClaimWithPress(
                             'daily:$missionId',
                             () async {
-                              await _missionManager.claimMissionRewardById(
-                                missionId,
-                              );
+                              if (isRewardedAdMission && adsRemoved) {
+                                await _missionManager
+                                    .completeRewardedAdMissionById(missionId);
+                              } else {
+                                await _missionManager.claimMissionRewardById(
+                                  missionId,
+                                );
+                              }
                               await _load();
                             },
                           );
@@ -345,6 +351,7 @@ class _MissionScreenState extends State<MissionScreen> {
     final canClaim = mission['claimable'] as bool? ?? false;
     final progressKey = mission['progressKey']?.toString() ?? '';
     final isAdMission = progressKey == 'rewarded_ad_views';
+    final adsRemoved = AppSettings.instance.adsRemoved.value;
     final stateColor = _missionStateColor();
 
     return InkWell(
@@ -375,7 +382,7 @@ class _MissionScreenState extends State<MissionScreen> {
           children: [
             Row(
               children: [
-                if (isAdMission) ...[
+                if (isAdMission && !adsRemoved) ...[
                   Icon(
                     Icons.play_circle_fill_rounded,
                     size: 18,
@@ -487,9 +494,9 @@ class _MissionScreenState extends State<MissionScreen> {
           ),
         ),
         child: claimed
-            ? const Text(
-                '受取済み',
-                style: TextStyle(
+            ? Text(
+                AppSettings.instance.translate('受取済み'),
+                style: const TextStyle(
                   color: GameThemeColors.blueSide,
                   fontSize: 12,
                   fontWeight: FontWeight.w900,
@@ -499,9 +506,9 @@ class _MissionScreenState extends State<MissionScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (canClaim) ...[
-                    const Text(
-                      '受け取る',
-                      style: TextStyle(
+                    Text(
+                      AppSettings.instance.translate('受け取る'),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
                         fontWeight: FontWeight.w900,
@@ -584,7 +591,21 @@ class _MissionScreenState extends State<MissionScreen> {
   }) {
     final progressKey = mission['progressKey']?.toString() ?? '';
     final target = (mission['target'] as num?)?.toInt() ?? 0;
-    final title = mission['title']?.toString() ?? 'ミッション';
+    final title = AppSettings.instance.translate(
+      mission['title']?.toString() ?? 'ミッション',
+    );
+    if (progressKey == 'daily_win_rank_1') {
+      return Text(
+        AppSettings.instance.text(
+          '今日の勝利数ランキングで1位を$target回達成する',
+          'Finish 1st in today\'s wins ranking $target time${target == 1 ? '' : 's'}',
+        ),
+        style: TextStyle(
+          color: stateColor,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
     final parts = title.split('〇〇');
     if (progressKey != 'highest_rating' || parts.length < 2) {
       return Text(
@@ -708,7 +729,9 @@ class _MissionScreenState extends State<MissionScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  alreadyClaimed ? '全達成ボーナス受取済み' : '全達成ボーナス',
+                  AppSettings.instance.translate(
+                    alreadyClaimed ? '全達成ボーナス受取済み' : '全達成ボーナス',
+                  ),
                   style: TextStyle(
                     color: canClaim ? GameThemeColors.blueSide : Colors.white70,
                     fontWeight: FontWeight.w900,
@@ -717,9 +740,10 @@ class _MissionScreenState extends State<MissionScreen> {
                 const SizedBox(height: 4),
                 Text(
                   alreadyClaimed
-                      ? '本日の受け取りは完了しています'
+                      ? AppSettings.instance.translate('本日の受け取りは完了しています')
                       : canClaim
-                          ? '動画広告を見ると今日の追加報酬を受け取れます'
+                          ? AppSettings.instance
+                              .translate('動画広告を見ると今日の追加報酬を受け取れます')
                           : '4つすべて達成すると動画広告で受け取れます',
                   style: const TextStyle(
                     color: Colors.white70,
@@ -785,9 +809,11 @@ class _MissionScreenState extends State<MissionScreen> {
 
   String _missionDisplayTitle(Map<String, dynamic> mission) {
     final id = mission['id']?.toString() ?? '';
-    return MissionCatalog.localizedTitleForId(id) ??
-        mission['title']?.toString() ??
-        'ミッション';
+    return AppSettings.instance.translate(
+      MissionCatalog.localizedTitleForId(id) ??
+          mission['title']?.toString() ??
+          'ミッション',
+    );
   }
 
   Future<void> _showAlert(String title, String message) {
@@ -851,7 +877,7 @@ class _MissionPageTitle extends StatelessWidget {
           ),
         ),
         Text(
-          title,
+          AppSettings.instance.translate(title),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w900,
@@ -904,7 +930,9 @@ class _MissionNeonTabBar extends StatelessWidget {
           fontSize: 13,
           fontWeight: FontWeight.w700,
         ),
-        tabs: [for (final tab in tabs) Tab(text: tab)],
+        tabs: [
+          for (final tab in tabs) Tab(text: AppSettings.instance.translate(tab))
+        ],
       ),
     );
   }

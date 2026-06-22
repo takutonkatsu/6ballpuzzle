@@ -1,4 +1,4 @@
-# 6-Ball Puzzle Game - アーキテクチャ設計書 (ARCH.md)
+# Hexagon Puzzle - アーキテクチャ設計書 (ARCH.md)
 
 ## 1. 技術スタック
 * **Framework:** Flutter

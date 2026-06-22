@@ -19,7 +19,7 @@ class AdRemovalPurchaseManager {
   bool _storeKitConfigured = false;
   String? _lastInitializationError;
 
-  static bool get isSupportedPlatform => Platform.isAndroid || Platform.isIOS;
+  static bool get isSupportedPlatform => Platform.isIOS;
   ProductDetails? get product => _product;
   bool get isConfigured => _productId.trim().isNotEmpty;
   String? get lastInitializationError => _lastInitializationError;

@@ -183,7 +183,7 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
                     right: 0,
                     child: Center(
                       child: Text(
-                        'カプセルを展開中...',
+                        'アイテムを解析中...',
                         style: TextStyle(
                           color: accent.withValues(
                               alpha: 0.5 +
@@ -307,7 +307,7 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
   IconData _iconForItem(GameItem item) {
     switch (item.type) {
       case ItemType.skin:
-        return Icons.palette;
+        return Icons.circle;
       case ItemType.icon:
         return switch (item.iconName) {
           'bolt' => Icons.bolt,

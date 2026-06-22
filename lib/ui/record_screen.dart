@@ -2,10 +2,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../app_settings.dart';
 import '../audio/sfx.dart';
+import '../auth/auth_manager.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
+import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
+import '../network/server_time_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/hexagon_grid_background.dart';
 import 'profile_screen.dart';
@@ -22,7 +26,10 @@ class _RecordScreenState extends State<RecordScreen> {
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final RankingManager _rankingManager = RankingManager.instance;
   bool _loading = true;
+  bool _openingOpponentProfile = false;
   RankingSummary? _rankingSummary;
+  RankingEntry? _currentSeasonEntry;
+  DateTime? _currentSeasonStartJst;
 
   @override
   void initState() {
@@ -33,8 +40,20 @@ class _RecordScreenState extends State<RecordScreen> {
   Future<void> _load() async {
     await _playerData.load();
     RankingSummary? summary;
+    RankingEntry? currentSeasonEntry;
+    DateTime? currentSeasonStartJst;
     try {
       summary = await _rankingManager.fetchMySummary();
+      final uid = await AuthManager.instance.ensureSignedIn();
+      currentSeasonEntry =
+          await _rankingManager.fetchCurrentSeasonEntryForPlayer(
+        uid: uid,
+        publicId: _playerData.playerId,
+      );
+      final nowJst = await ServerTimeManager.instance.nowJst();
+      currentSeasonStartJst = RankedSeasonManager.seasonStartJst(
+        RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst),
+      );
     } catch (_) {
       summary = null;
     }
@@ -44,6 +63,8 @@ class _RecordScreenState extends State<RecordScreen> {
     }
     setState(() {
       _rankingSummary = summary;
+      _currentSeasonEntry = currentSeasonEntry;
+      _currentSeasonStartJst = currentSeasonStartJst;
       _loading = false;
     });
   }
@@ -118,6 +139,13 @@ class _RecordScreenState extends State<RecordScreen> {
 
   Widget _summaryTab() {
     final counts = _playerData.modePlayCounts;
+    final cpuByDifficulty = _cpuRecordByDifficulty();
+    final friendRecord = _modeRecord('FRIEND');
+    final seasonWins = _currentSeasonEntry?.seasonWins ??
+        _currentSeasonRankedHistoryRecord().wins;
+    final seasonLosses = _currentSeasonEntry?.seasonLosses ??
+        _currentSeasonRankedHistoryRecord().losses;
+    final seasonMaxWinStreak = _currentSeasonRankedMaxWinStreak();
     return _tabList(
       children: [
         _playStyleRadar(),
@@ -133,12 +161,13 @@ class _RecordScreenState extends State<RecordScreen> {
         ]),
         _sectionTitle('ランク戦 / 今シーズン'),
         _statGrid([
-          _StatItem('勝利数', '${_playerData.rankedWins}'),
+          _StatItem('勝利数', '$seasonWins'),
+          _StatItem('敗北数', '$seasonLosses'),
           _StatItem.rich('現在', _ratingValue(_playerData.currentRating)),
           _StatItem('順位', _rankingSummary?.ratingRankLabel ?? '取得中'),
-          _StatItem.rich('最高到達', _ratingValue(_playerData.highestRating)),
-          _StatItem('最大連勝数', '${_playerData.rankedMaxWinStreak}'),
-        ]),
+          _StatItem('対戦数', '${seasonWins + seasonLosses}'),
+          _StatItem('最大連勝数', '$seasonMaxWinStreak'),
+        ], accentColor: GameThemeColors.ranked),
         _sectionTitle('ランク戦 / 過去のシーズン'),
         _statGrid([
           _StatItem.rich(
@@ -151,18 +180,31 @@ class _RecordScreenState extends State<RecordScreen> {
                 ? '${_playerData.bestRankedRank}位'
                 : '記録なし',
           ),
-        ]),
+        ], accentColor: GameThemeColors.ranked),
+        _sectionTitle('エンドレス'),
+        _statGrid([
+          _StatItem('挑戦回数', '${counts['SOLO'] ?? 0}'),
+          _StatItem(
+            '最高スコア',
+            _formatNumber(_playerData.highestEndlessScore),
+          ),
+        ], accentColor: GameThemeColors.endless),
+        _sectionTitle('コンピュータ対戦'),
+        _statGrid([
+          for (final entry in cpuByDifficulty.entries)
+            _StatItem(entry.key, _recordText(entry.value)),
+        ], accentColor: GameThemeColors.computer),
+        _sectionTitle('フレンド対戦'),
+        _statGrid([
+          _StatItem('総対戦数', '${counts['FRIEND'] ?? 0}'),
+          _StatItem('勝敗', _recordText(friendRecord)),
+        ], accentColor: GameThemeColors.friend),
         _sectionTitle('アリーナ'),
         _statGrid([
           _StatItem('最高勝利数', '${_playerData.maxArenaWins}'),
           _StatItem('挑戦回数', '${_playerData.arenaChallengeCount}'),
           _StatItem('12勝達成回数', '${_playerData.arenaPerfectClearCount}'),
-        ]),
-        _sectionTitle('エンドレス'),
-        _statGrid([
-          _StatItem('挑戦回数', '${counts['SOLO'] ?? 0}'),
-          _StatItem('ハイスコア', '${_playerData.highestEndlessScore}'),
-        ]),
+        ], accentColor: GameThemeColors.arena),
       ],
     );
   }
@@ -206,14 +248,14 @@ class _RecordScreenState extends State<RecordScreen> {
       _score(averageChain, 5),
       _score(dailyPlayAvg, 100),
     ];
-    const labels = [
+    final labels = [
       'ヘキサゴン',
       'ピラミッド',
       'ストレート',
       '通常消し',
       '連鎖',
       'プレイ頻度',
-    ];
+    ].map(AppSettings.instance.translate).toList();
     final details = [
       '${hexAvg.toStringAsFixed(1)} / 3.0',
       '${pyramidAvg.toStringAsFixed(1)} / 3.0',
@@ -229,9 +271,9 @@ class _RecordScreenState extends State<RecordScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'プレイスタイル（直近7日）',
-            style: TextStyle(
+          Text(
+            AppSettings.instance.translate('プレイスタイル（直近7日）'),
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 18,
               fontWeight: FontWeight.w900,
@@ -275,10 +317,10 @@ class _RecordScreenState extends State<RecordScreen> {
       children: [
         _sectionTitle('フォーメーション累計'),
         _barStat(
-            'ヘキサゴン', counts['hexagon'] ?? 0, maxCount, GameThemeColors.friend),
+            'ヘキサゴン', counts['hexagon'] ?? 0, maxCount, GameThemeColors.cyan),
         const SizedBox(height: 10),
         _barStat(
-            'ピラミッド', counts['pyramid'] ?? 0, maxCount, GameThemeColors.ranked),
+            'ピラミッド', counts['pyramid'] ?? 0, maxCount, GameThemeColors.cyan),
         const SizedBox(height: 10),
         _barStat(
             'ストレート', counts['straight'] ?? 0, maxCount, GameThemeColors.cyan),
@@ -289,10 +331,10 @@ class _RecordScreenState extends State<RecordScreen> {
   Widget _historyTab() {
     final history = _playerData.matchHistory.take(30).toList();
     if (history.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
-          'まだ対戦履歴がありません',
-          style: TextStyle(color: Colors.white60),
+          AppSettings.instance.translate('まだ対戦履歴がありません'),
+          style: const TextStyle(color: Colors.white60),
         ),
       );
     }
@@ -318,7 +360,7 @@ class _RecordScreenState extends State<RecordScreen> {
     return Padding(
       padding: const EdgeInsets.only(left: 2, bottom: 2),
       child: Text(
-        label,
+        AppSettings.instance.translate(label),
         style: const TextStyle(
           color: Colors.white70,
           fontSize: 12,
@@ -329,7 +371,10 @@ class _RecordScreenState extends State<RecordScreen> {
     );
   }
 
-  Widget _statGrid(List<_StatItem> items) {
+  Widget _statGrid(
+    List<_StatItem> items, {
+    Color accentColor = GameThemeColors.cyan,
+  }) {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -344,13 +389,13 @@ class _RecordScreenState extends State<RecordScreen> {
         final item = items[index];
         return Container(
           padding: const EdgeInsets.all(12),
-          decoration: _panelDecoration(GameThemeColors.cyan),
+          decoration: _panelDecoration(accentColor),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                item.label,
+                AppSettings.instance.translate(item.label),
                 style: const TextStyle(
                   color: Colors.white54,
                   fontSize: 11,
@@ -385,7 +430,7 @@ class _RecordScreenState extends State<RecordScreen> {
           Row(
             children: [
               Text(
-                label,
+                AppSettings.instance.translate(label),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
@@ -411,6 +456,75 @@ class _RecordScreenState extends State<RecordScreen> {
         ],
       ),
     );
+  }
+
+  Map<String, _ModeRecord> _cpuRecordByDifficulty() {
+    final raw = _playerData.cpuDifficultyRecords;
+    _ModeRecord record(String key) {
+      final matches = raw['${key}_matches'] ?? 0;
+      final wins = raw['${key}_wins'] ?? 0;
+      return _ModeRecord(wins: wins, losses: math.max(0, matches - wins));
+    }
+
+    return {
+      '弱い': record('weak'),
+      '普通': record('normal'),
+      '強い': record('strong'),
+      '鬼': record('oni'),
+    };
+  }
+
+  _ModeRecord _modeRecord(String mode) {
+    var record = const _ModeRecord();
+    for (final entry in _playerData.matchHistory.where(
+      (history) => history.mode == mode,
+    )) {
+      record = record.add(entry.isWin);
+    }
+    return record;
+  }
+
+  _ModeRecord _currentSeasonRankedHistoryRecord() {
+    var record = const _ModeRecord();
+    for (final entry in _currentSeasonRankedHistory()) {
+      record = record.add(entry.isWin);
+    }
+    return record;
+  }
+
+  int _currentSeasonRankedMaxWinStreak() {
+    var current = 0;
+    var best = 0;
+    final history = _currentSeasonRankedHistory().toList()
+      ..sort((a, b) => a.playedAt.compareTo(b.playedAt));
+    for (final entry in history) {
+      if (entry.isWin) {
+        current++;
+        best = math.max(best, current);
+      } else {
+        current = 0;
+      }
+    }
+    return _currentSeasonStartJst == null
+        ? _playerData.seasonRankedMaxWinStreak
+        : best;
+  }
+
+  Iterable<MatchHistoryEntry> _currentSeasonRankedHistory() {
+    final start = _currentSeasonStartJst;
+    return _playerData.matchHistory.where((entry) {
+      if (entry.mode != 'RANKED') {
+        return false;
+      }
+      if (start == null) {
+        return true;
+      }
+      return !entry.playedAt.isBefore(start);
+    });
+  }
+
+  String _recordText(_ModeRecord record) {
+    return '${record.wins}勝 ${record.losses}敗';
   }
 
   Widget _historyTile(MatchHistoryEntry entry) {
@@ -481,7 +595,9 @@ class _RecordScreenState extends State<RecordScreen> {
                             ),
                           ),
                           child: Text(
-                            _localizedMode(entry.mode),
+                            AppSettings.instance.translate(
+                              _localizedMode(entry.mode),
+                            ),
                             style: TextStyle(
                               color: color,
                               fontSize: 10,
@@ -545,71 +661,83 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   Future<void> _openOpponentProfile(MatchHistoryEntry entry) async {
-    AppSfx.playUiTap();
-    var uid = entry.opponentUid.trim();
-    var publicId = entry.opponentPublicId.trim();
-    var displayName = entry.opponentName.trim();
-    var rating = entry.ratingAfter ?? 1000;
-
-    try {
-      final currentEntry = await _rankingManager.fetchCurrentEntryForPlayer(
-        uid: uid,
-        publicId: publicId,
-      );
-      if (currentEntry != null) {
-        uid = currentEntry.uid;
-        publicId = currentEntry.publicId;
-        displayName = currentEntry.displayName;
-        rating = currentEntry.rating;
-      }
-    } catch (_) {
-      // ランキング側から現在プロフィールを解決できない場合は保存済みIDで続行する。
+    if (_openingOpponentProfile) {
+      return;
     }
+    _openingOpponentProfile = true;
+    AppSfx.playUiTap();
+    try {
+      var uid = entry.opponentUid.trim();
+      var publicId = entry.opponentPublicId.trim();
+      var displayName = entry.opponentName.trim();
+      var rating = entry.ratingAfter ?? 1000;
 
-    if (uid.isEmpty) {
       try {
-        final key = _nameLookupKey(displayName);
-        final snapshot = await AppFirebaseDatabase.ref()
-            .child('playerNameLookup/$key')
-            .get();
-        final raw = snapshot.value;
-        if (raw is Map && raw.isNotEmpty) {
-          final first = raw.entries.first;
-          final data = first.value is Map
-              ? Map<dynamic, dynamic>.from(first.value as Map)
-              : <dynamic, dynamic>{};
-          uid = data['uid']?.toString() ?? first.key.toString();
-          publicId = data['publicId']?.toString() ?? publicId;
-          displayName = data['displayName']?.toString() ?? displayName;
-          rating = _intValue(data['currentRating']) ?? rating;
+        final currentEntry = await _rankingManager.fetchCurrentEntryForPlayer(
+          uid: uid,
+          publicId: publicId,
+        );
+        if (currentEntry != null) {
+          uid = currentEntry.uid;
+          publicId = currentEntry.publicId;
+          displayName = currentEntry.displayName;
+          rating = currentEntry.rating;
         }
       } catch (_) {
-        uid = '';
+        // ランキング側から現在プロフィールを解決できない場合は保存済みIDで続行する。
       }
-    }
 
-    if (!mounted) {
-      return;
-    }
-    if (uid.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('プロフィールを取得できませんでした')),
-      );
-      return;
-    }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProfileScreen(
-          playerUid: uid,
-          initialEntry: RankingEntry(
-            uid: uid,
-            displayName: displayName.isEmpty ? 'Player' : displayName,
-            rating: rating,
-            publicId: publicId,
+      if (uid.isEmpty) {
+        try {
+          final key = _nameLookupKey(displayName);
+          final snapshot = await AppFirebaseDatabase.ref()
+              .child('playerNameLookup/$key')
+              .get();
+          final raw = snapshot.value;
+          if (raw is Map && raw.isNotEmpty) {
+            final first = raw.entries.first;
+            final data = first.value is Map
+                ? Map<dynamic, dynamic>.from(first.value as Map)
+                : <dynamic, dynamic>{};
+            uid = data['uid']?.toString() ?? first.key.toString();
+            publicId = data['publicId']?.toString() ?? publicId;
+            displayName = data['displayName']?.toString() ?? displayName;
+            rating = _intValue(data['currentRating']) ?? rating;
+          }
+        } catch (_) {
+          uid = '';
+        }
+      }
+
+      if (!mounted) {
+        return;
+      }
+      if (uid.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppSettings.instance.translate('プロフィールを取得できませんでした'),
+            ),
+          ),
+        );
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ProfileScreen(
+            playerUid: uid,
+            initialEntry: RankingEntry(
+              uid: uid,
+              displayName: displayName.isEmpty ? 'Player' : displayName,
+              rating: rating,
+              publicId: publicId,
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _openingOpponentProfile = false;
+    }
   }
 
   int? _intValue(Object? value) {
@@ -663,14 +791,14 @@ class _RecordScreenState extends State<RecordScreen> {
           ),
         ),
         const SizedBox(height: 2),
-        if (entry.ratingAfter != null)
+        if (entry.mode == 'RANKED' && entry.ratingAfter != null)
           HexagonTrophyAmount(
             entry.ratingAfter!,
             color: Colors.amberAccent,
             iconSize: 15,
             fontSize: 14,
           ),
-        if (entry.ratingDelta != null)
+        if (entry.mode == 'RANKED' && entry.ratingDelta != null)
           Text(
             entry.ratingDelta! >= 0
                 ? '+${entry.ratingDelta}'
@@ -734,6 +862,18 @@ class _RecordScreenState extends State<RecordScreen> {
     return '${local.year}/${two(local.month)}/${two(local.day)}';
   }
 
+  String _formatNumber(int value) {
+    final text = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      if (i > 0 && (text.length - i) % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(text[i]);
+    }
+    return buffer.toString();
+  }
+
   String _resultLabel(MatchHistoryEntry entry) {
     if (entry.isForfeitWin) {
       return '不戦勝';
@@ -788,7 +928,7 @@ class _RecordPageTitle extends StatelessWidget {
           ),
         ),
         Text(
-          title,
+          AppSettings.instance.translate(title),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w900,
@@ -814,7 +954,7 @@ class _RecordNeonTabBar extends StatelessWidget {
         color: const Color(0xCC0B1020),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: GameThemeColors.cyanBorder.withValues(alpha: 0.34),
+          color: GameThemeColors.cyanBorder.withValues(alpha: 0.18),
         ),
       ),
       child: TabBar(
@@ -843,7 +983,8 @@ class _RecordNeonTabBar extends StatelessWidget {
           fontWeight: FontWeight.w700,
         ),
         tabs: [
-          for (final tab in tabs) Tab(text: tab),
+          for (final tab in tabs)
+            Tab(text: AppSettings.instance.translate(tab)),
         ],
       ),
     );
@@ -858,6 +999,22 @@ class _StatItem {
   final String label;
   final String value;
   final Widget? valueWidget;
+}
+
+class _ModeRecord {
+  const _ModeRecord({this.wins = 0, this.losses = 0});
+
+  final int wins;
+  final int losses;
+
+  int get matches => wins + losses;
+
+  _ModeRecord add(bool won) {
+    return _ModeRecord(
+      wins: wins + (won ? 1 : 0),
+      losses: losses + (won ? 0 : 1),
+    );
+  }
 }
 
 class _RadarChartPainter extends CustomPainter {

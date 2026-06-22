@@ -9,6 +9,7 @@ import '../auth/auth_manager.dart';
 import '../app_settings.dart';
 import '../game/mission_catalog.dart';
 import '../moderation/moderation_manager.dart';
+import '../network/ranked_season_manager.dart';
 import 'models/badge_item.dart';
 import 'models/game_item.dart';
 import '../app_review_config.dart';
@@ -161,6 +162,8 @@ class PlayerDataManager {
   static const String _rankedSeasonIdKey = 'player_ranked_season_id';
   static const String _seasonRankedWinsKey = 'player_season_ranked_wins';
   static const String _seasonRankedLossesKey = 'player_season_ranked_losses';
+  static const String _seasonRankedMaxWinStreakKey =
+      'player_season_ranked_max_win_streak';
   static const String _pendingRankedSeasonResultLogKey =
       'player_pending_ranked_season_result_log';
   static const String _currentRatingKey = 'player_current_rating';
@@ -196,6 +199,8 @@ class PlayerDataManager {
   static const String _wazaCountsKey = 'player_waza_counts_json';
   static const String _matchHistoryKey = 'player_match_history_json';
   static const String _modePlayCountsKey = 'player_mode_play_counts_json';
+  static const String _cpuDifficultyRecordsKey =
+      'player_cpu_difficulty_records_json';
   static const String _inventoryRevisionKey = 'player_inventory_revision';
   static const String _pendingLevelUpRewardLogKey =
       'player_pending_level_up_reward_log';
@@ -261,6 +266,7 @@ class PlayerDataManager {
   String _rankedSeasonId = '';
   int _seasonRankedWins = 0;
   int _seasonRankedLosses = 0;
+  int _seasonRankedMaxWinStreak = 0;
   int _currentRating = 1000;
   String _equippedBallSkinId = 'default';
   String _equippedPlayerIconId = 'default';
@@ -295,6 +301,16 @@ class PlayerDataManager {
     'CPU': 0,
     'SOLO': 0,
     'FRIEND': 0,
+  };
+  Map<String, int> _cpuDifficultyRecords = {
+    'weak_matches': 0,
+    'weak_wins': 0,
+    'normal_matches': 0,
+    'normal_wins': 0,
+    'strong_matches': 0,
+    'strong_wins': 0,
+    'oni_matches': 0,
+    'oni_wins': 0,
   };
   String _todayStatsDate = '';
   int _todayTotalMatches = 0;
@@ -352,6 +368,7 @@ class PlayerDataManager {
   String get rankedSeasonId => _rankedSeasonId;
   int get seasonRankedWins => _seasonRankedWins;
   int get seasonRankedLosses => _seasonRankedLosses;
+  int get seasonRankedMaxWinStreak => _seasonRankedMaxWinStreak;
   int get currentRating => _currentRating;
   String get equippedBallSkinId => _equippedBallSkinId;
   String get equippedPlayerIconId => _equippedPlayerIconId;
@@ -380,6 +397,8 @@ class PlayerDataManager {
   Map<String, int> get wazaCounts => Map.unmodifiable(_wazaCounts);
   List<MatchHistoryEntry> get matchHistory => List.unmodifiable(_matchHistory);
   Map<String, int> get modePlayCounts => Map.unmodifiable(_modePlayCounts);
+  Map<String, int> get cpuDifficultyRecords =>
+      Map.unmodifiable(_cpuDifficultyRecords);
   List<String> get unlockedBadgeIds => BadgeCatalog.allBadges
       .where(
         (badge) => badge.unlockedCondition.isUnlocked(
@@ -489,6 +508,7 @@ class PlayerDataManager {
     _rankedSeasonId = prefs.getString(_rankedSeasonIdKey) ?? '';
     _seasonRankedWins = prefs.getInt(_seasonRankedWinsKey) ?? 0;
     _seasonRankedLosses = prefs.getInt(_seasonRankedLossesKey) ?? 0;
+    _seasonRankedMaxWinStreak = prefs.getInt(_seasonRankedMaxWinStreakKey) ?? 0;
     _currentRating = prefs.getInt(_currentRatingKey) ?? 1000;
     _highestRating = max(
       prefs.getInt(_highestRatingKey) ?? _currentRating,
@@ -544,6 +564,30 @@ class PlayerDataManager {
       'FRIEND': 0,
       ..._intMapFromJson(prefs.getString(_modePlayCountsKey)),
     };
+    _cpuDifficultyRecords = {
+      'weak_matches': 0,
+      'weak_wins': 0,
+      'normal_matches': 0,
+      'normal_wins': 0,
+      'strong_matches': 0,
+      'strong_wins': 0,
+      'oni_matches': 0,
+      'oni_wins': 0,
+      ..._intMapFromJson(prefs.getString(_cpuDifficultyRecordsKey)),
+    };
+    if (_cpuDifficultyRecords.values.every((value) => value == 0) &&
+        _matchHistory.any((entry) => entry.mode == 'CPU')) {
+      for (final entry in _matchHistory.where((entry) => entry.mode == 'CPU')) {
+        _recordCpuDifficultyResult(
+          opponentName: entry.opponentName,
+          isWin: entry.isWin,
+        );
+      }
+      await prefs.setString(
+        _cpuDifficultyRecordsKey,
+        jsonEncode(_cpuDifficultyRecords),
+      );
+    }
     _todayStatsDate = prefs.getString(_todayStatsDateKey) ?? '';
     _todayTotalMatches = prefs.getInt(_todayTotalMatchesKey) ?? 0;
     _todayTotalWins = prefs.getInt(_todayTotalWinsKey) ?? 0;
@@ -590,13 +634,18 @@ class PlayerDataManager {
     }
 
     final loadedEquippedBadgeIds = List<String>.from(_equippedBadgeIds);
+    final ownedSeasonBadgeIds =
+        _seasonRankBadges.map((badge) => badge.id).toSet();
     _equippedBadgeIds = _equippedBadgeIds
-        .where((id) => !SeasonRankBadge.isSeasonRankBadgeId(id))
         .map((id) => BadgeCatalog.evolvedBadgeIdFor(
               id,
-              unlockedBadgeIds.toSet(),
+              {
+                ...unlockedBadgeIds,
+                ...ownedSeasonBadgeIds,
+              },
             ))
-        .where((id) => unlockedBadgeIds.contains(id))
+        .where((id) =>
+            unlockedBadgeIds.contains(id) || ownedSeasonBadgeIds.contains(id))
         .toSet()
         .take(2)
         .toList();
@@ -708,8 +757,15 @@ class PlayerDataManager {
   Future<void> checkDailyReset() async {
     await load();
     final today = _todayKey();
+    final previousStatsDate = _todayStatsDate;
+    final shouldSnapshotPreviousToday =
+        previousStatsDate.isNotEmpty && previousStatsDate != today;
     var changed = false;
     var statsChanged = false;
+
+    if (shouldSnapshotPreviousToday) {
+      await syncRecordSummary(force: true);
+    }
 
     if (_ensureTodayStatsDate(today)) {
       statsChanged = true;
@@ -763,12 +819,17 @@ class PlayerDataManager {
     }
     _coins -= amount;
     await _saveEconomy();
+    unawaited(_incrementDailyEconomy(coinsSpent: amount));
   }
 
   Future<void> addCoins(int amount) async {
     await load();
+    if (amount <= 0) {
+      return;
+    }
     _coins += amount;
     await _saveEconomy();
+    unawaited(_incrementDailyEconomy(coinsEarned: amount));
   }
 
   Future<void> setCoinsForDebug(int amount) async {
@@ -795,6 +856,7 @@ class PlayerDataManager {
     _exp += amount;
     final currentLevel = level;
     await _saveEconomy();
+    unawaited(_incrementDailyEconomy(expEarned: amount));
 
     if (currentLevel <= previousLevel) {
       return;
@@ -933,10 +995,14 @@ class PlayerDataManager {
 
   Future<void> setEquippedBadgeIds(List<String> badgeIds) async {
     await load();
-    final unlocked = unlockedBadgeIds.toSet();
+    final unlocked = {
+      ...unlockedBadgeIds,
+      ..._seasonRankBadges.map((badge) => badge.id),
+    };
     _equippedBadgeIds = badgeIds
-        .where((id) => !SeasonRankBadge.isSeasonRankBadgeId(id))
-        .map((id) => BadgeCatalog.evolvedBadgeIdFor(id, unlocked))
+        .map((id) => SeasonRankBadge.isSeasonRankBadgeId(id)
+            ? id
+            : BadgeCatalog.evolvedBadgeIdFor(id, unlocked))
         .where((id) => unlocked.contains(id))
         .toSet()
         .take(2)
@@ -963,13 +1029,22 @@ class PlayerDataManager {
         .where((badge) => badge.seasonId.isNotEmpty && badge.rank > 0)
         .toList()
       ..sort((a, b) => b.seasonId.compareTo(a.seasonId));
+    for (final badge in _seasonRankBadges) {
+      if (_bestRankedRank <= 0 || badge.rank < _bestRankedRank) {
+        _bestRankedRank = badge.rank;
+      }
+    }
     _equippedBadgeIds = _equippedBadgeIds
-        .where((id) => !SeasonRankBadge.isSeasonRankBadgeId(id))
         .map((id) => BadgeCatalog.evolvedBadgeIdFor(
               id,
-              unlockedBadgeIds.toSet(),
+              {
+                ...unlockedBadgeIds,
+                ..._seasonRankBadges.map((badge) => badge.id),
+              },
             ))
-        .where((id) => unlockedBadgeIds.contains(id))
+        .where((id) =>
+            unlockedBadgeIds.contains(id) ||
+            SeasonRankBadge.isSeasonRankBadgeId(id))
         .toSet()
         .take(2)
         .toList();
@@ -1040,6 +1115,10 @@ class PlayerDataManager {
 
   void _resetRecordsForRebuild() {
     _currentRating = 1000;
+    _rankedSeasonId = '';
+    _seasonRankedWins = 0;
+    _seasonRankedLosses = 0;
+    _seasonRankedMaxWinStreak = 0;
     _highestRating = 1000;
     _maxArenaWins = 0;
     _arenaChallengeCount = 0;
@@ -1069,6 +1148,16 @@ class PlayerDataManager {
       'CPU': 0,
       'SOLO': 0,
       'FRIEND': 0,
+    };
+    _cpuDifficultyRecords = {
+      'weak_matches': 0,
+      'weak_wins': 0,
+      'normal_matches': 0,
+      'normal_wins': 0,
+      'strong_matches': 0,
+      'strong_wins': 0,
+      'oni_matches': 0,
+      'oni_wins': 0,
     };
   }
 
@@ -1108,6 +1197,8 @@ class PlayerDataManager {
         _rankedWins++;
         _rankedCurrentWinStreak++;
         _rankedMaxWinStreak = max(_rankedMaxWinStreak, _rankedCurrentWinStreak);
+        _seasonRankedMaxWinStreak =
+            max(_seasonRankedMaxWinStreak, _rankedCurrentWinStreak);
         _seasonRankedWins++;
       } else {
         _rankedCurrentWinStreak = 0;
@@ -1115,6 +1206,9 @@ class PlayerDataManager {
       }
     }
     _modePlayCounts[mode] = (_modePlayCounts[mode] ?? 0) + 1;
+    if (mode == 'CPU') {
+      _recordCpuDifficultyResult(opponentName: opponentName, isWin: isWin);
+    }
     for (final entry in wazaCounts.entries) {
       _wazaCounts[entry.key] = (_wazaCounts[entry.key] ?? 0) + entry.value;
     }
@@ -1129,6 +1223,16 @@ class PlayerDataManager {
       ratingAfter: ratingAfter,
       ratingDelta: ratingDelta,
     );
+    unawaited(_syncGlobalDailyStatsIncrement(
+      isWin: isWin,
+      mode: mode,
+      wazaCounts: wazaCounts,
+      clearedBalls: clearedBalls,
+      normalClearedBalls: normalClearedBalls,
+      maxChain: maxChain,
+      score: score,
+      ratingDelta: ratingDelta,
+    ));
     if (ratingAfter != null) {
       _currentRating = ratingAfter;
       _highestRating = max(_highestRating, ratingAfter);
@@ -1157,6 +1261,98 @@ class PlayerDataManager {
     await _savePublicProfile();
     await _saveStats();
     await _syncRecordSummarySafely(force: true);
+  }
+
+  Future<void> _syncGlobalDailyStatsIncrement({
+    required bool isWin,
+    required String mode,
+    required Map<String, int> wazaCounts,
+    required int clearedBalls,
+    required int normalClearedBalls,
+    required int maxChain,
+    int? score,
+    int? ratingDelta,
+  }) async {
+    try {
+      final uid = await AuthManager.instance.ensureSignedIn();
+      if (uid.isEmpty) {
+        return;
+      }
+      final date = _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate;
+      final safeMode = _sanitizeDatabaseKey(mode);
+      final updates = <String, Object?>{
+        'date': date,
+        'updatedAt': ServerValue.timestamp,
+        'activePlayers/$uid/uid': uid,
+        'activePlayers/$uid/publicId': _playerId,
+        'activePlayers/$uid/displayName': displayPlayerName,
+        'activePlayers/$uid/updatedAt': ServerValue.timestamp,
+        'totals/matches': ServerValue.increment(1),
+        'totals/wins': ServerValue.increment(isWin ? 1 : 0),
+        'totals/losses': ServerValue.increment(isWin ? 0 : 1),
+        'totals/clearedBalls': ServerValue.increment(max(0, clearedBalls)),
+        'totals/normalClearedBalls':
+            ServerValue.increment(max(0, normalClearedBalls)),
+        'modePlayCounts/$safeMode': ServerValue.increment(1),
+      };
+      if (mode == 'RANKED') {
+        updates['ranked/matches'] = ServerValue.increment(1);
+        updates['ranked/wins'] = ServerValue.increment(isWin ? 1 : 0);
+        updates['ranked/losses'] = ServerValue.increment(isWin ? 0 : 1);
+        updates['ranked/ratingDelta'] = ServerValue.increment(ratingDelta ?? 0);
+      }
+      if (mode == 'SOLO' && score != null) {
+        updates['endless/playCount'] = ServerValue.increment(1);
+        updates['endless/scoreTotal'] =
+            ServerValue.increment(score.clamp(0, maxEndlessScore).toInt());
+      }
+      updates['chains/totalMaxChain'] = ServerValue.increment(max(0, maxChain));
+      for (final entry in wazaCounts.entries) {
+        updates['formationCounts/${_sanitizeDatabaseKey(entry.key)}'] =
+            ServerValue.increment(max(0, entry.value));
+      }
+      await AppFirebaseDatabase.ref()
+          .child('dailyGlobalStats/$date')
+          .update(updates);
+    } catch (_) {
+      // 全体統計の加算失敗でゲーム結果保存を止めない。
+    }
+  }
+
+  String _sanitizeDatabaseKey(String value) {
+    final key = value.trim().replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_');
+    return key.isEmpty ? 'UNKNOWN' : key;
+  }
+
+  void _recordCpuDifficultyResult({
+    required String opponentName,
+    required bool isWin,
+  }) {
+    final key = _cpuDifficultyKeyForName(opponentName);
+    _cpuDifficultyRecords['${key}_matches'] =
+        (_cpuDifficultyRecords['${key}_matches'] ?? 0) + 1;
+    if (isWin) {
+      _cpuDifficultyRecords['${key}_wins'] =
+          (_cpuDifficultyRecords['${key}_wins'] ?? 0) + 1;
+    }
+  }
+
+  String _cpuDifficultyKeyForName(String opponentName) {
+    final name = opponentName.trim();
+    if (name.contains('鬼') || name.toLowerCase().contains('oni')) {
+      return 'oni';
+    }
+    if (name.contains('強') ||
+        name.contains('つよ') ||
+        name.toLowerCase().contains('hard')) {
+      return 'strong';
+    }
+    if (name.contains('普通') ||
+        name.contains('ふつう') ||
+        name.toLowerCase().contains('normal')) {
+      return 'normal';
+    }
+    return 'weak';
   }
 
   Future<void> updateLatestRankedHistory({
@@ -1270,6 +1466,10 @@ class PlayerDataManager {
 
   Future<void> ensureRankedSeason({
     required String currentSeasonId,
+    int? currentSeasonRating,
+    bool hasCurrentSeasonRecord = false,
+    int? currentSeasonWins,
+    int? currentSeasonLosses,
     required String previousSeasonName,
     int? previousFinalRank,
     int? previousFinalRating,
@@ -1278,10 +1478,25 @@ class PlayerDataManager {
   }) async {
     await load();
     if (_rankedSeasonId == currentSeasonId) {
+      final resolvedSeasonRating = currentSeasonRating;
+      if (hasCurrentSeasonRecord &&
+          resolvedSeasonRating != null &&
+          _currentRating != resolvedSeasonRating) {
+        _currentRating = resolvedSeasonRating;
+        _highestRating = max(_highestRating, resolvedSeasonRating);
+        await _savePublicProfile();
+        await _saveStats();
+        await _syncRecordSummarySafely(force: true);
+      }
       return;
     }
 
     final hadRankedSeason = _rankedSeasonId.isNotEmpty;
+    final shouldTreatLegacyRatingAsPreviousSeason = _rankedSeasonId.isEmpty &&
+        currentSeasonId != RankedSeasonManager.baseSeasonId &&
+        _currentRating != 1000;
+    final shouldResetFromPreviousSeason =
+        hadRankedSeason || shouldTreatLegacyRatingAsPreviousSeason;
     if (hadRankedSeason) {
       final wins = previousSeasonWins ?? _seasonRankedWins;
       final losses = previousSeasonLosses ?? _seasonRankedLosses;
@@ -1298,17 +1513,38 @@ class PlayerDataManager {
         ..write('勝率: $winRate');
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_pendingRankedSeasonResultLogKey, log.toString());
+      if (previousFinalRank != null &&
+          previousFinalRank > 0 &&
+          (_bestRankedRank <= 0 || previousFinalRank < _bestRankedRank)) {
+        _bestRankedRank = previousFinalRank;
+      }
     }
 
     _rankedSeasonId = currentSeasonId;
-    if (hadRankedSeason) {
-      _seasonRankedWins = 0;
-      _seasonRankedLosses = 0;
-      _rankedCurrentWinStreak = 0;
-      _currentRating = 1000;
-    }
+    _seasonRankedWins = shouldResetFromPreviousSeason
+        ? 0
+        : hasCurrentSeasonRecord
+            ? (currentSeasonWins ?? 0)
+            : 0;
+    _seasonRankedLosses = shouldResetFromPreviousSeason
+        ? 0
+        : hasCurrentSeasonRecord
+            ? (currentSeasonLosses ?? 0)
+            : 0;
+    _seasonRankedMaxWinStreak = 0;
+    _rankedCurrentWinStreak =
+        shouldResetFromPreviousSeason || !hasCurrentSeasonRecord
+            ? 0
+            : _rankedCurrentWinStreak;
+    _currentRating = shouldResetFromPreviousSeason
+        ? 1000
+        : hasCurrentSeasonRecord
+            ? (currentSeasonRating ?? 1000)
+            : 1000;
+    _highestRating = max(_highestRating, _currentRating);
     await _savePublicProfile();
     await _saveStats();
+    await _syncRecordSummarySafely(force: true);
   }
 
   Future<void> syncRecordSummary({
@@ -1389,7 +1625,13 @@ class PlayerDataManager {
         summary: summary,
         syncedAt: syncedAt,
       );
-      await database.child('playerRecordSummaries/$uid').set(recordPayload);
+      await Future.wait([
+        database.child('playerRecordSummaries/$uid').set(recordPayload),
+        database
+            .child('publicProfiles/$uid')
+            .set(_publicProfilePayload(recordPayload)),
+      ]);
+      await _syncGlobalDailyLogin(database: database, uid: uid);
       recordSynced = true;
     });
 
@@ -1451,6 +1693,51 @@ class PlayerDataManager {
     return Map<String, Object?>.from(_sanitizeDatabaseValue(payload) as Map);
   }
 
+  Map<String, Object?> _publicProfilePayload(Map<String, Object?> summary) {
+    final overall =
+        Map<String, Object?>.from((summary['overall'] as Map?) ?? const {});
+    final economy =
+        Map<String, Object?>.from((summary['economy'] as Map?) ?? const {});
+    final collection =
+        Map<String, Object?>.from((summary['collection'] as Map?) ?? const {});
+    final ranked =
+        Map<String, Object?>.from((summary['ranked'] as Map?) ?? const {});
+    final endless =
+        Map<String, Object?>.from((summary['endless'] as Map?) ?? const {});
+    final payload = <String, Object?>{
+      'schemaVersion': summary['schemaVersion'],
+      'uid': summary['uid'],
+      'publicId': summary['publicId'],
+      'displayName': summary['displayName'],
+      'updatedAt': summary['updatedAt'],
+      'updatedAtText': summary['updatedAtText'],
+      'overall': {
+        'totalWins': overall['totalWins'],
+        'totalClearedBalls': overall['totalClearedBalls'],
+      },
+      'economy': {
+        'level': economy['level'],
+      },
+      'collection': {
+        'equippedPlayerIconId': collection['equippedPlayerIconId'],
+        'equippedIconFrameId': collection['equippedIconFrameId'],
+        'equippedBadgeIds': collection['equippedBadgeIds'],
+        'unlockedBadgeIds': collection['unlockedBadgeIds'],
+        'seasonRankBadges': collection['seasonRankBadges'],
+      },
+      'ranked': {
+        'currentRating': ranked['currentRating'],
+        'highestRating': ranked['highestRating'],
+        'bestRankedRank': ranked['bestRankedRank'],
+      },
+      'endless': {
+        'highestScore': endless['highestScore'],
+      },
+      'wazaCounts': summary['wazaCounts'],
+    };
+    return Map<String, Object?>.from(_sanitizeDatabaseValue(payload) as Map);
+  }
+
   Future<Map<String, int>> _remoteDailyWinRankPlacements({
     required DatabaseReference database,
     required String uid,
@@ -1463,6 +1750,52 @@ class PlayerDataManager {
       return _intMapFromDynamic(snapshot.value);
     } catch (_) {
       return const {};
+    }
+  }
+
+  Future<void> _syncGlobalDailyLogin({
+    required DatabaseReference database,
+    required String uid,
+  }) async {
+    final date = _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate;
+    await database.child('dailyGlobalStats/$date').update({
+      'date': date,
+      'updatedAt': ServerValue.timestamp,
+      'activePlayers/$uid/uid': uid,
+      'activePlayers/$uid/publicId': _playerId,
+      'activePlayers/$uid/displayName': displayPlayerName,
+      'activePlayers/$uid/updatedAt': ServerValue.timestamp,
+    });
+  }
+
+  Future<void> _incrementDailyEconomy({
+    int coinsEarned = 0,
+    int coinsSpent = 0,
+    int expEarned = 0,
+  }) async {
+    final earned = max(0, coinsEarned);
+    final spent = max(0, coinsSpent);
+    final exp = max(0, expEarned);
+    if (earned == 0 && spent == 0 && exp == 0) {
+      return;
+    }
+    try {
+      await load();
+      final date = _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate;
+      final updates = <String, Object?>{
+        'date': date,
+        'updatedAt': ServerValue.timestamp,
+        if (earned > 0) 'economy/coinsEarned': ServerValue.increment(earned),
+        if (spent > 0) 'economy/coinsSpent': ServerValue.increment(spent),
+        if (earned != spent)
+          'economy/netCoins': ServerValue.increment(earned - spent),
+        if (exp > 0) 'economy/expEarned': ServerValue.increment(exp),
+      };
+      await AppFirebaseDatabase.ref()
+          .child('dailyGlobalStats/$date')
+          .update(updates);
+    } catch (_) {
+      // 日別経済統計の加算失敗でプレイヤーの報酬処理は止めない。
     }
   }
 
@@ -1572,9 +1905,14 @@ class PlayerDataManager {
     await prefs.setString(_rankedSeasonIdKey, _rankedSeasonId);
     await prefs.setInt(_seasonRankedWinsKey, _seasonRankedWins);
     await prefs.setInt(_seasonRankedLossesKey, _seasonRankedLosses);
+    await prefs.setInt(_seasonRankedMaxWinStreakKey, _seasonRankedMaxWinStreak);
     await prefs.setInt(_arenaPerfectClearCountKey, _arenaPerfectClearCount);
     await prefs.setString(_wazaCountsKey, jsonEncode(_wazaCounts));
     await prefs.setString(_modePlayCountsKey, jsonEncode(_modePlayCounts));
+    await prefs.setString(
+      _cpuDifficultyRecordsKey,
+      jsonEncode(_cpuDifficultyRecords),
+    );
     await prefs.setString(
       _matchHistoryKey,
       jsonEncode(_matchHistory.map((entry) => entry.toJson()).toList()),
@@ -1937,6 +2275,7 @@ class PlayerDataManager {
         'seasonWins': _seasonRankedWins,
         'seasonLosses': _seasonRankedLosses,
         'seasonMatches': _seasonRankedWins + _seasonRankedLosses,
+        'seasonMaxWinStreak': _seasonRankedMaxWinStreak,
         'currentRating': _currentRating,
         'highestRating': _highestRating,
         'currentWinStreak': _rankedCurrentWinStreak,
@@ -1986,25 +2325,24 @@ class PlayerDataManager {
   }
 
   Map<String, dynamic> _cpuStatsPayload() {
-    final buckets = <String, Map<String, int>>{};
-    for (final entry in _matchHistory.where((entry) => entry.mode == 'CPU')) {
-      final key = entry.opponentName.trim().isEmpty
-          ? 'UNKNOWN'
-          : entry.opponentName.trim();
-      final bucket = buckets.putIfAbsent(
-        key,
-        () => {'matches': 0, 'wins': 0, 'losses': 0},
-      );
-      bucket['matches'] = (bucket['matches'] ?? 0) + 1;
-      if (entry.isWin) {
-        bucket['wins'] = (bucket['wins'] ?? 0) + 1;
-      } else {
-        bucket['losses'] = (bucket['losses'] ?? 0) + 1;
-      }
+    Map<String, int> record(String key) {
+      final matches = _cpuDifficultyRecords['${key}_matches'] ?? 0;
+      final wins = _cpuDifficultyRecords['${key}_wins'] ?? 0;
+      return {
+        'matches': matches,
+        'wins': wins,
+        'losses': max(0, matches - wins),
+      };
     }
+
     return {
       'matches': _modePlayCounts['CPU'] ?? 0,
-      'byDifficulty': buckets,
+      'byDifficulty': {
+        'weak': record('weak'),
+        'normal': record('normal'),
+        'strong': record('strong'),
+        'oni': record('oni'),
+      },
     };
   }
 
@@ -2173,10 +2511,25 @@ class PlayerDataManager {
     if (raw is! Map) {
       return {};
     }
-    return {
-      for (final entry in raw.entries)
-        entry.key.toString(): _intValue(entry.value) ?? 0,
-    };
+    final result = <String, int>{};
+    void addPlacement(Object? key, Object? value) {
+      final keyText = key?.toString() ?? '';
+      final intValue = _intValue(value);
+      if (intValue != null) {
+        result[keyText] = (result[keyText] ?? 0) + intValue;
+        return;
+      }
+      if (value is Map) {
+        for (final nested in value.entries) {
+          addPlacement(nested.key, nested.value);
+        }
+      }
+    }
+
+    for (final entry in raw.entries) {
+      addPlacement(entry.key, entry.value);
+    }
+    return result;
   }
 
   bool _mapsEqual(Map<String, int> a, Map<String, int> b) {

@@ -4,7 +4,11 @@ import '../audio/sfx.dart';
 import '../data/models/badge_item.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
+import '../game/components/ball_component.dart';
+import '../game/game_models.dart';
 import '../network/multiplayer_manager.dart';
+import '../network/ranking_manager.dart';
+import 'components/season_rank_badge_icon.dart';
 import 'components/hexagon_grid_background.dart';
 import 'theme/game_theme_colors.dart';
 
@@ -33,6 +37,12 @@ class _CollectionScreenState extends State<CollectionScreen>
 
   Future<void> _load() async {
     await _playerData.load();
+    try {
+      await RankingManager.instance.syncSeasonRankBadgesForCurrentPlayer();
+      await _playerData.load();
+    } catch (_) {
+      // バッジ同期に失敗しても、保存済みのコレクションは表示する。
+    }
     if (!mounted) {
       return;
     }
@@ -149,11 +159,49 @@ class _CollectionScreenState extends State<CollectionScreen>
   }
 
   Widget _buildBadgesTab() {
-    final unlocked = _playerData.unlockedBadgeIds.toSet();
+    final seasonBadges = _playerData.seasonRankBadges;
+    final unlocked = {
+      ..._playerData.unlockedBadgeIds,
+      ...seasonBadges.map((badge) => badge.id),
+    };
     final equipped = _playerData.equippedBadgeIds.toSet();
     final visibleBadges = BadgeCatalog.visibleBadgesFor(unlocked);
     return _grid(
       children: [
+        for (final badge in seasonBadges)
+          _simpleCard(
+            title: badge.label,
+            subtitle: equipped.contains(badge.id)
+                ? '装備中'
+                : '${badge.seasonName} ${badge.rank}位',
+            icon: Icons.workspace_premium,
+            leading: SeasonRankBadgeIcon(rank: badge.rank, size: 28),
+            accentColor: _seasonRankColor(badge.rank),
+            replaceSelectedIcon: false,
+            selected: equipped.contains(badge.id),
+            available: true,
+            onTap: () async {
+              _playUiTap();
+              final next = equipped.toSet();
+              if (next.contains(badge.id)) {
+                next.remove(badge.id);
+              } else if (next.length < 2) {
+                next.add(badge.id);
+              } else {
+                final first = next.first;
+                next.remove(first);
+                next.add(badge.id);
+              }
+              await _playerData.setEquippedBadgeIds(next.toList());
+              await _multiplayerManager.updateUserName(
+                _playerData.playerName,
+              );
+              if (!mounted) {
+                return;
+              }
+              setState(() {});
+            },
+          ),
         for (final badge in visibleBadges)
           _simpleCard(
             title: badge.label,
@@ -195,6 +243,16 @@ class _CollectionScreenState extends State<CollectionScreen>
     );
   }
 
+  Color _seasonRankColor(int rank) {
+    if (rank == 1) {
+      return const Color(0xFFFFD54A);
+    }
+    if (rank <= 10) {
+      return const Color(0xFFB8C7FF);
+    }
+    return GameThemeColors.ranked;
+  }
+
   String _badgeSubtitle({
     required BadgeItem badge,
     required Set<String> unlocked,
@@ -224,9 +282,13 @@ class _CollectionScreenState extends State<CollectionScreen>
     return _grid(
       children: [
         for (final skin in [
-          const (id: 'default', label: 'デフォルト'),
+          const (id: 'default', label: 'デフォルト', colorName: null),
           ...GameItemCatalog.ballSkins.map(
-            (item) => (id: item.id, label: item.name),
+            (item) => (
+              id: item.id,
+              label: item.name,
+              colorName: item.colorName,
+            ),
           ),
         ])
           _simpleCard(
@@ -236,7 +298,12 @@ class _CollectionScreenState extends State<CollectionScreen>
                 : ownedSkinIds.contains(skin.id)
                     ? 'タップで装備'
                     : '未所持',
-            icon: Icons.blur_on,
+            icon: Icons.circle,
+            leading: _skinPreview(skin.id),
+            accentColor: skin.colorName == 'prism'
+                ? const Color(0xFFFFD54A)
+                : GameThemeColors.cyan,
+            replaceSelectedIcon: false,
             selected: _playerData.equippedBallSkinId == skin.id,
             available: ownedSkinIds.contains(skin.id),
             onTap: ownedSkinIds.contains(skin.id)
@@ -321,7 +388,7 @@ class _CollectionScreenState extends State<CollectionScreen>
           subtitle:
               _playerData.equippedIconFrameId == 'default' ? '装備中' : 'タップで装備',
           icon: Icons.crop_square,
-          leading: _framePreview(GameThemeColors.cyan),
+          leading: _defaultFramePreview(GameThemeColors.cyan),
           selected: _playerData.equippedIconFrameId == 'default',
           available: true,
           onTap: () async {
@@ -343,7 +410,7 @@ class _CollectionScreenState extends State<CollectionScreen>
                     ? 'タップで装備'
                     : '未所持',
             icon: Icons.crop_square,
-            leading: _framePreview(_frameColor(frame)),
+            leading: _framePreview(frame),
             accentColor: _frameColor(frame),
             selected: _playerData.equippedIconFrameId == frame.id,
             available: ownedFrameIds.contains(frame.id),
@@ -588,7 +655,20 @@ class _CollectionScreenState extends State<CollectionScreen>
     }
   }
 
-  Widget _framePreview(Color color) {
+  Widget _skinPreview(String skinId) {
+    return SizedBox(
+      width: 28,
+      height: 28,
+      child: MiniBallWidget(
+        ballColor: BallColor.blue,
+        size: 28,
+        showOuterGlow: false,
+        ballSkinId: skinId,
+      ),
+    );
+  }
+
+  Widget _defaultFramePreview(Color color) {
     return Container(
       width: 26,
       height: 26,
@@ -598,6 +678,37 @@ class _CollectionScreenState extends State<CollectionScreen>
         border: Border.all(color: color, width: 2.4),
       ),
     );
+  }
+
+  Widget _framePreview(GameItem frame) {
+    final color = _frameColor(frame);
+    if (frame.colorName == 'rainbow') {
+      return Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          gradient: const SweepGradient(
+            colors: [
+              Color(0xFFFF4D6D),
+              Color(0xFFFFD54A),
+              Color(0xFF35F0FF),
+              Color(0xFFB91DFF),
+              Color(0xFFFF4D6D),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white, width: 1.2),
+        ),
+        child: Container(
+          margin: const EdgeInsets.all(5),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111827),
+            borderRadius: BorderRadius.circular(5),
+          ),
+        ),
+      );
+    }
+    return _defaultFramePreview(color);
   }
 
   Color _frameColor(GameItem frame) {
@@ -614,6 +725,7 @@ class _CollectionScreenState extends State<CollectionScreen>
       'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
+      'rainbow' => const Color(0xFFFFD54A),
       _ => GameThemeColors.cyan,
     };
   }

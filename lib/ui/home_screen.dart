@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../ads/ranked_interstitial_debt_manager.dart';
 import '../app_settings.dart';
 import '../app_notice_manager.dart';
 import '../app_review_config.dart';
@@ -13,6 +14,7 @@ import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
+import '../game/friend_match_limit_manager.dart';
 import '../game/mission_catalog.dart';
 import '../game/mission_manager.dart';
 import '../data/models/game_item.dart';
@@ -116,7 +118,13 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
   var savedName = '';
 
   try {
+    await playerDataManager.load();
     savedName = await _readSavedPlayerNameForBootstrap();
+    if (savedName.trim().isEmpty) {
+      savedName = playerDataManager.displayPlayerName;
+    }
+    var rating = playerDataManager.currentRating;
+    multiplayerManager.currentRating = rating;
     if (savedName.trim().isNotEmpty) {
       multiplayerManager.setPlayerName(savedName);
       await _withHomeBootstrapTimeout(
@@ -124,19 +132,17 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
         label: 'player profile bootstrap',
       );
     }
-    var rating = multiplayerManager.currentRating;
     try {
-      rating = await _withHomeBootstrapTimeout(
+      await _withHomeBootstrapTimeout(
         multiplayerManager.initializeUser(name: savedName),
         label: 'user bootstrap',
       );
+      rating = playerDataManager.currentRating;
+      multiplayerManager.currentRating = rating;
     } catch (_) {
-      rating = multiplayerManager.currentRating;
+      rating = playerDataManager.currentRating;
+      multiplayerManager.currentRating = rating;
     }
-    await _withHomeBootstrapTimeout(
-      playerDataManager.setCurrentRating(rating),
-      label: 'rating bootstrap',
-    );
     try {
       await _withHomeBootstrapTimeout(
         rankingManager.syncSeasonStateForCurrentPlayer(),
@@ -247,9 +253,14 @@ Future<void> _loadHomeEconomyForBootstrap({
 Future<String> _readSavedPlayerNameForBootstrap() async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_HomeScreenState._playerNameKey) ?? '';
+    final savedName = prefs.getString(_HomeScreenState._playerNameKey) ?? '';
+    if (savedName.trim().isNotEmpty) {
+      return savedName;
+    }
+    await PlayerDataManager.instance.load();
+    return PlayerDataManager.instance.displayPlayerName;
   } on MissingPluginException {
-    return '';
+    return PlayerDataManager.instance.displayPlayerName;
   }
 }
 
@@ -392,6 +403,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isHomeBgmPlaying = false;
   bool _homeBgmSuspendedByLifecycle = false;
   bool _isInitialNamePromptVisible = false;
+  bool _isOpeningProfileScreen = false;
   Timer? _seasonStateTimer;
   bool _isSyncingRankedSeason = false;
 
@@ -399,6 +411,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _isArenaComingSoon => true;
 
   bool get _showsSettingsAdRemovalActions =>
+      Theme.of(context).platform != TargetPlatform.android &&
       !(Theme.of(context).platform == TargetPlatform.iOS &&
           AppReviewConfig.isProdFlavor);
 
@@ -447,6 +460,7 @@ class _HomeScreenState extends State<HomeScreen>
       'blue' => _homeCyan,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
+      'rainbow' => const Color(0xFFFFD54A),
       _ => _homeCyan,
     };
   }
@@ -1473,8 +1487,8 @@ class _HomeScreenState extends State<HomeScreen>
     final displayName = _playerNameController.text.trim().isEmpty
         ? 'プレイヤー'
         : _playerNameController.text.trim();
-    final frameColor =
-        _playerIconFrameColor(_playerDataManager.equippedIconFrameId);
+    final frameId = _playerDataManager.equippedIconFrameId;
+    final frameColor = _playerIconFrameColor(frameId);
 
     return InkWell(
       onTap: () {
@@ -1494,21 +1508,12 @@ class _HomeScreenState extends State<HomeScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: compact ? 18 : 22,
-              height: compact ? 18 : 22,
-              decoration: BoxDecoration(
-                color: frameColor.withValues(alpha: 0.16),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: frameColor.withValues(alpha: 0.72),
-                ),
-              ),
-              child: Icon(
-                _playerIconData(_playerDataManager.equippedPlayerIconId),
-                color: Colors.white,
-                size: compact ? 13 : 15,
-              ),
+            _buildPlayerIconAvatar(
+              iconId: _playerDataManager.equippedPlayerIconId,
+              frameId: frameId,
+              color: frameColor,
+              size: compact ? 18 : 22,
+              iconSize: compact ? 13 : 15,
             ),
             SizedBox(width: compact ? 5 : 8),
             Expanded(
@@ -1533,31 +1538,91 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _openProfileScreen() async {
-    await _playerDataManager.setCurrentRating(_rating);
-    if (!mounted) {
-      return;
-    }
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ProfileScreen()),
+  Widget _buildPlayerIconAvatar({
+    required String iconId,
+    required String frameId,
+    required Color color,
+    required double size,
+    required double iconSize,
+  }) {
+    final icon = Icon(
+      _playerIconData(iconId),
+      color: Colors.white,
+      size: iconSize,
     );
-    final savedName = await _readSavedPlayerName();
-    if (!mounted) {
-      return;
+    if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
+      return Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.all(2),
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: SweepGradient(
+            colors: [
+              Color(0xFFFF4D6D),
+              Color(0xFFFFD54A),
+              Color(0xFF35F0FF),
+              Color(0xFFB91DFF),
+              Color(0xFFFF4D6D),
+            ],
+          ),
+        ),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFF111827),
+            shape: BoxShape.circle,
+          ),
+          child: Center(child: icon),
+        ),
+      );
     }
-    setState(() {
-      _playerNameController.text = savedName;
-    });
-    _multiplayerManager.setPlayerName(savedName);
-    unawaited(_multiplayerManager.updateUserName(savedName));
-    await _refreshPlayerEconomy();
-    unawaited(
-      _rankingManager.updateMyRating(
-        rating: _rating,
-        displayName: savedName,
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: color.withValues(alpha: 0.72),
+        ),
       ),
+      child: icon,
     );
-    unawaited(_refreshRankingSummary(forceRefresh: true));
+  }
+
+  Future<void> _openProfileScreen() async {
+    if (_isOpeningProfileScreen) {
+      return;
+    }
+    _isOpeningProfileScreen = true;
+    try {
+      await _playerDataManager.setCurrentRating(_rating);
+      if (!mounted) {
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+      );
+      final savedName = await _readSavedPlayerName();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _playerNameController.text = savedName;
+      });
+      _multiplayerManager.setPlayerName(savedName);
+      unawaited(_multiplayerManager.updateUserName(savedName));
+      await _refreshPlayerEconomy();
+      unawaited(
+        _rankingManager.updateMyRating(
+          rating: _rating,
+          displayName: savedName,
+        ),
+      );
+      unawaited(_refreshRankingSummary(forceRefresh: true));
+    } finally {
+      _isOpeningProfileScreen = false;
+    }
   }
 
   void _openRecordScreen() {
@@ -1986,6 +2051,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ballColor: ball.color,
                     size: ball.size,
                     showOuterGlow: false,
+                    ballSkinId: _playerDataManager.equippedBallSkinId,
                   ),
                 ),
             ],
@@ -2169,7 +2235,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Text(
-              title,
+              AppSettings.instance.translate(title),
               textAlign: textAlign,
               style: TextStyle(
                 color: accentColor.withValues(alpha: 0.96),
@@ -2437,9 +2503,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   String _missionDisplayTitle(Map<String, dynamic> mission) {
     final id = mission['id']?.toString() ?? '';
-    return MissionCatalog.localizedTitleForId(id) ??
-        mission['title']?.toString() ??
-        'ミッション';
+    return AppSettings.instance.translate(
+      MissionCatalog.localizedTitleForId(id) ??
+          mission['title']?.toString() ??
+          'ミッション',
+    );
   }
 
   Future<void> _openMissionScreen() async {
@@ -2630,6 +2698,7 @@ class _HomeScreenState extends State<HomeScreen>
                     const SizedBox(height: 16),
                     _buildAdRemovalBenefitLine('広告の完全削除'),
                     _buildAdRemovalBenefitLine('毎日1回の無料ガチャ'),
+                    _buildAdRemovalBenefitLine('無制限のフレンド対戦'),
                     _buildAdRemovalBenefitLine('対戦後のコイン報酬が毎回3倍に'),
                     _buildAdRemovalBenefitLine('デイリーミッションのコイン獲得量が2倍に'),
                     const SizedBox(height: 16),
@@ -2675,6 +2744,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(height: 16),
                   _buildAdRemovalBenefitLine('広告の完全削除'),
                   _buildAdRemovalBenefitLine('毎日1回の無料ガチャ'),
+                  _buildAdRemovalBenefitLine('無制限のフレンド対戦'),
                   _buildAdRemovalBenefitLine('対戦後のコイン報酬が毎回3倍に'),
                   _buildAdRemovalBenefitLine('デイリーミッションのコイン獲得量が2倍に'),
                   const SizedBox(height: 16),
@@ -3125,7 +3195,7 @@ class _HomeScreenState extends State<HomeScreen>
                       accentColor: _friendPink,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
-                        unawaited(_createRoom(context));
+                        unawaited(_createRoom());
                       },
                     ),
                   ),
@@ -3136,7 +3206,7 @@ class _HomeScreenState extends State<HomeScreen>
                       accentColor: _friendPink,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
-                        unawaited(_joinRoom(context));
+                        unawaited(_joinRoom());
                       },
                     ),
                   ),
@@ -3360,7 +3430,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   child: Text(
-                    labels[i],
+                    AppSettings.instance.translate(labels[i]),
                     style: TextStyle(
                       color: selectedIndex == i ? _homeCyan : Colors.white70,
                       fontWeight: FontWeight.w900,
@@ -3486,7 +3556,21 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildRegularMissionTitle(Map<String, dynamic> mission) {
     final progressKey = mission['progressKey']?.toString() ?? '';
     final target = (mission['target'] as num?)?.toInt() ?? 0;
-    final title = mission['title']?.toString() ?? 'ミッション';
+    final title = AppSettings.instance.translate(
+      mission['title']?.toString() ?? 'ミッション',
+    );
+    if (progressKey == 'daily_win_rank_1') {
+      return Text(
+        AppSettings.instance.text(
+          '今日の勝利数ランキングで1位を$target回達成する',
+          'Finish 1st in today\'s wins ranking $target time${target == 1 ? '' : 's'}',
+        ),
+        style: const TextStyle(
+          color: _homeCyan,
+          fontWeight: FontWeight.bold,
+        ),
+      );
+    }
     final parts = title.split('〇〇');
     if (progressKey != 'highest_rating' || parts.length < 2) {
       return Text(
@@ -3555,12 +3639,13 @@ class _HomeScreenState extends State<HomeScreen>
     final target = (mission['target'] as num?)?.toInt() ?? 0;
     final reward = _missionManager.rewardCoinsFor(mission);
     final claimed = mission['claimed'] as bool? ?? false;
-    final isDone = progress >= target;
-    final canClaim = isDone && !claimed;
-    final stateColor = claimed ? GameThemeColors.blueSide : _homeCyan;
     final adsRemoved = AppSettings.instance.adsRemoved.value;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
+    final isDone = progress >= target;
+    final canClaim =
+        (isDone || (isRewardedAdMission && adsRemoved)) && !claimed;
+    final stateColor = claimed ? GameThemeColors.blueSide : _homeCyan;
     final displayTitle = isRewardedAdMission && adsRemoved
         ? 'ログインボーナス'
         : _missionDisplayTitle(mission);
@@ -3600,8 +3685,11 @@ class _HomeScreenState extends State<HomeScreen>
                 await onClaimed(0);
                 return;
               }
-              final amount =
-                  await _missionManager.claimMissionRewardById(missionId);
+              final amount = isRewardedAdMission && adsRemoved
+                  ? await _missionManager.completeRewardedAdMissionById(
+                      missionId,
+                    )
+                  : await _missionManager.claimMissionRewardById(missionId);
               await onClaimed(amount);
             },
       borderRadius: BorderRadius.circular(10),
@@ -3639,7 +3727,7 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
                 Row(
                   children: [
-                    if (isRewardedAdMission) ...[
+                    if (isRewardedAdMission && !adsRemoved) ...[
                       Icon(
                         Icons.play_circle_fill_rounded,
                         size: 18,
@@ -4154,7 +4242,7 @@ class _HomeScreenState extends State<HomeScreen>
       final rating = await _multiplayerManager
           .initializeUser(name: savedName)
           .timeout(_nameRegistrationSyncTimeout);
-      await _playerDataManager.setCurrentRating(rating);
+      _multiplayerManager.currentRating = rating;
       await _syncRankedSeasonState(showResultLog: true)
           .timeout(_nameRegistrationSyncTimeout);
       await _syncPlayerProfileOnline(rating: _playerDataManager.currentRating);
@@ -4171,22 +4259,28 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
       setState(() {
-        _rating = _multiplayerManager.currentRating;
+        _rating = _playerDataManager.currentRating;
         _isLoadingProfile = false;
       });
       _scheduleInitialNameRegistrationIfNeeded();
-      unawaited(_playerDataManager.setCurrentRating(_rating));
       unawaited(_syncRankedSeasonState(showResultLog: true));
-      unawaited(_syncPlayerProfileOnline(rating: _rating).catchError((_) {}));
+      unawaited(_syncPlayerProfileOnline(
+        rating: _playerDataManager.currentRating,
+      ).catchError((_) {}));
     }
   }
 
   Future<String> _readSavedPlayerName() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getString(_playerNameKey) ?? '';
+      final savedName = prefs.getString(_playerNameKey) ?? '';
+      if (savedName.trim().isNotEmpty) {
+        return savedName;
+      }
+      await _playerDataManager.load();
+      return _playerDataManager.displayPlayerName;
     } on MissingPluginException {
-      return '';
+      return _playerDataManager.displayPlayerName;
     }
   }
 
@@ -4219,14 +4313,35 @@ class _HomeScreenState extends State<HomeScreen>
     return false;
   }
 
-  Future<void> _createRoom(BuildContext context) async {
+  Future<void> _createRoom() async {
+    final hasAllowance = await _ensureFriendMatchAllowance();
+    if (!mounted || !hasAllowance) {
+      return;
+    }
+
     setState(() {
       _isBusy = true;
     });
 
     try {
       await _multiplayerManager.createRoom();
-      if (!context.mounted) {
+      if (!mounted) {
+        return;
+      }
+      final consumed = await FriendMatchLimitManager.instance.consumeMatch();
+      if (!consumed) {
+        await _multiplayerManager.cancelLobby();
+        if (!mounted) {
+          return;
+        }
+        await _showAlert(
+          context,
+          'フレンド対戦',
+          '本日の無料フレンド対戦回数を使い切りました。',
+        );
+        return;
+      }
+      if (!mounted) {
         return;
       }
 
@@ -4240,7 +4355,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
     } catch (error) {
-      if (!context.mounted) {
+      if (!mounted) {
         return;
       }
       await _showAlert(context, 'ルーム作成に失敗しました', '$error');
@@ -4253,7 +4368,12 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Future<void> _joinRoom(BuildContext context) async {
+  Future<void> _joinRoom() async {
+    final hasAllowance = await _ensureFriendMatchAllowance();
+    if (!mounted || !hasAllowance) {
+      return;
+    }
+
     final roomId = await _showRoomIdDialog(context);
     if (!mounted || roomId == null) {
       return;
@@ -4265,7 +4385,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     try {
       final joined = await _multiplayerManager.joinRoom(roomId);
-      if (!context.mounted) {
+      if (!mounted) {
         return;
       }
 
@@ -4275,6 +4395,22 @@ class _HomeScreenState extends State<HomeScreen>
           'ルームに参加できません',
           '部屋が見つからないか、すでに対戦中です。',
         );
+        return;
+      }
+      final consumed = await FriendMatchLimitManager.instance.consumeMatch();
+      if (!consumed) {
+        await _multiplayerManager.leaveRoom();
+        if (!mounted) {
+          return;
+        }
+        await _showAlert(
+          context,
+          'フレンド対戦',
+          '本日の無料フレンド対戦回数を使い切りました。',
+        );
+        return;
+      }
+      if (!mounted) {
         return;
       }
 
@@ -4288,7 +4424,7 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
     } catch (error) {
-      if (!context.mounted) {
+      if (!mounted) {
         return;
       }
       await _showAlert(context, '接続エラー', '$error');
@@ -4299,6 +4435,86 @@ class _HomeScreenState extends State<HomeScreen>
         });
       }
     }
+  }
+
+  Future<bool> _ensureFriendMatchAllowance() async {
+    if (await FriendMatchLimitManager.instance.canStartMatch()) {
+      return true;
+    }
+    if (!mounted) {
+      return false;
+    }
+
+    unawaited(RewardedAdManager.instance.warmUp());
+    final shouldWatchAd = await _showFriendMatchRestoreDialog(context);
+    if (!mounted || shouldWatchAd != true) {
+      return false;
+    }
+
+    final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+    if (!mounted) {
+      return false;
+    }
+    if (!rewarded) {
+      await _showAlert(context, '広告エラー', '動画の視聴が完了しませんでした。');
+      return false;
+    }
+
+    await FriendMatchLimitManager.instance.addRewardedMatches();
+    if (!mounted) {
+      return true;
+    }
+    await _showAlert(
+      context,
+      'フレンド対戦',
+      'フレンド対戦が2戦分回復しました。',
+    );
+    return true;
+  }
+
+  Future<bool?> _showFriendMatchRestoreDialog(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _friendPink,
+          title: 'フレンド対戦',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '本日の無料フレンド対戦回数を使い切りました。\n動画広告を見ると2戦分回復します。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'キャンセル',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: '動画を見る',
+                      accentColor: _friendPink,
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _startRandomMatch(
@@ -4315,15 +4531,16 @@ class _HomeScreenState extends State<HomeScreen>
     var dialogOpen = false;
     var cancelledByUser = false;
     try {
-      if (!await _ensureRealtimeConnectionForMatchmaking(
+      if (!await _consumePendingRankedInterstitialBeforeMatch(
         context,
-        title: 'ランク戦に失敗しました',
+        isArenaMode: isArenaMode,
       )) {
         return;
       }
-      if (!context.mounted) {
+      if (!context.mounted || cancelledByUser) {
         return;
       }
+
       dialogOpen = true;
       unawaited(
         showDialog<void>(
@@ -4373,16 +4590,42 @@ class _HomeScreenState extends State<HomeScreen>
           dialogOpen = false;
         }),
       );
-
       await Future<void>.delayed(Duration.zero);
       if (cancelledByUser) {
+        return;
+      }
+      if (!context.mounted) {
+        return;
+      }
+      if (!await _ensureRealtimeConnectionForMatchmaking(
+        context,
+        title: 'ランク戦に失敗しました',
+      )) {
+        if (context.mounted && dialogOpen) {
+          Navigator.of(context, rootNavigator: true).pop();
+          dialogOpen = false;
+        }
+        return;
+      }
+      if (!context.mounted) {
+        return;
+      }
+      await _syncRankedSeasonState().timeout(_nameRegistrationSyncTimeout);
+      if (!context.mounted || cancelledByUser) {
         return;
       }
       await _missionManager.recordEvent('start_ranked_match');
       if (cancelledByUser) {
         return;
       }
-      final roomId = await _multiplayerManager.startRandomMatch(_rating);
+      final seasonRating = _playerDataManager.currentRating;
+      _multiplayerManager.currentRating = seasonRating;
+      if (mounted) {
+        setState(() {
+          _rating = seasonRating;
+        });
+      }
+      final roomId = await _multiplayerManager.startRandomMatch(seasonRating);
       if (!context.mounted) {
         return;
       }
@@ -4400,6 +4643,13 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
 
+      if (!isArenaMode) {
+        await RankedInterstitialDebtManager.instance.clearPending();
+      }
+      if (!context.mounted) {
+        return;
+      }
+
       unawaited(_stopHomeBgm());
       if (_multiplayerManager.isRankedBotRoomId(roomId)) {
         Navigator.of(context).pushReplacement(
@@ -4411,6 +4661,8 @@ class _HomeScreenState extends State<HomeScreen>
                   _multiplayerManager.rankedBotDifficulty ?? CPUDifficulty.hard,
               rankedBotRating: _multiplayerManager.rankedBotRating,
               rankedBotName: 'Player',
+              rankedBotIconId: _multiplayerManager.rankedBotIconId,
+              rankedBotFrameId: _multiplayerManager.rankedBotFrameId,
             ),
           ),
         );
@@ -4448,6 +4700,33 @@ class _HomeScreenState extends State<HomeScreen>
       }
       unawaited(_multiplayerManager.cancelMatchmaking());
     }
+  }
+
+  Future<bool> _consumePendingRankedInterstitialBeforeMatch(
+    BuildContext context, {
+    required bool isArenaMode,
+  }) async {
+    if (isArenaMode ||
+        !await RankedInterstitialDebtManager.instance.hasPending()) {
+      return true;
+    }
+
+    final shown = await InterstitialAdManager.instance.showRequired();
+    if (shown) {
+      await InterstitialAdManager.instance.settleAfterGame();
+      return true;
+    }
+
+    unawaited(InterstitialAdManager.instance.warmUp());
+    if (!context.mounted) {
+      return false;
+    }
+    await _showAlert(
+      context,
+      '広告の読み込みに失敗しました',
+      '広告を表示できませんでした。しばらくしてからもう一度お試しください。',
+    );
+    return false;
   }
 
   Future<void> _maybeResumeSavedOnlineSession() async {
@@ -4573,7 +4852,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: _homeCyan,
+          accentColor: _friendPink,
           title: 'ルーム参加',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -4584,6 +4863,7 @@ class _HomeScreenState extends State<HomeScreen>
                 maxLength: 6,
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
+                cursorColor: _friendPink,
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 28,
@@ -4601,11 +4881,16 @@ class _HomeScreenState extends State<HomeScreen>
                   fillColor: Colors.black.withValues(alpha: 0.35),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _homeCyanBorder),
+                    borderSide: BorderSide(
+                      color: _friendPink.withValues(alpha: 0.72),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: _homeCyanBorder),
+                    borderSide: BorderSide(
+                      color: _friendPink.withValues(alpha: 0.92),
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
@@ -4623,7 +4908,7 @@ class _HomeScreenState extends State<HomeScreen>
                   Expanded(
                     child: _buildCyberDialogButton(
                       label: '部屋に参加',
-                      accentColor: _homeCyan,
+                      accentColor: _friendPink,
                       onPressed: () {
                         final roomId = controller.text.trim();
                         if (RegExp(r'^\d{6}$').hasMatch(roomId)) {
@@ -5044,7 +5329,7 @@ class _HomeScreenState extends State<HomeScreen>
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildCyberDialogButton(
-                    label: '音量設定',
+                    label: AppSettings.instance.text('音量設定', 'Audio'),
                     accentColor: _homeCyan,
                     onPressed: () => unawaited(
                       _showAudioSettingsDialog(
@@ -5062,7 +5347,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 10),
                   _buildCyberDialogButton(
-                    label: '操作設定',
+                    label: AppSettings.instance.text('操作設定', 'Controls'),
                     accentColor: _homeCyan,
                     onPressed: () => unawaited(
                       _showControlSettingsDialog(
@@ -5076,7 +5361,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 10),
                   _buildCyberDialogButton(
-                    label: 'チュートリアル',
+                    label: AppSettings.instance.text('チュートリアル', 'Tutorial'),
                     accentColor: _homeCyan,
                     onPressed: () => unawaited(
                       _openOnboardingFromSettings(dialogContext),
@@ -5086,7 +5371,7 @@ class _HomeScreenState extends State<HomeScreen>
                       AdRemovalPurchaseManager.isSupportedPlatform) ...[
                     const SizedBox(height: 10),
                     _buildCyberDialogButton(
-                      label: '広告削除',
+                      label: AppSettings.instance.text('広告削除', 'Remove Ads'),
                       accentColor: _homeCyan,
                       onPressed: () => unawaited(
                         _showAdRemovalDialog(dialogContext),
@@ -5097,7 +5382,10 @@ class _HomeScreenState extends State<HomeScreen>
                       AppReviewConfig.adRemovalGiftCodeEnabled) ...[
                     const SizedBox(height: 10),
                     _buildCyberDialogButton(
-                      label: 'ギフトコード入力',
+                      label: AppSettings.instance.text(
+                        'ギフトコード入力',
+                        'Gift Code',
+                      ),
                       accentColor: _homeCyan,
                       onPressed: () => unawaited(
                         _showAdRemovalGiftCodeDialog(dialogContext),
@@ -5107,7 +5395,10 @@ class _HomeScreenState extends State<HomeScreen>
                   if (AppReviewConfig.hasPrivacyPolicy) ...[
                     const SizedBox(height: 10),
                     _buildCyberDialogButton(
-                      label: 'プライバシーポリシー',
+                      label: AppSettings.instance.text(
+                        'プライバシーポリシー',
+                        'Privacy Policy',
+                      ),
                       accentColor: _homeCyan,
                       onPressed: () => unawaited(
                         _openExternalUri(AppReviewConfig.privacyPolicyUrl),
@@ -5116,7 +5407,7 @@ class _HomeScreenState extends State<HomeScreen>
                   ],
                   const SizedBox(height: 16),
                   _buildCyberDialogButton(
-                    label: '閉じる',
+                    label: AppSettings.instance.text('閉じる', 'Close'),
                     accentColor: Colors.white70,
                     onPressed: () => Navigator.of(dialogContext).pop(),
                   ),
@@ -5428,7 +5719,7 @@ class _HomeScreenState extends State<HomeScreen>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
       child: Text(
-        label,
+        AppSettings.instance.translate(label),
         style: const TextStyle(
           fontWeight: FontWeight.bold,
           letterSpacing: 1.6,
@@ -5926,7 +6217,7 @@ class _RankedMatchmakingEstimateState
     return Padding(
       padding: const EdgeInsets.only(top: 14),
       child: Text(
-        'マッチング推定$remaining秒',
+        'マッチングまで推定$remaining秒',
         textAlign: TextAlign.center,
         style: TextStyle(
           color: _rankedPurpleText.withValues(alpha: 0.92),

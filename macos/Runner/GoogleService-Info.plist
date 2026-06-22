@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
 	<key>API_KEY</key>
-	<string>AIzaSyDZpxxumudwoXtj2ja2iUI274tAn1lTUTo</string>
+	<string>AIzaSyB2Pr_xHU5E6qagt1A1j3U3i4GkcGEfOEA</string>
 	<key>GCM_SENDER_ID</key>
-	<string>599331155949</string>
+	<string>92968589553</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.sixBallPuzzle</string>
+	<string>com.takutonkatsu.hexagon</string>
 	<key>PROJECT_ID</key>
-	<string>hexagon-puzzle-prod</string>
+	<string>hexagon-puzzle-prod-e811c</string>
 	<key>STORAGE_BUCKET</key>
-	<string>hexagon-puzzle-prod.firebasestorage.app</string>
+	<string>hexagon-puzzle-prod-e811c.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -25,8 +25,8 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:599331155949:ios:319666fdce2a48bdee81e4</string>
+	<string>1:92968589553:ios:c2c67d4b11deffcc3b3150</string>
 	<key>DATABASE_URL</key>
-	<string>https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app</string>
+	<string>https://hexagon-puzzle-prod-e811c-default-rtdb.asia-southeast1.firebasedatabase.app</string>
 </dict>
 </plist>

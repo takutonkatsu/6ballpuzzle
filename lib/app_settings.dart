@@ -33,6 +33,9 @@ class AppSettings {
 
   bool _loaded = false;
 
+  bool get _androidAdsRemovedBenefitsEnabled =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
   Future<void> load() async {
     if (_loaded) {
       return;
@@ -42,7 +45,8 @@ class AppSettings {
     musicVolume.value =
         (prefs.getDouble(_musicVolumeKey) ?? 1.0).clamp(0.0, 1.0);
     sfxVolume.value = (prefs.getDouble(_sfxVolumeKey) ?? 1.0).clamp(0.0, 1.0);
-    adsRemoved.value = prefs.getBool(_adsRemovedKey) ?? false;
+    adsRemoved.value = _androidAdsRemovedBenefitsEnabled ||
+        (prefs.getBool(_adsRemovedKey) ?? false);
     onboardingSeen.value = prefs.getBool(_onboardingSeenKey) ?? false;
     final defaultLayout = ControlLayoutPreset.rotateMoveMoveRotate.index;
     final rawLayout = prefs.getInt(_controlLayoutKey) ?? defaultLayout;
@@ -72,9 +76,10 @@ class AppSettings {
   }
 
   Future<void> setAdsRemoved(bool value) async {
-    adsRemoved.value = value;
+    final next = _androidAdsRemovedBenefitsEnabled || value;
+    adsRemoved.value = next;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_adsRemovedKey, value);
+    await prefs.setBool(_adsRemovedKey, next);
   }
 
   Future<void> setOnboardingSeen(bool value) async {
@@ -82,6 +87,10 @@ class AppSettings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_onboardingSeenKey, value);
   }
+
+  String text(String ja, String en) => ja;
+
+  String translate(String value) => value;
 
   Future<bool> redeemAdRemovalGiftCode({
     required String code,

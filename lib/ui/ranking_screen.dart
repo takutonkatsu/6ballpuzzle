@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import '../app_settings.dart';
 import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
 import '../network/multiplayer_manager.dart';
@@ -79,11 +80,13 @@ class _RankingScreenState extends State<RankingScreen> {
   String? _errorMessage;
   _RankingTab _selectedTab = _RankingTab.currentSeason;
   int _rankingLoadSerial = 0;
+  bool _openingPlayerProfile = false;
   Timer? _remainingTimer;
   String _remainingLabel = '残り--';
   String _dailyRemainingLabel = '残り--';
   String _loadedSeasonId = '';
   String _loadedDailyDateKey = '';
+  DateTime? _lastSeasonSyncAt;
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -122,13 +125,13 @@ class _RankingScreenState extends State<RankingScreen> {
           .timeout(_rankingOperationTimeout);
       final entriesFuture = switch (requestTab) {
         _RankingTab.currentSeason => await _rankingManager
-            .fetchTopRankings(forceRefresh: true)
+            .fetchTopRankings()
             .timeout(_rankingOperationTimeout),
         _RankingTab.dailyWins => await _rankingManager
-            .fetchTopDailyWinRankings(forceRefresh: true)
+            .fetchTopDailyWinRankings()
             .timeout(_rankingOperationTimeout),
         _RankingTab.endless => await _rankingManager
-            .fetchTopEndlessScoreRankings(forceRefresh: true)
+            .fetchTopEndlessScoreRankings()
             .timeout(_rankingOperationTimeout),
       };
       await syncFuture;
@@ -197,27 +200,23 @@ class _RankingScreenState extends State<RankingScreen> {
   }
 
   Future<void> _syncCurrentSeasonBeforeLoad() async {
-    try {
-      await _rankingManager
-          .syncSeasonStateForCurrentPlayer()
-          .timeout(_rankingOperationTimeout);
-    } catch (_) {
-      // シーズン同期に失敗しても、ランキングの読み込み自体は試す。
+    final lastSync = _lastSeasonSyncAt;
+    final shouldSync =
+        lastSync == null || DateTime.now().difference(lastSync).inMinutes >= 5;
+    if (shouldSync) {
+      try {
+        await _rankingManager
+            .syncSeasonStateForCurrentPlayer()
+            .timeout(_rankingOperationTimeout);
+        _lastSeasonSyncAt = DateTime.now();
+      } catch (_) {
+        // シーズン同期に失敗しても、ランキングの読み込み自体は試す。
+      }
     }
     await PlayerDataManager.instance.load();
     await _showSeasonResultLogIfNeeded();
     final seasonRating = PlayerDataManager.instance.currentRating;
     _multiplayerManager.currentRating = seasonRating;
-    try {
-      await _rankingManager
-          .updateMyRating(
-            rating: seasonRating,
-            displayName: PlayerDataManager.instance.displayPlayerName,
-          )
-          .timeout(_rankingOperationTimeout);
-    } catch (_) {
-      // 新シーズンの自分の行作成に失敗しても、一覧読み込みは続ける。
-    }
   }
 
   Future<void> _syncEndlessBeforeLoad() async {
@@ -469,12 +468,13 @@ class _RankingScreenState extends State<RankingScreen> {
       child: Row(
         children: [
           _buildModeTab(
-            label: '今シーズン',
+            label: _seasonTabLabel(),
             selected: _selectedTab == _RankingTab.currentSeason,
             onTap: () => _selectTab(_RankingTab.currentSeason),
           ),
           _buildModeTab(
             label: '今日の勝利数',
+            subLabel: '(ランク戦)',
             selected: _selectedTab == _RankingTab.dailyWins,
             onTap: () => _selectTab(_RankingTab.dailyWins),
           ),
@@ -486,6 +486,14 @@ class _RankingScreenState extends State<RankingScreen> {
         ],
       ),
     );
+  }
+
+  String _seasonTabLabel() {
+    final seasonId = _loadedSeasonId.trim();
+    if (seasonId.isEmpty) {
+      return 'シーズン';
+    }
+    return RankedSeasonManager.seasonName(seasonId);
   }
 
   void _selectTab(_RankingTab tab) {
@@ -503,6 +511,7 @@ class _RankingScreenState extends State<RankingScreen> {
 
   Widget _buildModeTab({
     required String label,
+    String? subLabel,
     required bool selected,
     required VoidCallback onTap,
   }) {
@@ -512,6 +521,7 @@ class _RankingScreenState extends State<RankingScreen> {
         borderRadius: BorderRadius.circular(10),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
+          height: 54,
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             gradient: selected
@@ -528,14 +538,36 @@ class _RankingScreenState extends State<RankingScreen> {
                     color: GameThemeColors.cyan.withValues(alpha: 0.85))
                 : null,
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: selected ? Colors.white : Colors.white54,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.8,
-            ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white54,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              if (subLabel != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subLabel,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: selected
+                        ? Colors.white.withValues(alpha: 0.82)
+                        : Colors.white38,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -563,7 +595,7 @@ class _RankingScreenState extends State<RankingScreen> {
     };
 
     return InkWell(
-      onTap: () => _openPlayerProfile(entry, rank, tab),
+      onTap: () => unawaited(_openPlayerProfile(entry, rank, tab)),
       borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
@@ -627,18 +659,30 @@ class _RankingScreenState extends State<RankingScreen> {
     );
   }
 
-  void _openPlayerProfile(RankingEntry entry, int rank, _RankingTab tab) {
+  Future<void> _openPlayerProfile(
+    RankingEntry entry,
+    int rank,
+    _RankingTab tab,
+  ) async {
+    if (_openingPlayerProfile) {
+      return;
+    }
+    _openingPlayerProfile = true;
     _playUiTap();
-    final rankLabel = tab == _RankingTab.currentSeason ? '$rank位' : null;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProfileScreen(
-          playerUid: entry.uid,
-          initialEntry: entry,
-          initialRankLabel: rankLabel,
+    try {
+      final rankLabel = tab == _RankingTab.currentSeason ? '$rank位' : null;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ProfileScreen(
+            playerUid: entry.uid,
+            initialEntry: entry,
+            initialRankLabel: rankLabel,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _openingPlayerProfile = false;
+    }
   }
 
   Widget _buildRankingValue(
@@ -672,7 +716,7 @@ class _RankingScreenState extends State<RankingScreen> {
       case _RankingTab.endless:
         return _rankingValuePill(
           child: Text(
-            '${entry.highestEndlessScore}',
+            _formatNumber(entry.highestEndlessScore),
             style: const TextStyle(
               color: Color(0xFFEAF6FF),
               fontSize: 15,
@@ -753,7 +797,10 @@ class _RankingScreenState extends State<RankingScreen> {
   Widget _buildSeasonFooter() {
     return Row(
       children: [
-        _buildRemainingPill(_remainingLabel),
+        _buildRemainingPill(
+          _remainingLabel,
+          onTap: () => unawaited(_showRemainingDetailDialog()),
+        ),
         const Spacer(),
         InkWell(
           onTap: () {
@@ -786,7 +833,10 @@ class _RankingScreenState extends State<RankingScreen> {
   Widget _buildDailyFooter() {
     return Row(
       children: [
-        _buildRemainingPill(_dailyRemainingLabel),
+        _buildRemainingPill(
+          _dailyRemainingLabel,
+          onTap: () => unawaited(_showRemainingDetailDialog()),
+        ),
         const Spacer(),
         _buildFooterActionButton(
           label: '昨日の勝利数',
@@ -826,23 +876,187 @@ class _RankingScreenState extends State<RankingScreen> {
     );
   }
 
-  Widget _buildRemainingPill(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.32),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: GameThemeColors.cyan,
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
+  Widget _buildRemainingPill(String label, {VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap == null
+          ? null
+          : () {
+              _playUiTap();
+              onTap();
+            },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.32),
+          borderRadius: BorderRadius.circular(10),
+          border:
+              Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: GameThemeColors.cyan,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            if (onTap != null) ...[
+              const SizedBox(width: 5),
+              const Icon(
+                Icons.info_outline_rounded,
+                color: GameThemeColors.cyan,
+                size: 14,
+              ),
+            ],
+          ],
         ),
       ),
     );
+  }
+
+  Future<void> _showRemainingDetailDialog() async {
+    Timer? timer;
+    try {
+      var nowJst = await ServerTimeManager.instance.nowJst(forceRefresh: true);
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              timer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+                setDialogState(() {
+                  nowJst = nowJst.add(const Duration(seconds: 1));
+                });
+              });
+              final seasonId =
+                  RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+              final seasonRemaining =
+                  RankedSeasonManager.remaining(nowJstOverride: nowJst);
+              final dailyRemaining = _dailyRemaining(nowJst);
+              return Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                child: _buildSeasonDialogFrame(
+                  title: '残り時間',
+                  width: 330,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _remainingDetailRow(
+                        '${RankedSeasonManager.seasonName(seasonId)}終了まで',
+                        _formatDurationDetail(seasonRemaining),
+                      ),
+                      const SizedBox(height: 10),
+                      _remainingDetailRow(
+                        '今日の勝利数 集計終了まで',
+                        _formatDurationDetail(dailyRemaining),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    _buildSeasonDialogButton(
+                      label: '閉じる',
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } catch (_) {
+      // 詳細時刻の一時取得失敗では、ランキング画面の表示を止めない。
+    } finally {
+      timer?.cancel();
+    }
+  }
+
+  Widget _remainingDetailRow(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: GameThemeColors.cyan,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Duration _dailyRemaining(DateTime nowJst) {
+    final wallClockNow = DateTime.utc(
+      nowJst.year,
+      nowJst.month,
+      nowJst.day,
+      nowJst.hour,
+      nowJst.minute,
+      nowJst.second,
+      nowJst.millisecond,
+      nowJst.microsecond,
+    );
+    final nextDay = DateTime.utc(nowJst.year, nowJst.month, nowJst.day + 1);
+    final remaining = nextDay.difference(wallClockNow);
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  String _formatDurationDetail(Duration value) {
+    final days = value.inDays;
+    final hours = value.inHours.remainder(24);
+    final minutes = value.inMinutes.remainder(60);
+    final seconds = value.inSeconds.remainder(60);
+    if (days > 0) {
+      return '$days日 $hours時間 $minutes分 $seconds秒';
+    }
+    if (hours > 0) {
+      return '$hours時間 $minutes分 $seconds秒';
+    }
+    if (minutes > 0) {
+      return '$minutes分 $seconds秒';
+    }
+    return '$seconds秒';
+  }
+
+  String _formatNumber(int value) {
+    final text = value.toString();
+    final buffer = StringBuffer();
+    for (var i = 0; i < text.length; i++) {
+      if (i > 0 && (text.length - i) % 3 == 0) {
+        buffer.write(',');
+      }
+      buffer.write(text[i]);
+    }
+    return buffer.toString();
   }
 
   Future<void> _showPastSeasonsDialog() async {
@@ -987,7 +1201,7 @@ class _RankingScreenState extends State<RankingScreen> {
                         final entry = entries[index];
                         return _buildCompactSeasonRankingRow(
                           entry,
-                          entry.finalRank ?? _displayRankForEntries(index),
+                          _displaySeasonRankForEntries(entries, index),
                         );
                       },
                     ),
@@ -1213,12 +1427,8 @@ class _RankingScreenState extends State<RankingScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(fontWeight: FontWeight.w900),
       ),
-      child: Text(label),
+      child: Text(AppSettings.instance.translate(label)),
     );
-  }
-
-  int _displayRankForEntries(int index) {
-    return index + 1;
   }
 
   int _displayDailyRankForEntries(List<RankingEntry> entries, int index) {
@@ -1227,6 +1437,16 @@ class _RankingScreenState extends State<RankingScreen> {
     }
     if (entries[index].dailyWins == entries[index - 1].dailyWins) {
       return _displayDailyRankForEntries(entries, index - 1);
+    }
+    return index + 1;
+  }
+
+  int _displaySeasonRankForEntries(List<RankingEntry> entries, int index) {
+    if (index <= 0) {
+      return 1;
+    }
+    if (entries[index].rating == entries[index - 1].rating) {
+      return _displaySeasonRankForEntries(entries, index - 1);
     }
     return index + 1;
   }
@@ -1266,7 +1486,7 @@ class _RankingPageTitle extends StatelessWidget {
           ),
         ),
         Text(
-          title,
+          AppSettings.instance.translate(title),
           style: const TextStyle(
             color: Colors.white,
             fontSize: 18,

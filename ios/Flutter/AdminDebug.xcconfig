@@ -1,6 +1,0 @@
-#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.admindebug.xcconfig"
-#include "Generated.xcconfig"
-
-FLUTTER_TARGET=lib/main_admin.dart
-APP_DISPLAY_NAME=ヘキサゴン 管理
-GAD_APPLICATION_IDENTIFIER=ca-app-pub-3940256099942544~1458002511

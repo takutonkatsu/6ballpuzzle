@@ -6,7 +6,9 @@ import '../app_settings.dart';
 import '../audio/sfx.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
+import '../game/components/ball_component.dart';
 import '../game/gacha_manager.dart';
+import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import 'components/gacha_animation_screen.dart';
 import 'components/hexagon_grid_background.dart';
@@ -25,6 +27,8 @@ class _ShopScreenState extends State<ShopScreen> {
   static const Color _shopPanelColor = GameThemeColors.surface;
   static const Color _shopPanelAccent = GameThemeColors.cyan;
   static const Color _shopPanelAccentStrong = Color(0xFFEAF6FF);
+  static const int _dailyShopItemPrice = 15000;
+  static const int _permanentShopItemPrice = 500000;
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final GachaManager _gachaManager = GachaManager.instance;
@@ -265,17 +269,28 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   int _priceFor(GameItem item) {
-    return 15000;
+    if (GameItemCatalog.permanentShopItems
+        .any((shopItem) => shopItem.id == item.id)) {
+      return _permanentShopItemPrice;
+    }
+    return _dailyShopItemPrice;
   }
 
   Color _colorFor(GameItem item) {
-    if (item.type == ItemType.frame) {
-      return _colorFromFrameName(item.colorName);
-    }
     return GameThemeColors.cyan;
   }
 
+  Color _iconColorFor(GameItem item) {
+    if (item.type == ItemType.frame) {
+      return _colorFromFrameName(item.colorName);
+    }
+    return _colorFor(item);
+  }
+
   String _subtitleFor(GameItem item) {
+    if (item.id == 'skin_luxury_prism') {
+      return 'ボールスキン / 演出つき';
+    }
     switch (item.type) {
       case ItemType.stamp:
         return '対戦スタンプ';
@@ -288,6 +303,13 @@ class _ShopScreenState extends State<ShopScreen> {
       case ItemType.vfx:
         return '演出データ';
     }
+  }
+
+  String _detailFor(GameItem item) {
+    if (item.id == 'skin_luxury_prism') {
+      return 'コレクションアイテム';
+    }
+    return item.isStamp ? '重複時は強化' : 'コレクションアイテム';
   }
 
   String _grantResultMessage(ItemGrantResult grantResult) {
@@ -413,19 +435,16 @@ class _ShopScreenState extends State<ShopScreen> {
                       _buildGachaPanel(adsRemoved: adsRemoved),
                       const SizedBox(height: 32),
 
+                      _sectionTitle('限定コレクション'),
+                      for (final item
+                          in GameItemCatalog.permanentShopItems) ...[
+                        _buildItemCard(item),
+                        const SizedBox(height: 16),
+                      ],
+                      const SizedBox(height: 20),
+
                       // Direct Buy Shop
-                      const Padding(
-                        padding: EdgeInsets.only(left: 8, bottom: 12),
-                        child: Text(
-                          '本日のショップ',
-                          style: TextStyle(
-                            color: GameThemeColors.cyan,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                      ),
+                      _sectionTitle('デイリーセール'),
                       for (final item in _items) ...[
                         _buildItemCard(item),
                         const SizedBox(height: 16),
@@ -439,8 +458,24 @@ class _ShopScreenState extends State<ShopScreen> {
     );
   }
 
+  Widget _sectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, bottom: 12),
+      child: Text(
+        title,
+        style: const TextStyle(
+          color: GameThemeColors.cyan,
+          fontWeight: FontWeight.w900,
+          fontSize: 16,
+          letterSpacing: 1,
+        ),
+      ),
+    );
+  }
+
   Widget _buildItemCard(GameItem item) {
     final accent = _colorFor(item);
+    final iconAccent = _iconColorFor(item);
     final canBuy = _canBuy(item);
     return Container(
       padding: const EdgeInsets.all(16),
@@ -460,14 +495,10 @@ class _ShopScreenState extends State<ShopScreen> {
             decoration: BoxDecoration(
               color: accent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: accent.withValues(alpha: 0.5)),
+              border: Border.all(color: iconAccent.withValues(alpha: 0.7)),
             ),
             child: Center(
-              child: Icon(
-                _iconForItem(item),
-                color: accent,
-                size: 32,
-              ),
+              child: _itemIconWidget(item, iconAccent),
             ),
           ),
           const SizedBox(width: 16),
@@ -495,7 +526,7 @@ class _ShopScreenState extends State<ShopScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.isStamp ? '重複時は強化' : 'コレクションアイテム',
+                  _detailFor(item),
                   style: const TextStyle(
                     color: Colors.white54,
                     fontSize: 10,
@@ -720,7 +751,7 @@ class _ShopScreenState extends State<ShopScreen> {
   IconData _iconForItem(GameItem item) {
     switch (item.type) {
       case ItemType.skin:
-        return Icons.palette;
+        return Icons.circle;
       case ItemType.icon:
         return switch (item.iconName) {
           'bolt' => Icons.bolt,
@@ -765,6 +796,46 @@ class _ShopScreenState extends State<ShopScreen> {
           _ => Icons.chat_bubble,
         };
     }
+  }
+
+  Widget _itemIconWidget(GameItem item, Color iconAccent) {
+    if (item.type == ItemType.skin) {
+      return SizedBox(
+        width: 34,
+        height: 34,
+        child: MiniBallWidget(
+          ballColor: BallColor.blue,
+          size: 34,
+          showOuterGlow: false,
+          ballSkinId: item.id,
+        ),
+      );
+    }
+    if (item.type == ItemType.frame && item.colorName == 'rainbow') {
+      return Container(
+        width: 32,
+        height: 32,
+        padding: const EdgeInsets.all(4),
+        decoration: const BoxDecoration(
+          shape: BoxShape.rectangle,
+          gradient: SweepGradient(
+            colors: [
+              Color(0xFFFF4D6D),
+              Color(0xFFFFD54A),
+              Color(0xFF35F0FF),
+              Color(0xFFB91DFF),
+              Color(0xFFFF4D6D),
+            ],
+          ),
+        ),
+        child: Container(color: _shopPanelColor),
+      );
+    }
+    return Icon(
+      _iconForItem(item),
+      color: iconAccent,
+      size: 32,
+    );
   }
 
   Widget _coinBadge() {
@@ -816,6 +887,7 @@ class _ShopScreenState extends State<ShopScreen> {
       'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
       'black' => Colors.white70,
+      'rainbow' => const Color(0xFFFFD54A),
       _ => GameThemeColors.cyan,
     };
   }
@@ -845,7 +917,7 @@ class _ShopPageTitle extends StatelessWidget {
           ),
         ),
         Text(
-          title,
+          AppSettings.instance.translate(title),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w900,

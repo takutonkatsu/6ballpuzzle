@@ -33,7 +33,7 @@
         ".read": "auth != null",
         ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"],
         "$uid": {
-          ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('publicId').exists() && data.child('publicId').val() === root.child('rankings/global/' + auth.uid + '/publicId').val()))"
+          ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('publicId').exists() && data.child('publicId').val() === root.child('rankings/global/' + auth.uid + '/publicId').val())) && (!root.child('adminRatingLocks/' + $uid + '/rating').exists() || !newData.child('rating').exists() || newData.child('rating').val() === root.child('adminRatingLocks/' + $uid + '/rating').val())"
         }
       }
     },
@@ -47,10 +47,13 @@
           "rankings": {
             ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"],
             "$uid": {
-              ".write": "auth != null && auth.uid === $uid"
+              ".write": "auth != null && auth.uid === $uid && (!root.child('adminRatingLocks/' + $uid + '/rating').exists() || !newData.child('rating').exists() || newData.child('rating').val() === root.child('adminRatingLocks/' + $uid + '/rating').val())"
             }
           },
           "finalTop100": {
+            ".write": "auth != null"
+          },
+          "finalTop100SchemaVersion": {
             ".write": "auth != null"
           },
           "finalized": {
@@ -89,6 +92,10 @@
       ".read": false,
       ".write": false
     },
+    "adminRatingLocks": {
+      ".read": false,
+      ".write": false
+    },
     "adminGrants": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
@@ -102,6 +109,19 @@
       ".indexOn": ["publicId", "displayName", "updatedAt", "recordDate"],
       "$uid": {
         ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "publicProfiles": {
+      ".read": "auth != null",
+      ".indexOn": ["publicId", "displayName", "updatedAt"],
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "dailyGlobalStats": {
+      ".read": false,
+      "$date": {
+        ".write": "auth != null"
       }
     },
     "playerNameLookup": {

@@ -446,7 +446,7 @@ class MissionManager {
       'rewarded_ad_views' => max(0, prefs.getInt(_rewardedAdViewCountKey) ?? 0),
       'total_login_days' => _playerData.totalLoginDays,
       'highest_rating' => _playerData.highestRating,
-      'daily_win_rank_1' => _playerData.dailyWinRankPlacements['1位'] ?? 0,
+      'daily_win_rank_1' => _dailyWinRankFirstPlaceCount(),
       'waza_hexagon' => _playerData.wazaCounts['hexagon'] ?? 0,
       'waza_pyramid' => _playerData.wazaCounts['pyramid'] ?? 0,
       'waza_straight' => _playerData.wazaCounts['straight'] ?? 0,
@@ -458,6 +458,17 @@ class MissionManager {
   bool _isHiddenRegularMission(RegularMissionDefinition definition) {
     return adsRemovedBenefitsEnabled &&
         definition.progressKey == 'rewarded_ad_views';
+  }
+
+  int _dailyWinRankFirstPlaceCount() {
+    var total = 0;
+    for (final entry in _playerData.dailyWinRankPlacements.entries) {
+      final key = entry.key.trim();
+      if (key == '1位' || key == '1' || key == 'rank1' || key == 'first') {
+        total += entry.value;
+      }
+    }
+    return total;
   }
 
   int _indexOfMission(List<Map<String, dynamic>> missions, String missionId) =>

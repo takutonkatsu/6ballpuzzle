@@ -68,6 +68,15 @@
       ".write": true,
       ".indexOn": ["publicId", "displayName", "updatedAt", "recordDate"]
     },
+    "publicProfiles": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["publicId", "displayName", "updatedAt"]
+    },
+    "dailyGlobalStats": {
+      ".read": true,
+      ".write": true
+    },
     "playerNameLookup": {
       ".read": true,
       ".write": true

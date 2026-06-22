@@ -1,7 +1,7 @@
 
-# six_ball_puzzle
+# Hexagon Puzzle
 
-A new Flutter project.
+Hexagon puzzle battle game.
 
 ## Firebase flavor
 
@@ -11,28 +11,6 @@ Firebaseの接続先は `--dart-define=FLAVOR=...` で切り替わります。
 - 本番APKビルド時: `flutter build apk --release --dart-define=FLAVOR=prod`
 - `prod` 以外のビルドではデバッグメニューは自動で有効
 - 本番ビルドでも一時的に有効化したい場合: `--dart-define=ENABLE_DEBUG_MENU=true`
-
-## Admin / spectator build
-
-管理・観戦専用アプリは `lib/main_admin.dart` から起動します。prod Realtime Databaseを読むだけの画面で、通常プレイ、マッチング参加、READY送信、盤面送信、結果送信は起動しません。
-
-```bash
-flutter run -t lib/main_admin.dart --dart-define=FLAVOR=prod
-```
-
-Android端末へ有線で入れる場合:
-
-```bash
-flutter build apk --debug -t lib/main_admin.dart --dart-define=FLAVOR=prod
-adb install -r build/app/outputs/flutter-apk/app-debug.apk
-```
-
-iPhoneへ有線で入れる場合は、Xcodeまたは `flutter run` でターゲット端末を選び、同じく `-t lib/main_admin.dart --dart-define=FLAVOR=prod` を指定します。
-
-注意:
-
-- 現状は既存のFirebaseネイティブ設定を壊さないため、AndroidのアプリIDは通常版と同じです。同じ端末に通常版と同時に入れたい場合は、Firebase Consoleで別のAndroid/iOSアプリIDを登録し、対応する `google-services.json` / `GoogleService-Info.plist` を追加してからネイティブの別ターゲット化を行ってください。
-- 管理アプリ側では `playerRecordSummaries`、`rankings`、`rankedSeasons`、`rooms` を読み取り対象にします。既存DBルールや既存データ構造は変更しません。
 
 ## App Store release defines
 

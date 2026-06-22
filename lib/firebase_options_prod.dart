@@ -74,14 +74,14 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyDZpxxumudwoXtj2ja2iUI274tAn1lTUTo',
-    appId: '1:599331155949:ios:319666fdce2a48bdee81e4',
-    messagingSenderId: '599331155949',
-    projectId: 'hexagon-puzzle-prod',
+    apiKey: 'AIzaSyB2Pr_xHU5E6qagt1A1j3U3i4GkcGEfOEA',
+    appId: '1:92968589553:ios:c2c67d4b11deffcc3b3150',
+    messagingSenderId: '92968589553',
+    projectId: 'hexagon-puzzle-prod-e811c',
     databaseURL:
-        'https://hexagon-puzzle-prod-default-rtdb.asia-southeast1.firebasedatabase.app',
-    storageBucket: 'hexagon-puzzle-prod.firebasestorage.app',
-    iosBundleId: 'com.example.sixBallPuzzle',
+        'https://hexagon-puzzle-prod-e811c-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'hexagon-puzzle-prod-e811c.firebasestorage.app',
+    iosBundleId: 'com.takutonkatsu.hexagon',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(

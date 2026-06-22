@@ -7,6 +7,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
+import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
 import '../game/game_models.dart';
@@ -48,6 +49,7 @@ class MultiplayerPlayer {
     this.badgeIds = const [],
     this.playerIconId = 'default',
     this.playerIconFrameId = 'default',
+    this.ballSkinId = 'default',
   });
 
   final String status;
@@ -58,6 +60,7 @@ class MultiplayerPlayer {
   final List<String> badgeIds;
   final String playerIconId;
   final String playerIconFrameId;
+  final String ballSkinId;
 
   factory MultiplayerPlayer.fromMap(Map<dynamic, dynamic>? data) {
     return MultiplayerPlayer(
@@ -75,6 +78,9 @@ class MultiplayerPlayer {
           ((data?['playerIconFrameId']?.toString() ?? '').trim()).isNotEmpty
               ? data!['playerIconFrameId'].toString().trim()
               : 'default',
+      ballSkinId: ((data?['ballSkinId']?.toString() ?? '').trim()).isNotEmpty
+          ? data!['ballSkinId'].toString().trim()
+          : 'default',
     );
   }
 
@@ -267,6 +273,8 @@ class MultiplayerManager {
   static const int rankedBotRatingLeadOffset = 300;
   static const int rankedBotRatingLeadVariance = 40;
   static const int rankedBotStrengthMinRating = 700;
+  static const int rankedMatchmakingInitialRange = 50;
+  static const int rankedMatchmakingRangeGrowthPerSecond = 50;
   static const Duration rankedBotTopRatingTimeout = Duration(seconds: 3);
   static const Duration matchmakingDatabaseOperationTimeout =
       Duration(seconds: 5);
@@ -287,10 +295,14 @@ class MultiplayerManager {
   bool isRankedMode = false;
   int? rankedBotRating;
   CPUDifficulty? rankedBotDifficulty;
+  String rankedBotIconId = 'default';
+  String rankedBotFrameId = 'default';
   String? rankedBotSeasonId;
   int? rankedBotSeasonEndsAt;
 
   StreamSubscription<DatabaseEvent>? _roomSubscription;
+  StreamSubscription<DatabaseEvent>? _roomStatusSubscription;
+  StreamSubscription<DatabaseEvent>? _myStatusSubscription;
   StreamSubscription<DatabaseEvent>? _opponentBoardSubscription;
   StreamSubscription<DatabaseEvent>? _opponentPieceSubscription;
   StreamSubscription<DatabaseEvent>? _attackSubscription;
@@ -356,6 +368,12 @@ class MultiplayerManager {
     return frameId.isEmpty ? 'default' : frameId;
   }
 
+  Future<String> _currentEquippedBallSkinId() async {
+    await PlayerDataManager.instance.load();
+    final skinId = PlayerDataManager.instance.equippedBallSkinId.trim();
+    return skinId.isEmpty ? 'default' : skinId;
+  }
+
   Future<Map<String, Object?>> _buildPlayerPayload({
     required String status,
     int? rating,
@@ -363,6 +381,7 @@ class MultiplayerManager {
     final badgeIds = await _currentEquippedBadgeIds();
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
+    final ballSkinId = await _currentEquippedBallSkinId();
     return {
       'status': status,
       'name': displayPlayerName,
@@ -372,6 +391,7 @@ class MultiplayerManager {
       'badgeIds': badgeIds,
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
+      'ballSkinId': ballSkinId,
     };
   }
 
@@ -383,15 +403,21 @@ class MultiplayerManager {
 
     final uid = await _loadAuthenticatedUid();
     myUid = uid;
+    await PlayerDataManager.instance.load();
+    final localRating = PlayerDataManager.instance.currentRating;
+    final hasLocalSeason =
+        PlayerDataManager.instance.rankedSeasonId.trim().isNotEmpty;
+    currentRating = localRating;
 
     try {
       final userRef = _db.child('users/$uid');
       final snapshot =
           await userRef.get().timeout(matchmakingDatabaseOperationTimeout);
       final userData = snapshot.value is Map ? snapshot.value as Map : null;
-      final syncedRating = _intValue(userData?['rating']) ?? currentRating;
+      final remoteRating = _intValue(userData?['rating']);
+      final syncedRating =
+          hasLocalSeason ? localRating : (remoteRating ?? localRating);
       currentRating = syncedRating;
-      await PlayerDataManager.instance.load();
       final hasSavedName =
           PlayerDataManager.instance.playerName.trim().isNotEmpty;
       if (!hasProvidedName && !hasSavedName) {
@@ -400,6 +426,7 @@ class MultiplayerManager {
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
       final playerIconFrameId = await _currentEquippedIconFrameId();
+      final ballSkinId = await _currentEquippedBallSkinId();
       await userRef.update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
@@ -407,6 +434,7 @@ class MultiplayerManager {
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
         'playerIconFrameId': playerIconFrameId,
+        'ballSkinId': ballSkinId,
         'updatedAt': ServerValue.timestamp,
       }).timeout(matchmakingDatabaseOperationTimeout);
     } on TimeoutException {
@@ -426,6 +454,7 @@ class MultiplayerManager {
     final badgeIds = await _currentEquippedBadgeIds();
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
+    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('users/$uid').update({
       'name': displayPlayerName,
       'publicId': PlayerDataManager.instance.playerId,
@@ -433,6 +462,7 @@ class MultiplayerManager {
       'badgeIds': badgeIds,
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
+      'ballSkinId': ballSkinId,
       'updatedAt': ServerValue.timestamp,
     }).timeout(matchmakingDatabaseOperationTimeout);
     final roomId = currentRoomId;
@@ -445,6 +475,7 @@ class MultiplayerManager {
           'badgeIds': badgeIds,
           'playerIconId': playerIconId,
           'playerIconFrameId': playerIconFrameId,
+          'ballSkinId': ballSkinId,
           'updatedAt': ServerValue.timestamp,
         }).timeout(matchmakingDatabaseOperationTimeout);
       } catch (_) {
@@ -487,6 +518,7 @@ class MultiplayerManager {
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
       final playerIconFrameId = await _currentEquippedIconFrameId();
+      final ballSkinId = await _currentEquippedBallSkinId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
@@ -494,6 +526,7 @@ class MultiplayerManager {
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
         'playerIconFrameId': playerIconFrameId,
+        'ballSkinId': ballSkinId,
         'updatedAt': ServerValue.timestamp,
       });
 
@@ -552,12 +585,14 @@ class MultiplayerManager {
     final badgeIds = await _currentEquippedBadgeIds();
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
+    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('users/$uid').update({
       'name': displayPlayerName,
       'rating': newRating,
       'badgeIds': badgeIds,
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
+      'ballSkinId': ballSkinId,
       'updatedAt': ServerValue.timestamp,
     });
 
@@ -759,6 +794,8 @@ class MultiplayerManager {
     currentRating = myRating;
     rankedBotRating = null;
     rankedBotDifficulty = null;
+    rankedBotIconId = 'default';
+    rankedBotFrameId = 'default';
     rankedBotSeasonId = null;
     rankedBotSeasonEndsAt = null;
     _isMatchFound = false;
@@ -957,6 +994,7 @@ class MultiplayerManager {
       }
 
       final range = _currentMatchmakingRange();
+      final now = DateTime.now().millisecondsSinceEpoch;
       final candidates = <_MatchmakingCandidate>[];
       for (final entry in rawPlayers.entries) {
         final opponentUid = entry.key.toString();
@@ -985,7 +1023,12 @@ class MultiplayerManager {
         }
 
         final rating = _intValue(data['rating']);
-        if (rating == null || (rating - myRating).abs() > range) {
+        if (rating == null) {
+          continue;
+        }
+        final ratingDistance = (rating - myRating).abs();
+        final opponentRange = _matchmakingRangeForEntry(data, now);
+        if (ratingDistance > range || ratingDistance > opponentRange) {
           continue;
         }
 
@@ -1134,7 +1177,25 @@ class MultiplayerManager {
       playerRating: myRating,
       topRating: topRating,
     );
+    rankedBotIconId = _randomRankedBotIconId();
+    rankedBotFrameId = _randomRankedBotFrameId();
     completer.complete(rankedBotRoomId);
+  }
+
+  String _randomRankedBotIconId() {
+    const icons = GameItemCatalog.playerIcons;
+    if (icons.isEmpty) {
+      return 'default';
+    }
+    return icons[_random.nextInt(icons.length)].id;
+  }
+
+  String _randomRankedBotFrameId() {
+    const frames = GameItemCatalog.iconFrames;
+    if (frames.isEmpty) {
+      return 'default';
+    }
+    return frames[_random.nextInt(frames.length)].id;
   }
 
   Future<int> _loadTopRankingRating() async {
@@ -1418,6 +1479,7 @@ class MultiplayerManager {
   Future<void> _writeWaitingMatchmakingEntry(String uid, int myRating) async {
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
+    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
@@ -1426,6 +1488,7 @@ class MultiplayerManager {
       'name': displayPlayerName,
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
+      'ballSkinId': ballSkinId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1437,6 +1500,7 @@ class MultiplayerManager {
   ) async {
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
+    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('arena_matchmaking/$uid').set({
       'status': 'waiting',
       'wins': currentWins,
@@ -1445,6 +1509,7 @@ class MultiplayerManager {
       'name': displayPlayerName,
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
+      'ballSkinId': ballSkinId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1457,11 +1522,13 @@ class MultiplayerManager {
     try {
       final playerIconId = await _currentEquippedPlayerIconId();
       final playerIconFrameId = await _currentEquippedIconFrameId();
+      final ballSkinId = await _currentEquippedBallSkinId();
       await _db.child('matchmaking/$uid').update({
         'rating': myRating,
         'name': displayPlayerName,
         'playerIconId': playerIconId,
         'playerIconFrameId': playerIconFrameId,
+        'ballSkinId': ballSkinId,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -1476,11 +1543,13 @@ class MultiplayerManager {
     try {
       final playerIconId = await _currentEquippedPlayerIconId();
       final playerIconFrameId = await _currentEquippedIconFrameId();
+      final ballSkinId = await _currentEquippedBallSkinId();
       await _db.child('arena_matchmaking/$uid').update({
         'wins': currentWins,
         'name': displayPlayerName,
         'playerIconId': playerIconId,
         'playerIconFrameId': playerIconFrameId,
+        'ballSkinId': ballSkinId,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -1572,7 +1641,12 @@ class MultiplayerManager {
       }
 
       final opponentRating = _intValue(currentValue['rating']);
-      if (opponentRating == null || (opponentRating - myRating).abs() > range) {
+      if (opponentRating == null) {
+        return false;
+      }
+      final ratingDistance = (opponentRating - myRating).abs();
+      final opponentRange = _matchmakingRangeForEntry(currentValue, now);
+      if (ratingDistance > range || ratingDistance > opponentRange) {
         return false;
       }
 
@@ -1670,6 +1744,7 @@ class MultiplayerManager {
 
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
+    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
@@ -1678,6 +1753,7 @@ class MultiplayerManager {
       'name': displayPlayerName,
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
+      'ballSkinId': ballSkinId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1693,6 +1769,7 @@ class MultiplayerManager {
 
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
+    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('arena_matchmaking/$uid').set({
       'status': 'waiting',
       'wins': currentWins,
@@ -1701,6 +1778,7 @@ class MultiplayerManager {
       'name': displayPlayerName,
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
+      'ballSkinId': ballSkinId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1859,6 +1937,8 @@ class MultiplayerManager {
     final roleId = myRoleId;
 
     _roomSubscription?.cancel();
+    _roomStatusSubscription?.cancel();
+    _myStatusSubscription?.cancel();
     _opponentBoardSubscription?.cancel();
     _opponentPieceSubscription?.cancel();
     _attackSubscription?.cancel();
@@ -1866,6 +1946,8 @@ class MultiplayerManager {
     _opponentOjamaSpawnSubscription?.cancel();
     _opponentStatusSubscription?.cancel();
     _roomSubscription = null;
+    _roomStatusSubscription = null;
+    _myStatusSubscription = null;
     _opponentBoardSubscription = null;
     _opponentPieceSubscription = null;
     _attackSubscription = null;
@@ -1954,13 +2036,25 @@ class MultiplayerManager {
   int _currentMatchmakingRange() {
     final startedAt = _matchmakingStartedAt;
     if (startedAt == null) {
-      return 100;
+      return rankedMatchmakingInitialRange;
     }
     final elapsedSeconds = DateTime.now().difference(startedAt).inSeconds;
-    if (elapsedSeconds >= 10) {
-      return 1 << 30;
+    return _rankedMatchmakingRangeForElapsedSeconds(elapsedSeconds);
+  }
+
+  int _matchmakingRangeForEntry(Map data, int nowMilliseconds) {
+    final joinedAt =
+        _intValue(data['joinedAt']) ?? _intValue(data['timestamp']);
+    if (joinedAt == null) {
+      return rankedMatchmakingInitialRange;
     }
-    return 100 + (elapsedSeconds * 100);
+    final elapsedSeconds = max(0, nowMilliseconds - joinedAt) ~/ 1000;
+    return _rankedMatchmakingRangeForElapsedSeconds(elapsedSeconds);
+  }
+
+  int _rankedMatchmakingRangeForElapsedSeconds(int elapsedSeconds) {
+    return rankedMatchmakingInitialRange +
+        (max(0, elapsedSeconds) * rankedMatchmakingRangeGrowthPerSecond);
   }
 
   bool _isFreshMatchmakingEntry(Map data) {
@@ -2060,6 +2154,8 @@ class MultiplayerManager {
       snapshot: {
         'opponentRating': opponentRating,
         'opponentName': 'Player',
+        'opponentIconId': rankedBotIconId,
+        'opponentFrameId': rankedBotFrameId,
         if (rankedBotSeasonId != null) 'seasonId': rankedBotSeasonId,
         if (rankedBotSeasonEndsAt != null)
           'seasonEndsAt': rankedBotSeasonEndsAt,
@@ -2246,15 +2342,6 @@ class MultiplayerManager {
   Future<SavedSessionResolution> _resolveAbandonedRankedBotSession(
     SavedOnlineSession session,
   ) async {
-    if (session.snapshot?['resultKnown'] == true) {
-      return SavedSessionResolution(
-        session: session,
-        isResolved: true,
-        isWin: session.snapshot?['isWin'] == true,
-        newRating: await _loadLatestUserRating(),
-      );
-    }
-
     final opponentRating = _intValue(session.snapshot?['opponentRating']) ??
         rankedBotMinimumMaxRating;
     final opponentName =
@@ -2270,9 +2357,11 @@ class MultiplayerManager {
     final seasonExpired = sessionSeasonId != null &&
         sessionSeasonId.isNotEmpty &&
         sessionSeasonId != currentSeasonId;
+    final resultKnown = session.snapshot?['resultKnown'] == true;
+    final isWin = resultKnown ? (session.snapshot?['isWin'] == true) : false;
     final newRating = seasonExpired
         ? oldRating
-        : calculateNewRating(oldRating, opponentRating, false);
+        : calculateNewRating(oldRating, opponentRating, isWin);
     final delta = newRating - oldRating;
     currentRating = newRating;
 
@@ -2280,6 +2369,7 @@ class MultiplayerManager {
       final badgeIds = await _currentEquippedBadgeIds();
       final playerIconId = await _currentEquippedPlayerIconId();
       final playerIconFrameId = await _currentEquippedIconFrameId();
+      final ballSkinId = await _currentEquippedBallSkinId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
@@ -2287,6 +2377,7 @@ class MultiplayerManager {
         'badgeIds': badgeIds,
         'playerIconId': playerIconId,
         'playerIconFrameId': playerIconFrameId,
+        'ballSkinId': ballSkinId,
         'updatedAt': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -2296,12 +2387,12 @@ class MultiplayerManager {
     return SavedSessionResolution(
       session: session,
       isResolved: true,
-      isWin: false,
+      isWin: isWin,
       oldRating: oldRating,
       newRating: newRating,
       ratingDelta: delta,
       opponentName: opponentName,
-      wasAbandoned: true,
+      wasAbandoned: !resultKnown,
       wasOfflineDisconnect: session.snapshot?['abandonReason'] == 'offline',
     );
   }
@@ -2414,6 +2505,7 @@ class MultiplayerManager {
       'badgeIds': await _currentEquippedBadgeIds(),
       'playerIconId': await _currentEquippedPlayerIconId(),
       'playerIconFrameId': await _currentEquippedIconFrameId(),
+      'ballSkinId': await _currentEquippedBallSkinId(),
       if (restoredStatus != null) 'status': restoredStatus,
       'reconnectedAt': ServerValue.timestamp,
     });
@@ -2581,6 +2673,10 @@ class MultiplayerManager {
     bool movingLeft,
     bool movingRight,
     double contactSlideDirection,
+    double relativeX,
+    double relativeY,
+    String ballSkinId,
+    List<Map<String, dynamic>>? lockedCells,
   ) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
@@ -2593,6 +2689,8 @@ class MultiplayerManager {
         'action': action,
         'x': x,
         'y': y,
+        'relativeX': relativeX,
+        'relativeY': relativeY,
         'rotation': rotation,
         'colors': colors.map((color) => color.index).toList(),
         'dropSeed': dropSeed,
@@ -2600,6 +2698,9 @@ class MultiplayerManager {
         'movingLeft': movingLeft,
         'movingRight': movingRight,
         'contactSlideDirection': contactSlideDirection,
+        'ballSkinId': ballSkinId,
+        if (lockedCells != null && lockedCells.isNotEmpty)
+          'lockedCells': lockedCells,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException catch (error) {
@@ -2619,6 +2720,8 @@ class MultiplayerManager {
       'type': task.type.name,
       'startColor': task.startColor?.index,
       'presetColors': task.presetColors?.map((color) => color.index).toList(),
+      'ballSkinId': task.ballSkinId,
+      'effectSkinId': task.effectSkinId,
       'timestamp': ServerValue.timestamp,
     };
     try {
@@ -2712,12 +2815,14 @@ class MultiplayerManager {
         'endedAt': ServerValue.timestamp,
         'updatedAt': ServerValue.timestamp,
       });
-      unawaited(
-        _removeRoomIfFinishedAfterDelay(
-          roomId,
-          const Duration(seconds: 5),
-        ),
-      );
+      if (isRankedMode || (currentRoom?.isRanked ?? false)) {
+        unawaited(
+          _removeRoomIfFinishedAfterDelay(
+            roomId,
+            const Duration(seconds: 5),
+          ),
+        );
+      }
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('ゲーム終了送信', error));
     }
@@ -2741,12 +2846,14 @@ class MultiplayerManager {
         'endedAt': ServerValue.timestamp,
         'updatedAt': ServerValue.timestamp,
       });
-      unawaited(
-        _removeRoomIfFinishedAfterDelay(
-          roomId,
-          const Duration(seconds: 5),
-        ),
-      );
+      if (isRankedMode || (currentRoom?.isRanked ?? false)) {
+        unawaited(
+          _removeRoomIfFinishedAfterDelay(
+            roomId,
+            const Duration(seconds: 5),
+          ),
+        );
+      }
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('相手側ゲーム終了確定', error));
     }
@@ -2875,6 +2982,8 @@ class MultiplayerManager {
 
   void _listenRoom() {
     _roomSubscription?.cancel();
+    _roomStatusSubscription?.cancel();
+    _myStatusSubscription?.cancel();
 
     final roomId = currentRoomId;
     if (roomId == null) {
@@ -2923,7 +3032,165 @@ class MultiplayerManager {
         _lastRoomUiSignature = nextRoomUiSignature;
         onRoomUpdated?.call(room);
       }
+      if (room.status == 'playing') {
+        _switchToLightweightRoomListeners();
+      }
     });
+  }
+
+  void _switchToLightweightRoomListeners() {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      return;
+    }
+    _roomSubscription?.cancel();
+    _roomSubscription = null;
+    _roomStatusSubscription?.cancel();
+    _myStatusSubscription?.cancel();
+
+    _roomStatusSubscription =
+        _db.child('rooms/$roomId/status').onValue.listen((event) {
+      final status = event.snapshot.value?.toString();
+      if (status == null || status.isEmpty) {
+        _handleRoomDeleted();
+        return;
+      }
+      _applyRoomStatusUpdate(status);
+    });
+
+    _myStatusSubscription =
+        _db.child('rooms/$roomId/players/$roleId/status').onValue.listen(
+      (event) {
+        final status = event.snapshot.value?.toString();
+        if (status != null && status.isNotEmpty) {
+          _applyPlayerStatusUpdate(roleId, status);
+        }
+      },
+    );
+  }
+
+  void _handleRoomDeleted() {
+    if (_hadOpponentPresent) {
+      _notifyOpponentDisconnected();
+    }
+    currentRoom = null;
+    _lastRoomStatus = null;
+    _lastRoomUiSignature = null;
+    _hadOpponentPresent = false;
+  }
+
+  void _applyRoomStatusUpdate(String status) {
+    final previousStatus = _lastRoomStatus;
+    final room = currentRoom;
+    if (room == null) {
+      _lastRoomStatus = status;
+      return;
+    }
+    final nextRoom = MultiplayerRoom(
+      roomId: room.roomId,
+      status: status,
+      seed: room.seed,
+      players: room.players,
+      isRanked: room.isRanked,
+      seasonId: room.seasonId,
+      seasonEndsAt: room.seasonEndsAt,
+    );
+    currentRoom = nextRoom;
+    _lastRoomStatus = status;
+    unawaited(_refreshPresenceModeIfNeeded());
+    if (previousStatus == 'game_over' && status == 'playing') {
+      unawaited(_notifyRematchStartedWithLatestSeed(nextRoom.roomId));
+    }
+    final nextRoomUiSignature = _roomUiSignature(nextRoom);
+    if (_lastRoomUiSignature != nextRoomUiSignature) {
+      _lastRoomUiSignature = nextRoomUiSignature;
+      onRoomUpdated?.call(nextRoom);
+    }
+    if (status == 'game_over' && !isRankedMode && !(nextRoom.isRanked)) {
+      _listenRoom();
+    }
+  }
+
+  void _applyPlayerStatusUpdate(String roleId, String status) {
+    final room = currentRoom;
+    if (room == null) {
+      return;
+    }
+    final previousPlayer = room.players[roleId];
+    if (previousPlayer == null || previousPlayer.status == status) {
+      return;
+    }
+    final players = Map<String, MultiplayerPlayer>.from(room.players);
+    players[roleId] = MultiplayerPlayer(
+      status: status,
+      name: previousPlayer.name,
+      uid: previousPlayer.uid,
+      publicId: previousPlayer.publicId,
+      rating: previousPlayer.rating,
+      badgeIds: previousPlayer.badgeIds,
+      playerIconId: previousPlayer.playerIconId,
+      playerIconFrameId: previousPlayer.playerIconFrameId,
+      ballSkinId: previousPlayer.ballSkinId,
+    );
+    final nextRoom = MultiplayerRoom(
+      roomId: room.roomId,
+      status: room.status,
+      seed: room.seed,
+      players: players,
+      isRanked: room.isRanked,
+      seasonId: room.seasonId,
+      seasonEndsAt: room.seasonEndsAt,
+    );
+    currentRoom = nextRoom;
+    final opponentPresent = nextRoom.players.containsKey(opponentRoleId);
+    final opponentLeft = nextRoom.players[opponentRoleId]?.status == 'left';
+    if (_hadOpponentPresent && (!opponentPresent || opponentLeft)) {
+      _notifyOpponentDisconnected();
+    } else if (opponentPresent && !opponentLeft) {
+      _opponentDisconnectNotified = false;
+    }
+    _hadOpponentPresent = opponentPresent;
+
+    if (nextRoom.bothPlayersRematchReady &&
+        isHost &&
+        nextRoom.status == 'game_over' &&
+        !_isLaunchingRematch) {
+      _isLaunchingRematch = true;
+      unawaited(_startRematch(nextRoom.roomId));
+    }
+
+    final nextRoomUiSignature = _roomUiSignature(nextRoom);
+    if (_lastRoomUiSignature != nextRoomUiSignature) {
+      _lastRoomUiSignature = nextRoomUiSignature;
+      onRoomUpdated?.call(nextRoom);
+    }
+  }
+
+  Future<void> _notifyRematchStartedWithLatestSeed(String roomId) async {
+    try {
+      final seedSnapshot = await _db.child('rooms/$roomId/seed').get();
+      final seed = _globalIntValue(seedSnapshot.value) ??
+          currentRoom?.seed ??
+          DateTime.now().millisecondsSinceEpoch;
+      final room = currentRoom;
+      if (room != null) {
+        currentRoom = MultiplayerRoom(
+          roomId: room.roomId,
+          status: room.status,
+          seed: seed,
+          players: room.players,
+          isRanked: room.isRanked,
+          seasonId: room.seasonId,
+          seasonEndsAt: room.seasonEndsAt,
+        );
+      }
+      onRematchStarted?.call(seed);
+    } catch (_) {
+      onRematchStarted?.call(
+        currentRoom?.seed ?? DateTime.now().millisecondsSinceEpoch,
+      );
+    }
   }
 
   String _roomUiSignature(MultiplayerRoom room) {
@@ -2956,6 +3223,8 @@ class MultiplayerManager {
         ..write(player.playerIconId)
         ..write(':')
         ..write(player.playerIconFrameId)
+        ..write(':')
+        ..write(player.ballSkinId)
         ..write(':')
         ..write(player.badgeIds.join(','));
     }
@@ -3031,6 +3300,8 @@ class MultiplayerManager {
                 ? BallColor.values[startColorIndex]
                 : null,
             presetColors: presetColors,
+            ballSkinId: value['ballSkinId']?.toString() ?? 'default',
+            effectSkinId: value['effectSkinId']?.toString(),
           );
         }
       }
@@ -3089,6 +3360,9 @@ class MultiplayerManager {
         .onValue
         .listen((event) {
       final status = event.snapshot.value as String?;
+      if (status != null && status.isNotEmpty) {
+        _applyPlayerStatusUpdate(opponentRoleId, status);
+      }
       if (status == 'dead') {
         onOpponentGameOver?.call();
       } else if (status == 'left') {
@@ -3109,6 +3383,8 @@ class MultiplayerManager {
 
   Future<void> suspendActiveSession() async {
     _roomSubscription?.cancel();
+    _roomStatusSubscription?.cancel();
+    _myStatusSubscription?.cancel();
     _opponentBoardSubscription?.cancel();
     _opponentPieceSubscription?.cancel();
     _attackSubscription?.cancel();
@@ -3116,6 +3392,8 @@ class MultiplayerManager {
     _opponentOjamaSpawnSubscription?.cancel();
     _opponentStatusSubscription?.cancel();
     _roomSubscription = null;
+    _roomStatusSubscription = null;
+    _myStatusSubscription = null;
     _opponentBoardSubscription = null;
     _opponentPieceSubscription = null;
     _attackSubscription = null;
@@ -3139,6 +3417,8 @@ class MultiplayerManager {
     final preserveRoom = forceRemove ? false : _shouldPreserveRoomOnDisconnect;
 
     _roomSubscription?.cancel();
+    _roomStatusSubscription?.cancel();
+    _myStatusSubscription?.cancel();
     _opponentBoardSubscription?.cancel();
     _opponentPieceSubscription?.cancel();
     _attackSubscription?.cancel();
@@ -3146,6 +3426,8 @@ class MultiplayerManager {
     _opponentOjamaSpawnSubscription?.cancel();
     _opponentStatusSubscription?.cancel();
     _roomSubscription = null;
+    _roomStatusSubscription = null;
+    _myStatusSubscription = null;
     _opponentBoardSubscription = null;
     _opponentPieceSubscription = null;
     _attackSubscription = null;
@@ -3260,9 +3542,6 @@ class MultiplayerManager {
   }
 
   Future<String> _loadAuthenticatedUid() async {
-    if (myUid != null) {
-      return myUid!;
-    }
     final uid = await AuthManager.instance.ensureSignedIn();
     myUid = uid;
     return uid;
@@ -3368,6 +3647,9 @@ class MultiplayerManager {
       if (task.startColor != null) 'startColor': task.startColor!.index,
       if (task.presetColors != null)
         'presetColors': task.presetColors!.map((color) => color.index).toList(),
+      if (task.ballSkinId != 'default') 'ballSkinId': task.ballSkinId,
+      if (task.effectSkinId != task.ballSkinId)
+        'effectSkinId': task.effectSkinId,
     };
   }
 
@@ -3412,6 +3694,8 @@ class MultiplayerManager {
           ? BallColor.values[startColorIndex]
           : null,
       presetColors: presetColors,
+      ballSkinId: data['ballSkinId']?.toString() ?? 'default',
+      effectSkinId: data['effectSkinId']?.toString(),
     );
   }
 }

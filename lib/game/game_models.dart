@@ -37,7 +37,15 @@ class OjamaTask {
   final OjamaType type;
   final BallColor? startColor;
   final List<BallColor>? presetColors;
-  OjamaTask(this.type, {this.startColor, this.presetColors});
+  final String ballSkinId;
+  final String effectSkinId;
+  OjamaTask(
+    this.type, {
+    this.startColor,
+    this.presetColors,
+    this.ballSkinId = 'default',
+    String? effectSkinId,
+  }) : effectSkinId = effectSkinId ?? ballSkinId;
 }
 
 class MoveOption {

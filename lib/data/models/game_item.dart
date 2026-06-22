@@ -587,7 +587,7 @@ class GameItemCatalog {
     ),
   ];
 
-  static const List<GameItem> iconFrames = [
+  static const List<GameItem> standardIconFrames = [
     GameItem(
       id: 'frame_red',
       name: '赤フレーム',
@@ -646,14 +646,42 @@ class GameItemCatalog {
     ),
   ];
 
-  static const List<GameItem> ballSkins = [];
+  static const List<GameItem> premiumIconFrames = [
+    GameItem(
+      id: 'frame_rainbow',
+      name: '虹色フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.legendary,
+      colorName: 'rainbow',
+    ),
+  ];
+
+  static const List<GameItem> iconFrames = [
+    ...standardIconFrames,
+    ...premiumIconFrames,
+  ];
+
+  static const List<GameItem> ballSkins = [
+    GameItem(
+      id: 'skin_luxury_prism',
+      name: 'プリズム',
+      type: ItemType.skin,
+      rarity: ItemRarity.legendary,
+      colorName: 'prism',
+    ),
+  ];
+
+  static const List<GameItem> permanentShopItems = [
+    ...premiumIconFrames,
+    ...ballSkins,
+  ];
 
   static const List<GameItem> legacyVfxItems = [];
 
   static const List<GameItem> gachaCommonPool = [
     ...commonStamps,
     ...playerIcons,
-    ...iconFrames,
+    ...standardIconFrames,
   ];
 
   static const List<GameItem> gachaRarePool = [];
@@ -676,7 +704,7 @@ class GameItemCatalog {
   static const List<GameItem> shopDirectPurchasePool = [
     ...commonStamps,
     ...playerIcons,
-    ...iconFrames,
+    ...standardIconFrames,
   ];
 
   static GameItem? byId(String id) {

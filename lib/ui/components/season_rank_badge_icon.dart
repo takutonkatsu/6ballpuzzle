@@ -31,19 +31,39 @@ class SeasonRankBadgeIcon extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: size * 0.15,
-            right: size * 0.15,
-            bottom: size * 0.09,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                '#$rank',
-                maxLines: 1,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: textSize,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0,
+            left: size * 0.12,
+            right: size * 0.12,
+            bottom: size * 0.07,
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: size * 0.06,
+                vertical: size * 0.015,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: dimmed ? 0.22 : 0.48),
+                borderRadius: BorderRadius.circular(size * 0.12),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: dimmed ? 0.18 : 0.34),
+                  width: (size * 0.018).clamp(0.6, 1.1),
+                ),
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '#$rank',
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: textSize,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                    shadows: const [
+                      Shadow(
+                        color: Colors.black87,
+                        blurRadius: 3,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

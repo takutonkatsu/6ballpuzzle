@@ -56,6 +56,7 @@ class BallComponent extends PositionComponent {
   final double radius;
   final BallColor ballColor;
   final bool isGhost;
+  final String ballSkinId;
 
   BallState state = BallState.locked;
   Vector2 velocity = Vector2.zero();
@@ -70,6 +71,7 @@ class BallComponent extends PositionComponent {
 
   bool _isPulsing = false;
   double _pulseTime = 0.0;
+  double _skinEffectTime = 0.0;
 
   Vector2? _snapTarget;
   double _snapProgress = 0.0;
@@ -80,6 +82,7 @@ class BallComponent extends PositionComponent {
     required this.radius,
     required this.ballColor,
     this.isGhost = false,
+    this.ballSkinId = 'default',
   }) : super(
             position: position,
             anchor: Anchor.center,
@@ -102,6 +105,9 @@ class BallComponent extends PositionComponent {
   @override
   void update(double dt) {
     super.update(dt);
+    if (ballSkinId == 'skin_luxury_prism') {
+      _skinEffectTime = (_skinEffectTime + dt) % 1000;
+    }
 
     if (_isPulsing) {
       _pulseTime += dt;
@@ -169,6 +175,17 @@ class BallComponent extends PositionComponent {
       canvas.drawCircle(center, radius * 1.3, glowPaint);
     }
 
+    if (ballSkinId == 'skin_luxury_prism' && _flashIntensity < 0.9) {
+      _drawPrismBoardAura(
+        canvas,
+        center,
+        radius,
+        ballColor,
+        alpha,
+        _skinEffectTime,
+      );
+    }
+
     if (isWazaSameColor && _flashIntensity < 0.5) {
       final rimPaint = Paint()
         ..color = ballColor.glowColor.withValues(alpha: 0.85)
@@ -191,6 +208,8 @@ class BallComponent extends PositionComponent {
       radius,
       ballColor,
       alpha: alpha,
+      skinId: ballSkinId,
+      effectTime: _skinEffectTime,
     );
 
     if (glowIntensity > 0.3 && _flashIntensity < 0.5) {
@@ -231,6 +250,18 @@ class BallComponent extends PositionComponent {
         ..style = PaintingStyle.stroke
         ..strokeWidth = _flashIntensity * 2.5;
       canvas.drawCircle(center, radius + 7 + _flashIntensity * 4, ring2);
+
+      if (ballSkinId == 'skin_luxury_prism') {
+        _drawPrismFormationBurst(
+          canvas,
+          center,
+          radius,
+          ballColor,
+          alpha,
+          _flashIntensity,
+          _skinEffectTime,
+        );
+      }
     }
   }
 }
@@ -299,6 +330,8 @@ void drawCyberSphere(
   double alpha = 1,
   bool compact = false,
   bool showOuterGlow = true,
+  String skinId = 'default',
+  double effectTime = 0,
 }) {
   final palette = _paletteFor(color);
   final bodyRect = Rect.fromCircle(center: center, radius: radius);
@@ -360,6 +393,17 @@ void drawCyberSphere(
 
   _drawFresnelRim(canvas, center, radius, palette, alpha, compact);
   _drawSpecularHighlights(canvas, center, radius, alpha, compact);
+  if (skinId == 'skin_luxury_prism') {
+    _drawPrismSkinDetails(
+      canvas,
+      center,
+      radius,
+      palette,
+      alpha,
+      compact,
+      effectTime,
+    );
+  }
 }
 
 void _drawFresnelRim(
@@ -421,17 +465,249 @@ void _drawSpecularHighlights(
   );
 }
 
+void _drawPrismBoardAura(
+  Canvas canvas,
+  Offset center,
+  double radius,
+  BallColor color,
+  double alpha,
+  double effectTime,
+) {
+  final pulse = (sin(effectTime * 3.2) + 1) * 0.5;
+  final sweepAngle = effectTime * 1.8;
+  final auraRect = Rect.fromCircle(center: center, radius: radius * 1.55);
+  canvas.drawCircle(
+    center,
+    radius * (1.34 + pulse * 0.08),
+    Paint()
+      ..shader = SweepGradient(
+        startAngle: sweepAngle,
+        endAngle: sweepAngle + pi * 2,
+        colors: [
+          color.glowColor.withValues(alpha: 0.00),
+          const Color(0xFF35F0FF).withValues(alpha: 0.22 * alpha),
+          const Color(0xFFFF4DFF).withValues(alpha: 0.16 * alpha),
+          const Color(0xFFFFF35A).withValues(alpha: 0.20 * alpha),
+          color.glowColor.withValues(alpha: 0.00),
+        ],
+      ).createShader(auraRect)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(2.4, radius * 0.22)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+  );
+}
+
+void _drawPrismSkinDetails(
+  Canvas canvas,
+  Offset center,
+  double radius,
+  _SpherePalette palette,
+  double alpha,
+  bool compact,
+  double effectTime,
+) {
+  final ringRect = Rect.fromCircle(center: center, radius: radius * 1.04);
+  final sweepOffset = effectTime * (compact ? 0.0 : 1.7);
+  canvas.drawCircle(
+    center,
+    radius * 1.01,
+    Paint()
+      ..shader = SweepGradient(
+        startAngle: sweepOffset,
+        endAngle: sweepOffset + pi * 2,
+        colors: [
+          palette.rim.withValues(alpha: 0.86 * alpha),
+          const Color(0xFF35F0FF).withValues(alpha: 0.90 * alpha),
+          const Color(0xFFFF4DFF).withValues(alpha: 0.86 * alpha),
+          const Color(0xFFFFF35A).withValues(alpha: 0.92 * alpha),
+          palette.rim.withValues(alpha: 0.86 * alpha),
+        ],
+      ).createShader(ringRect)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.2, radius * (compact ? 0.08 : 0.105)),
+  );
+
+  final innerRect = Rect.fromCircle(center: center, radius: radius * 0.74);
+  canvas.drawCircle(
+    center,
+    radius * 0.72,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.30, -0.40),
+        radius: 0.95,
+        colors: [
+          Colors.white.withValues(alpha: 0.20 * alpha),
+          const Color(0xFF35F0FF).withValues(alpha: 0.12 * alpha),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.36, 1.0],
+      ).createShader(innerRect),
+  );
+
+  final streakPaint = Paint()
+    ..shader = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Colors.white.withValues(alpha: 0.54 * alpha),
+        const Color(0xFF35F0FF).withValues(alpha: 0.10 * alpha),
+        Colors.transparent,
+      ],
+    ).createShader(Rect.fromCircle(center: center, radius: radius))
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = max(0.8, radius * (compact ? 0.035 : 0.045))
+    ..strokeCap = StrokeCap.round;
+  canvas.drawLine(
+    Offset(center.dx - radius * 0.48, center.dy - radius * 0.12),
+    Offset(center.dx + radius * 0.38, center.dy - radius * 0.52),
+    streakPaint,
+  );
+  canvas.drawLine(
+    Offset(center.dx - radius * 0.16, center.dy + radius * 0.40),
+    Offset(center.dx + radius * 0.56, center.dy + radius * 0.04),
+    streakPaint,
+  );
+
+  _drawPrismSparkle(
+    canvas,
+    Offset(center.dx + radius * 0.42, center.dy - radius * 0.36),
+    radius * (compact ? 0.13 : 0.17),
+    alpha,
+  );
+  _drawPrismSparkle(
+    canvas,
+    Offset(center.dx - radius * 0.42, center.dy + radius * 0.28),
+    radius * (compact ? 0.09 : 0.12),
+    alpha * 0.72,
+  );
+}
+
+void _drawPrismFormationBurst(
+  Canvas canvas,
+  Offset center,
+  double radius,
+  BallColor color,
+  double alpha,
+  double flashIntensity,
+  double effectTime,
+) {
+  final burstAlpha = (flashIntensity * alpha).clamp(0.0, 1.0).toDouble();
+  final sweepRect = Rect.fromCircle(center: center, radius: radius * 2.35);
+  final sweep = effectTime * 5.5;
+  final prismColors = [
+    const Color(0xFF35F0FF).withValues(alpha: 0.92 * burstAlpha),
+    const Color(0xFFFF4DFF).withValues(alpha: 0.86 * burstAlpha),
+    const Color(0xFFFFF35A).withValues(alpha: 0.90 * burstAlpha),
+    const Color(0xFF52FF86).withValues(alpha: 0.82 * burstAlpha),
+    const Color(0xFF35F0FF).withValues(alpha: 0.92 * burstAlpha),
+  ];
+
+  for (var i = 0; i < 3; i++) {
+    canvas.drawCircle(
+      center,
+      radius * (1.42 + i * 0.34 + flashIntensity * 0.62),
+      Paint()
+        ..shader = SweepGradient(
+          startAngle: sweep + i * pi * 0.35,
+          endAngle: sweep + i * pi * 0.35 + pi * 2,
+          colors: prismColors,
+        ).createShader(sweepRect)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = max(1.2, radius * (0.18 - i * 0.035))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3.5),
+    );
+  }
+
+  final particlePaint = Paint()..style = PaintingStyle.fill;
+  for (var i = 0; i < 14; i++) {
+    final angle = sweep * 0.48 + i * pi / 7;
+    final distance =
+        radius * (1.45 + (i.isEven ? 0.36 : 0.78) * flashIntensity);
+    final particleCenter = Offset(
+      center.dx + cos(angle) * distance,
+      center.dy + sin(angle) * distance,
+    );
+    final size = radius * (0.08 + (i.isEven ? 0.07 : 0.02));
+    particlePaint.color = prismColors[i % (prismColors.length - 1)];
+    _drawPrismDiamond(canvas, particleCenter, size, particlePaint);
+  }
+
+  canvas.drawCircle(
+    center,
+    radius * (1.15 + flashIntensity * 0.20),
+    Paint()
+      ..color = color.glowColor.withValues(alpha: 0.38 * burstAlpha)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = max(1.4, radius * 0.18)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+  );
+  canvas.drawCircle(
+    center,
+    radius * (0.76 + flashIntensity * 0.18),
+    Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.52 * burstAlpha),
+          const Color(0xFFFFF35A).withValues(alpha: 0.20 * burstAlpha),
+          Colors.transparent,
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: radius * 1.2)),
+  );
+}
+
+void _drawPrismSparkle(
+    Canvas canvas, Offset center, double size, double alpha) {
+  _drawPrismDiamond(
+    canvas,
+    center,
+    size,
+    Paint()
+      ..shader = RadialGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.92 * alpha),
+          const Color(0xFF35F0FF).withValues(alpha: 0.55 * alpha),
+          const Color(0xFFFF4DFF).withValues(alpha: 0.10 * alpha),
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: size * 1.2))
+      ..style = PaintingStyle.fill,
+  );
+  canvas.drawCircle(
+    center,
+    size * 0.28,
+    Paint()
+      ..color = Colors.white.withValues(alpha: 0.60 * alpha)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2),
+  );
+}
+
+void _drawPrismDiamond(
+  Canvas canvas,
+  Offset center,
+  double size,
+  Paint paint,
+) {
+  final path = Path()
+    ..moveTo(center.dx, center.dy - size)
+    ..lineTo(center.dx + size * 0.42, center.dy)
+    ..lineTo(center.dx, center.dy + size)
+    ..lineTo(center.dx - size * 0.42, center.dy)
+    ..close();
+  canvas.drawPath(path, paint);
+}
+
 /// Flutter UI用ボール描画ウィジェット（Nextボールなどに使用）
 class MiniBallWidget extends StatelessWidget {
   final BallColor ballColor;
   final double size;
   final bool showOuterGlow;
+  final String ballSkinId;
 
   const MiniBallWidget(
       {super.key,
       required this.ballColor,
       required this.size,
-      this.showOuterGlow = true});
+      this.showOuterGlow = true,
+      this.ballSkinId = 'default'});
 
   @override
   Widget build(BuildContext context) {
@@ -440,6 +716,7 @@ class MiniBallWidget extends StatelessWidget {
       painter: _MiniBallPainter(
         ballColor: ballColor,
         showOuterGlow: showOuterGlow,
+        ballSkinId: ballSkinId,
       ),
     );
   }
@@ -448,7 +725,12 @@ class MiniBallWidget extends StatelessWidget {
 class _MiniBallPainter extends CustomPainter {
   final BallColor ballColor;
   final bool showOuterGlow;
-  _MiniBallPainter({required this.ballColor, required this.showOuterGlow});
+  final String ballSkinId;
+  _MiniBallPainter({
+    required this.ballColor,
+    required this.showOuterGlow,
+    required this.ballSkinId,
+  });
 
   @override
   void paint(Canvas canvas, Size canvasSize) {
@@ -462,10 +744,13 @@ class _MiniBallPainter extends CustomPainter {
       ballColor,
       compact: true,
       showOuterGlow: showOuterGlow,
+      skinId: ballSkinId,
     );
   }
 
   @override
   bool shouldRepaint(_MiniBallPainter old) =>
-      old.ballColor != ballColor || old.showOuterGlow != showOuterGlow;
+      old.ballColor != ballColor ||
+      old.showOuterGlow != showOuterGlow ||
+      old.ballSkinId != ballSkinId;
 }

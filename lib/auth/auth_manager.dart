@@ -11,6 +11,7 @@ class AuthManager {
 
   static final AuthManager instance = AuthManager._internal();
   static const String _fallbackUidPrefsKeyPrefix = 'auth_fallback_uid';
+  String? _cachedFallbackUid;
 
   FirebaseAuth get _auth => FirebaseAuth.instanceFor(
         app: AppFirebaseDatabase.app,
@@ -19,6 +20,11 @@ class AuthManager {
   String? get currentUid => _auth.currentUser?.uid;
 
   Future<String> ensureSignedIn() async {
+    final cachedFallbackUid = _cachedFallbackUid;
+    if (cachedFallbackUid != null && cachedFallbackUid.isNotEmpty) {
+      return cachedFallbackUid;
+    }
+
     final currentUser = _auth.currentUser;
     if (currentUser != null) {
       return currentUser.uid;
@@ -40,7 +46,9 @@ class AuthManager {
           'Falling back to local auth uid because FirebaseAuth '
           'signInAnonymously failed: code=${error.code} message=${error.message}',
         );
-        return _loadOrCreateFallbackUid();
+        final fallbackUid = await _loadOrCreateFallbackUid();
+        _cachedFallbackUid = fallbackUid;
+        return fallbackUid;
       }
       rethrow;
     }

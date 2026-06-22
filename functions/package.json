@@ -1,6 +1,6 @@
 {
-  "name": "six-ball-puzzle-functions",
-  "description": "Cloud Functions for Six Ball Puzzle Firebase automation.",
+  "name": "hexagon-puzzle-functions",
+  "description": "Cloud Functions for Hexagon Firebase automation.",
   "private": true,
   "main": "index.js",
   "engines": {
