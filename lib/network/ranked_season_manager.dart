@@ -4,6 +4,7 @@ class RankedSeasonManager {
   static const String baseSeasonId = '2026-05';
   static const int baseSeasonNumber = 0;
   static const int seasonEndHourJst = 21;
+  static const Duration transitionLockDuration = Duration(minutes: 30);
 
   static final RegExp _seasonIdPattern = RegExp(r'^(\d{4})-(\d{2})$');
 
@@ -59,6 +60,20 @@ class RankedSeasonManager {
 
   static DateTime seasonStartJst(String seasonId) {
     return seasonEndJst(previousSeasonId(seasonId));
+  }
+
+  static bool isTransitionLocked({DateTime? nowJstOverride}) {
+    final now = nowJstOverride;
+    if (now == null) {
+      throw StateError('isTransitionLocked requires server based JST time.');
+    }
+    final currentSeasonIdValue = currentSeasonId(nowJstOverride: now);
+    final previous = _parseSeasonId(previousSeasonId(currentSeasonIdValue));
+    final start = previous == null
+        ? _seasonEndWallClockForMonth(2026, 5)
+        : _seasonEndWallClockForMonth(previous.$1, previous.$2);
+    final elapsed = _wallClockUtc(now).difference(start);
+    return !elapsed.isNegative && elapsed < transitionLockDuration;
   }
 
   static Duration remaining({DateTime? nowJstOverride}) {

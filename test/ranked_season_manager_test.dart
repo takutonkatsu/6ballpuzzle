@@ -102,5 +102,26 @@ void main() {
         DateTime.utc(2026, 5, 31, 12),
       );
     });
+
+    test('locks ranked mode for 30 minutes after the season boundary', () {
+      expect(
+        RankedSeasonManager.isTransitionLocked(
+          nowJstOverride: DateTime(2026, 5, 31, 20, 59, 59),
+        ),
+        isFalse,
+      );
+      expect(
+        RankedSeasonManager.isTransitionLocked(
+          nowJstOverride: DateTime(2026, 5, 31, 21, 29, 59),
+        ),
+        isTrue,
+      );
+      expect(
+        RankedSeasonManager.isTransitionLocked(
+          nowJstOverride: DateTime(2026, 5, 31, 21, 30),
+        ),
+        isFalse,
+      );
+    });
   });
 }

@@ -21,7 +21,8 @@ class FriendMatchLimitManager {
     final prefs = await SharedPreferences.getInstance();
     await _resetIfNeeded(prefs);
 
-    final isUnlimited = AppSettings.instance.adsRemoved.value;
+    final isUnlimited = AppSettings.instance.adsRemoved.value ||
+        AppSettings.instance.isInterstitialSkipActive;
     final used = prefs.getInt(_usedKey) ?? 0;
     final bonus = prefs.getInt(_bonusKey) ?? 0;
     final allowance = freeDailyMatches + bonus;
@@ -45,7 +46,8 @@ class FriendMatchLimitManager {
     final prefs = await SharedPreferences.getInstance();
     await _resetIfNeeded(prefs);
 
-    if (AppSettings.instance.adsRemoved.value) {
+    if (AppSettings.instance.adsRemoved.value ||
+        AppSettings.instance.isInterstitialSkipActive) {
       return true;
     }
 
@@ -64,7 +66,8 @@ class FriendMatchLimitManager {
     final prefs = await SharedPreferences.getInstance();
     await _resetIfNeeded(prefs);
 
-    if (AppSettings.instance.adsRemoved.value) {
+    if (AppSettings.instance.adsRemoved.value ||
+        AppSettings.instance.isInterstitialSkipActive) {
       return;
     }
 

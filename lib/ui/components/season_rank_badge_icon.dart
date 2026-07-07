@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../../data/models/badge_item.dart';
+
 class SeasonRankBadgeIcon extends StatelessWidget {
   const SeasonRankBadgeIcon({
     super.key,
     required this.rank,
+    this.kind = SeasonRankBadgeKind.ranked,
     this.size = 32,
     this.dimmed = false,
   });
 
   final int rank;
+  final SeasonRankBadgeKind kind;
   final double size;
   final bool dimmed;
 
@@ -24,7 +28,9 @@ class SeasonRankBadgeIcon extends StatelessWidget {
           Opacity(
             opacity: dimmed ? 0.35 : 1.0,
             child: Image.asset(
-              'assets/images/Badge/Badge_Ranking-removebg.png',
+              kind == SeasonRankBadgeKind.endless
+                  ? 'assets/images/Badge/Ranking_Badge_Endless.png'
+                  : 'assets/images/Badge/Ranking_Badge_Rank.png',
               width: size,
               height: size,
               fit: BoxFit.contain,

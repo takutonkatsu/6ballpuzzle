@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,12 +23,15 @@ class AppSettings {
   static const String _sfxVolumeKey = 'settings_sfx_volume';
   static const String _controlLayoutKey = 'settings_control_layout';
   static const String _adsRemovedKey = 'settings_ads_removed';
+  static const String _interstitialSkipUntilKey =
+      'settings_interstitial_skip_until';
   static const String _usedAdGiftCodesKey = 'settings_used_ad_gift_codes';
   static const String _onboardingSeenKey = 'settings_onboarding_seen';
 
   final ValueNotifier<double> musicVolume = ValueNotifier(1.0);
   final ValueNotifier<double> sfxVolume = ValueNotifier(1.0);
   final ValueNotifier<bool> adsRemoved = ValueNotifier(false);
+  final ValueNotifier<DateTime?> interstitialSkipUntil = ValueNotifier(null);
   final ValueNotifier<bool> onboardingSeen = ValueNotifier(false);
   final ValueNotifier<ControlLayoutPreset> controlLayout =
       ValueNotifier(ControlLayoutPreset.rotateMoveMoveRotate);
@@ -47,6 +52,11 @@ class AppSettings {
     sfxVolume.value = (prefs.getDouble(_sfxVolumeKey) ?? 1.0).clamp(0.0, 1.0);
     adsRemoved.value = _androidAdsRemovedBenefitsEnabled ||
         (prefs.getBool(_adsRemovedKey) ?? false);
+    final skipUntilMs = prefs.getInt(_interstitialSkipUntilKey) ?? 0;
+    interstitialSkipUntil.value =
+        skipUntilMs > DateTime.now().millisecondsSinceEpoch
+            ? DateTime.fromMillisecondsSinceEpoch(skipUntilMs)
+            : null;
     onboardingSeen.value = prefs.getBool(_onboardingSeenKey) ?? false;
     final defaultLayout = ControlLayoutPreset.rotateMoveMoveRotate.index;
     final rawLayout = prefs.getInt(_controlLayoutKey) ?? defaultLayout;
@@ -80,6 +90,51 @@ class AppSettings {
     adsRemoved.value = next;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_adsRemovedKey, next);
+  }
+
+  bool get isInterstitialSkipActive {
+    final until = interstitialSkipUntil.value;
+    if (until == null) {
+      return false;
+    }
+    if (DateTime.now().isBefore(until)) {
+      return true;
+    }
+    unawaited(clearInterstitialSkipIfExpired());
+    return false;
+  }
+
+  Duration get remainingInterstitialSkip {
+    final until = interstitialSkipUntil.value;
+    if (until == null) {
+      return Duration.zero;
+    }
+    final remaining = until.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  Future<void> activateInterstitialSkip(Duration duration) async {
+    final base = interstitialSkipUntil.value != null &&
+            DateTime.now().isBefore(interstitialSkipUntil.value!)
+        ? interstitialSkipUntil.value!
+        : DateTime.now();
+    final until = base.add(duration);
+    interstitialSkipUntil.value = until;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      _interstitialSkipUntilKey,
+      until.millisecondsSinceEpoch,
+    );
+  }
+
+  Future<void> clearInterstitialSkipIfExpired() async {
+    final until = interstitialSkipUntil.value;
+    if (until == null || DateTime.now().isBefore(until)) {
+      return;
+    }
+    interstitialSkipUntil.value = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_interstitialSkipUntilKey);
   }
 
   Future<void> setOnboardingSeen(bool value) async {

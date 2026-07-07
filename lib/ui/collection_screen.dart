@@ -10,6 +10,7 @@ import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/season_rank_badge_icon.dart';
 import 'components/hexagon_grid_background.dart';
+import 'components/screen_bottom_banner_ad.dart';
 import 'theme/game_theme_colors.dart';
 
 class CollectionScreen extends StatefulWidget {
@@ -57,6 +58,7 @@ class _CollectionScreenState extends State<CollectionScreen>
       length: 5,
       child: Scaffold(
         backgroundColor: const Color(0xFF080A12),
+        bottomNavigationBar: const ScreenBottomBannerAd(),
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -175,7 +177,11 @@ class _CollectionScreenState extends State<CollectionScreen>
                 ? '装備中'
                 : '${badge.seasonName} ${badge.rank}位',
             icon: Icons.workspace_premium,
-            leading: SeasonRankBadgeIcon(rank: badge.rank, size: 28),
+            leading: SeasonRankBadgeIcon(
+              rank: badge.rank,
+              kind: badge.kind,
+              size: 28,
+            ),
             accentColor: _seasonRankColor(badge.rank),
             replaceSelectedIcon: false,
             selected: equipped.contains(badge.id),

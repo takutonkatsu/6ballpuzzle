@@ -5,6 +5,7 @@ import '../auth/auth_manager.dart';
 import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
+import 'endless_season_manager.dart';
 import 'multiplayer_manager.dart';
 import 'ranked_season_manager.dart';
 import 'server_time_manager.dart';
@@ -106,10 +107,17 @@ class RankingManager {
   String? _topDailyCacheKey;
   List<RankingEntry>? _topEndlessCache;
   DateTime? _topEndlessCacheAt;
+  String? _topEndlessCacheSeasonId;
+  List<RankingEntry>? _topAllTimeEndlessCache;
+  DateTime? _topAllTimeEndlessCacheAt;
   List<String>? _archivedSeasonIdsCache;
   DateTime? _archivedSeasonIdsCacheAt;
+  List<String>? _archivedEndlessSeasonIdsCache;
+  DateTime? _archivedEndlessSeasonIdsCacheAt;
   final Map<String, List<RankingEntry>> _seasonRankingsCache = {};
   final Map<String, DateTime> _seasonRankingsCacheAt = {};
+  final Map<String, List<RankingEntry>> _endlessSeasonRankingsCache = {};
+  final Map<String, DateTime> _endlessSeasonRankingsCacheAt = {};
   final Map<String, List<SeasonRankBadge>> _seasonRankBadgesCache = {};
   final Map<String, DateTime> _seasonRankBadgesCacheAt = {};
   RankingSummary? _summaryCache;
@@ -155,6 +163,14 @@ class RankingManager {
     return _dateKey(now);
   }
 
+  static String endlessRemainingLabel({DateTime? nowJstOverride}) {
+    final now = nowJstOverride;
+    if (now == null) {
+      return '残り--';
+    }
+    return EndlessSeasonManager.remainingLabel(nowJstOverride: now);
+  }
+
   Future<void> updateMyRating({
     String? uid,
     String? displayName,
@@ -176,15 +192,28 @@ class RankingManager {
         ? PlayerDataManager.instance.displayPlayerName
         : (displayName ?? savedPlayerName).trim();
     final seasonId = clock.currentSeasonId;
+    final endlessSeasonId = clock.currentEndlessSeasonId;
     final publicId = PlayerDataManager.instance.playerId;
     final highestEndlessScore = PlayerDataManager.instance.highestEndlessScore
         .clamp(0, PlayerDataManager.maxEndlessScore)
         .toInt();
+    await syncEndlessSeasonStateForCurrentPlayer(
+      currentEndlessSeasonId: endlessSeasonId,
+      uid: resolvedUid,
+      publicId: publicId,
+    );
+    final seasonEndlessHighScore = PlayerDataManager
+        .instance.seasonEndlessHighScore
+        .clamp(0, PlayerDataManager.maxEndlessScore)
+        .toInt();
     final today = _dateKey(clock.nowJst);
     final seasonEntryRef = _seasonRankingRef(seasonId).child(resolvedUid);
+    final endlessSeasonEntryRef =
+        _endlessSeasonRankingRef(endlessSeasonId).child(resolvedUid);
     final legacyEntryRef = _legacyRankingRef().child(resolvedUid);
     final prefs = await SharedPreferences.getInstance();
-    final pushKey = '$_lastPushPrefix${seasonId}_$resolvedUid';
+    final pushKey =
+        '$_lastPushPrefix${seasonId}_${endlessSeasonId}_$resolvedUid';
     final previousPushName = prefs.getString('${pushKey}_displayName') ?? '';
 
     if (!incrementDailyWin &&
@@ -196,6 +225,7 @@ class RankingManager {
           publicId: publicId,
           rating: rating,
           highestEndlessScore: highestEndlessScore,
+          seasonEndlessHighScore: seasonEndlessHighScore,
         )) {
       return;
     }
@@ -218,8 +248,14 @@ class RankingManager {
       rating: rating,
       highestEndlessScore: highestEndlessScore,
     );
+    final endlessPayload = _buildEndlessRankingUpdatePayload(
+      uid: resolvedUid,
+      publicId: publicId,
+      displayName: resolvedName,
+      highestEndlessScore: seasonEndlessHighScore,
+    );
 
-    await Future.wait([
+    final futures = <Future<void>>[
       seasonEntryRef.update(seasonPayload),
       legacyEntryRef.update(legacyPayload),
       _syncProfileRatingFields(
@@ -229,7 +265,11 @@ class RankingManager {
         rating: rating,
         previousDisplayName: previousPushName,
       ),
-    ]);
+    ];
+    if (seasonEndlessHighScore > 0) {
+      futures.add(endlessSeasonEntryRef.update(endlessPayload));
+    }
+    await Future.wait(futures);
     await _saveLastPush(
       prefs: prefs,
       key: pushKey,
@@ -237,6 +277,7 @@ class RankingManager {
       publicId: publicId,
       rating: rating,
       highestEndlessScore: highestEndlessScore,
+      seasonEndlessHighScore: seasonEndlessHighScore,
     );
     _invalidateCaches();
   }
@@ -303,19 +344,45 @@ class RankingManager {
     final highestEndlessScore = PlayerDataManager.instance.highestEndlessScore
         .clamp(0, PlayerDataManager.maxEndlessScore)
         .toInt();
-    if (highestEndlessScore <= 0) {
-      return;
-    }
-
     final publicId = PlayerDataManager.instance.playerId;
-    await _legacyRankingRef().child(resolvedUid).update({
-      'uid': resolvedUid,
-      'publicId': publicId,
-      'displayName': resolvedName,
-      'rating': PlayerDataManager.instance.currentRating,
-      'highestEndlessScore': highestEndlessScore,
-      'updatedAt': ServerValue.timestamp,
-    });
+    final clock = await _rankingClock(forceRefresh: true);
+    final endlessSeasonId = clock.currentEndlessSeasonId;
+    await syncEndlessSeasonStateForCurrentPlayer(
+      currentEndlessSeasonId: endlessSeasonId,
+      uid: resolvedUid,
+      publicId: publicId,
+    );
+    final seasonEndlessHighScore = PlayerDataManager
+        .instance.seasonEndlessHighScore
+        .clamp(0, PlayerDataManager.maxEndlessScore)
+        .toInt();
+    final legacyPayload = _buildEndlessRankingUpdatePayload(
+      uid: resolvedUid,
+      publicId: publicId,
+      displayName: resolvedName,
+      highestEndlessScore: highestEndlessScore,
+    );
+    final futures = <Future<void>>[
+      if (highestEndlessScore > 0)
+        _legacyRankingRef().child(resolvedUid).update({
+          ...legacyPayload,
+          'rating': PlayerDataManager.instance.currentRating,
+        }),
+    ];
+    if (seasonEndlessHighScore > 0) {
+      final seasonPayload = _buildEndlessRankingUpdatePayload(
+        uid: resolvedUid,
+        publicId: publicId,
+        displayName: resolvedName,
+        highestEndlessScore: seasonEndlessHighScore,
+      );
+      futures.add(
+        _endlessSeasonRankingRef(endlessSeasonId)
+            .child(resolvedUid)
+            .update(seasonPayload),
+      );
+    }
+    await Future.wait(futures);
     await _syncProfileRatingFields(
       uid: resolvedUid,
       displayName: resolvedName,
@@ -325,6 +392,8 @@ class RankingManager {
     );
     _topEndlessCache = null;
     _topEndlessCacheAt = null;
+    _topAllTimeEndlessCache = null;
+    _topAllTimeEndlessCacheAt = null;
   }
 
   Future<RankingEntry?> fetchCurrentEntryForPlayer({
@@ -521,11 +590,15 @@ class RankingManager {
   Future<List<RankingEntry>> fetchTopEndlessScoreRankings({
     bool forceRefresh = false,
   }) async {
-    if (!forceRefresh && _isCacheFresh(_topEndlessCacheAt)) {
+    final clock = await _rankingClock();
+    final seasonId = clock.currentEndlessSeasonId;
+    if (!forceRefresh &&
+        _topEndlessCacheSeasonId == seasonId &&
+        _isCacheFresh(_topEndlessCacheAt)) {
       return List<RankingEntry>.from(_topEndlessCache!);
     }
     await AuthManager.instance.ensureSignedIn();
-    final entries = (await _fetchTopEndlessEntries())
+    final entries = (await _fetchTopEndlessEntries(seasonId: seasonId))
         .where((entry) => entry.highestEndlessScore > 0)
         .toList()
       ..sort((a, b) {
@@ -538,7 +611,35 @@ class RankingManager {
       });
     _topEndlessCache = entries.take(_rankingLimit).toList();
     _topEndlessCacheAt = DateTime.now();
+    _topEndlessCacheSeasonId = seasonId;
     return List<RankingEntry>.from(_topEndlessCache!);
+  }
+
+  Future<List<RankingEntry>> fetchAllTimeEndlessScoreRankings({
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _isCacheFresh(_topAllTimeEndlessCacheAt)) {
+      return List<RankingEntry>.from(_topAllTimeEndlessCache!);
+    }
+    await AuthManager.instance.ensureSignedIn();
+    final snapshot = await _legacyRankingRef()
+        .orderByChild('highestEndlessScore')
+        .limitToLast(_rankingLimit)
+        .get();
+    final entries = _dedupeEndlessRankingEntries(_entriesFromSnapshot(snapshot))
+        .where((entry) => entry.highestEndlessScore > 0)
+        .toList()
+      ..sort((a, b) {
+        final scoreDiff =
+            b.highestEndlessScore.compareTo(a.highestEndlessScore);
+        if (scoreDiff != 0) {
+          return scoreDiff;
+        }
+        return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
+      });
+    _topAllTimeEndlessCache = entries.take(_rankingLimit).toList();
+    _topAllTimeEndlessCacheAt = DateTime.now();
+    return List<RankingEntry>.from(_topAllTimeEndlessCache!);
   }
 
   Future<List<String>> fetchArchivedSeasonIds() async {
@@ -573,6 +674,30 @@ class RankingManager {
     return List<String>.from(sorted);
   }
 
+  Future<List<String>> fetchArchivedEndlessSeasonIds() async {
+    if (_isCacheFresh(
+        _archivedEndlessSeasonIdsCacheAt, const Duration(minutes: 5))) {
+      return List<String>.from(_archivedEndlessSeasonIdsCache!);
+    }
+    final snapshot = await _db.child('endlessSeasons/archivedSeasonIds').get();
+    final raw = snapshot.value;
+    if (raw is! Map) {
+      _archivedEndlessSeasonIdsCache = const [];
+      _archivedEndlessSeasonIdsCacheAt = DateTime.now();
+      return const [];
+    }
+    final clock = await _rankingClock();
+    final current = clock.currentEndlessSeasonId;
+    final seasonIds =
+        raw.entries.where((entry) => '${entry.key}' != current).map((entry) {
+      return '${entry.key}';
+    }).toList()
+          ..sort((a, b) => b.compareTo(a));
+    _archivedEndlessSeasonIdsCache = seasonIds;
+    _archivedEndlessSeasonIdsCacheAt = DateTime.now();
+    return List<String>.from(seasonIds);
+  }
+
   Future<List<RankingEntry>> fetchSeasonRankings(
     String seasonId, {
     bool finalizedOnly = true,
@@ -593,6 +718,24 @@ class RankingManager {
         await _fetchRankingsFromRef(ref, applyRatingFilter: !finalizedOnly);
     _seasonRankingsCache[cacheKey] = entries;
     _seasonRankingsCacheAt[cacheKey] = DateTime.now();
+    return List<RankingEntry>.from(entries);
+  }
+
+  Future<List<RankingEntry>> fetchEndlessSeasonRankings(String seasonId) async {
+    final clock = await _rankingClock();
+    if (seasonId == clock.currentEndlessSeasonId) {
+      return fetchTopEndlessScoreRankings();
+    }
+    if (_isCacheFresh(
+        _endlessSeasonRankingsCacheAt[seasonId], const Duration(minutes: 5))) {
+      return List<RankingEntry>.from(_endlessSeasonRankingsCache[seasonId]!);
+    }
+    final entries = await _fetchRankingsFromRef(
+      _db.child('endlessSeasons/seasons/$seasonId/finalTop100'),
+      applyRatingFilter: false,
+    );
+    _endlessSeasonRankingsCache[seasonId] = entries;
+    _endlessSeasonRankingsCacheAt[seasonId] = DateTime.now();
     return List<RankingEntry>.from(entries);
   }
 
@@ -677,16 +820,98 @@ class RankingManager {
     await syncSeasonRankBadgesForCurrentPlayer();
   }
 
+  Future<void> syncEndlessSeasonStateForCurrentPlayer({
+    String? currentEndlessSeasonId,
+    String? uid,
+    String? publicId,
+  }) async {
+    final seasonId = currentEndlessSeasonId ??
+        (await _rankingClock()).currentEndlessSeasonId;
+    final resolvedUid = uid ??
+        MultiplayerManager.instance.myUid ??
+        await AuthManager.instance.ensureSignedIn();
+    await PlayerDataManager.instance.load();
+    final resolvedPublicId = publicId ?? PlayerDataManager.instance.playerId;
+    final currentEntry = await _fetchEntryByUidOrPublicId(
+      _endlessSeasonRankingRef(seasonId),
+      uid: resolvedUid,
+      publicId: resolvedPublicId,
+      ignoreSeededLegacy: true,
+    );
+    await PlayerDataManager.instance.ensureEndlessSeason(
+      currentSeasonId: seasonId,
+      currentSeasonScore: currentEntry?.highestEndlessScore,
+      hasCurrentSeasonRecord: currentEntry != null,
+    );
+  }
+
   Future<void> syncSeasonRankBadgesForCurrentPlayer() async {
     final uid = MultiplayerManager.instance.myUid ??
         await AuthManager.instance.ensureSignedIn();
     await PlayerDataManager.instance.load();
     final publicId = PlayerDataManager.instance.playerId;
-    final badges = await fetchSeasonRankBadgesForPlayer(
-      uid: uid,
-      publicId: publicId,
-    );
+    final badges = [
+      ...await fetchSeasonRankBadgesForPlayer(
+        uid: uid,
+        publicId: publicId,
+      ),
+      ...await fetchEndlessRankBadgesForPlayer(
+        uid: uid,
+        publicId: publicId,
+      ),
+    ];
     await PlayerDataManager.instance.setSeasonRankBadges(badges);
+  }
+
+  Future<List<SeasonRankBadge>> fetchEndlessRankBadgesForPlayer({
+    required String uid,
+    required String publicId,
+  }) async {
+    final idsSnapshot =
+        await _db.child('endlessSeasons/archivedSeasonIds').get();
+    final raw = idsSnapshot.value;
+    if (raw is! Map) {
+      return const [];
+    }
+    final badges = <SeasonRankBadge>[];
+    final seasonIds = raw.keys.map((key) => '$key').toList()
+      ..sort((a, b) => b.compareTo(a));
+    for (final seasonId in seasonIds.take(24)) {
+      final finalTopSnapshot =
+          await _db.child('endlessSeasons/seasons/$seasonId/finalTop100').get();
+      final rawFinalTop = finalTopSnapshot.value;
+      if (rawFinalTop == null) {
+        continue;
+      }
+      final entry = _findFinalTopEntryForPlayer(
+        rawFinalTop,
+        uid: uid,
+        publicId: publicId,
+      );
+      if (entry == null) {
+        continue;
+      }
+      final rank = RankingEntry._intValue(entry['rank']);
+      if (rank == null || rank <= 0 || rank > 50) {
+        continue;
+      }
+      badges.add(
+        SeasonRankBadge(
+          kind: SeasonRankBadgeKind.endless,
+          seasonId: seasonId,
+          rank: rank,
+          score: RankingEntry._intValue(entry['highestEndlessScore']),
+        ),
+      );
+    }
+    badges.sort((a, b) {
+      final seasonDiff = b.seasonId.compareTo(a.seasonId);
+      if (seasonDiff != 0) {
+        return seasonDiff;
+      }
+      return a.rank.compareTo(b.rank);
+    });
+    return badges;
   }
 
   Future<List<SeasonRankBadge>> fetchSeasonRankBadgesForPlayer({
@@ -810,10 +1035,13 @@ class RankingManager {
       return;
     }
     final currentBadges = PlayerDataManager.instance.seasonRankBadges
-        .where((badge) => badge.seasonId != seasonId)
+        .where((badge) =>
+            badge.kind != SeasonRankBadgeKind.ranked ||
+            badge.seasonId != seasonId)
         .toList();
     currentBadges.add(
       SeasonRankBadge(
+        kind: SeasonRankBadgeKind.ranked,
         seasonId: seasonId,
         rank: rank,
         rating: RankingEntry._intValue(entry['rating']),
@@ -878,25 +1106,32 @@ class RankingManager {
     );
   }
 
-  Future<List<RankingEntry>> _fetchTopEndlessEntries() async {
-    final snapshot = await _legacyRankingRef()
+  Future<List<RankingEntry>> _fetchTopEndlessEntries({
+    required String seasonId,
+  }) async {
+    final seasonSnapshot = await _endlessSeasonRankingRef(seasonId)
         .orderByChild('highestEndlessScore')
         .limitToLast(_rankingLimit)
         .get();
-    return _entriesFromSnapshot(snapshot);
+    return _endlessEntriesFromSnapshot(seasonSnapshot);
   }
 
   Future<RankingEntry?> _fetchEntryByUidOrPublicId(
     DatabaseReference ref, {
     required String uid,
     required String publicId,
+    bool ignoreSeededLegacy = false,
   }) async {
     if (uid.isNotEmpty) {
       final snapshot = await ref.child(uid).get();
       if (snapshot.value is Map) {
+        final raw = Map<dynamic, dynamic>.from(snapshot.value as Map);
+        if (ignoreSeededLegacy && raw['seededFromLegacy'] == true) {
+          return null;
+        }
         return RankingEntry.fromMap(
           uid,
-          Map<dynamic, dynamic>.from(snapshot.value as Map),
+          raw,
         );
       }
     }
@@ -908,7 +1143,9 @@ class RankingManager {
         .equalTo(publicId)
         .limitToFirst(1)
         .get();
-    final entries = _entriesFromSnapshot(snapshot);
+    final entries = ignoreSeededLegacy
+        ? _endlessEntriesFromSnapshot(snapshot)
+        : _entriesFromSnapshot(snapshot);
     return entries.isEmpty ? null : entries.first;
   }
 
@@ -1046,6 +1283,22 @@ class RankingManager {
     };
   }
 
+  Map<String, Object?> _buildEndlessRankingUpdatePayload({
+    required String uid,
+    required String publicId,
+    required String displayName,
+    required int highestEndlessScore,
+  }) {
+    return {
+      'uid': uid,
+      'publicId': publicId,
+      'displayName': displayName,
+      'highestEndlessScore': highestEndlessScore,
+      'updatedAt': ServerValue.timestamp,
+      'seededFromLegacy': null,
+    };
+  }
+
   List<RankingEntry> _mergeRankingEntries({
     required List<RankingEntry> primary,
     required List<RankingEntry> fallback,
@@ -1060,6 +1313,26 @@ class RankingManager {
       }
     }
     return merged;
+  }
+
+  List<RankingEntry> _dedupeEndlessRankingEntries(
+    Iterable<RankingEntry> entries,
+  ) {
+    final bestByPlayer = <String, RankingEntry>{};
+    for (final entry in entries) {
+      final key = _entryKey(entry);
+      if (key.isEmpty) {
+        continue;
+      }
+      final previous = bestByPlayer[key];
+      if (previous == null ||
+          entry.highestEndlessScore > previous.highestEndlessScore ||
+          (entry.highestEndlessScore == previous.highestEndlessScore &&
+              (entry.updatedAt ?? 0) > (previous.updatedAt ?? 0))) {
+        bestByPlayer[key] = entry;
+      }
+    }
+    return bestByPlayer.values.toList();
   }
 
   List<RankingEntry> _mergeDailyRankingEntries(
@@ -1199,6 +1472,26 @@ class RankingManager {
         .toList();
   }
 
+  List<RankingEntry> _endlessEntriesFromSnapshot(DataSnapshot snapshot) {
+    final raw = snapshot.value;
+    final records = _rankingRecords(raw);
+    if (records.isEmpty) {
+      return const [];
+    }
+    return records
+        .where((record) =>
+            record.value is Map<dynamic, dynamic> &&
+            (record.value as Map<dynamic, dynamic>)['seededFromLegacy'] != true)
+        .map(
+          (record) => RankingEntry.fromMap(
+            '${(record.value as Map<dynamic, dynamic>)['uid'] ?? record.key}',
+            record.value as Map<dynamic, dynamic>,
+          ),
+        )
+        .where((entry) => entry.uid.isNotEmpty)
+        .toList();
+  }
+
   List<RankingEntry> _previousDailyEntriesFromSnapshot(DataSnapshot snapshot) {
     final raw = snapshot.value;
     final records = _rankingRecords(raw);
@@ -1244,6 +1537,10 @@ class RankingManager {
     return _db.child('rankings/global');
   }
 
+  DatabaseReference _endlessSeasonRankingRef(String seasonId) {
+    return _db.child('endlessSeasons/seasons/$seasonId/rankings');
+  }
+
   Future<void> _saveLastPush({
     required SharedPreferences prefs,
     required String key,
@@ -1251,12 +1548,14 @@ class RankingManager {
     required String publicId,
     required int rating,
     required int highestEndlessScore,
+    required int seasonEndlessHighScore,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     await Future.wait([
       prefs.setInt('${key}_at', now),
       prefs.setInt('${key}_rating', rating),
       prefs.setInt('${key}_highestEndlessScore', highestEndlessScore),
+      prefs.setInt('${key}_seasonEndlessHighScore', seasonEndlessHighScore),
       prefs.setString('${key}_displayName', displayName),
       prefs.setString('${key}_publicId', publicId),
     ]);
@@ -1269,6 +1568,7 @@ class RankingManager {
     required String publicId,
     required int rating,
     required int highestEndlessScore,
+    required int seasonEndlessHighScore,
   }) {
     final lastSyncedAt = prefs.getInt('${key}_at') ?? 0;
     if (lastSyncedAt <= 0 ||
@@ -1278,6 +1578,8 @@ class RankingManager {
     }
     return prefs.getInt('${key}_rating') == rating &&
         prefs.getInt('${key}_highestEndlessScore') == highestEndlessScore &&
+        prefs.getInt('${key}_seasonEndlessHighScore') ==
+            seasonEndlessHighScore &&
         (prefs.getString('${key}_displayName') ?? '') == displayName &&
         (prefs.getString('${key}_publicId') ?? '') == publicId;
   }
@@ -1295,10 +1597,17 @@ class RankingManager {
     _topDailyCacheKey = null;
     _topEndlessCache = null;
     _topEndlessCacheAt = null;
+    _topAllTimeEndlessCache = null;
+    _topAllTimeEndlessCacheAt = null;
+    _topEndlessCacheSeasonId = null;
     _archivedSeasonIdsCache = null;
     _archivedSeasonIdsCacheAt = null;
+    _archivedEndlessSeasonIdsCache = null;
+    _archivedEndlessSeasonIdsCacheAt = null;
     _seasonRankingsCache.clear();
     _seasonRankingsCacheAt.clear();
+    _endlessSeasonRankingsCache.clear();
+    _endlessSeasonRankingsCacheAt.clear();
     _seasonRankBadgesCache.clear();
     _seasonRankBadgesCacheAt.clear();
     _summaryCache = null;
@@ -1352,6 +1661,8 @@ class RankingManager {
       nowJst: nowJst,
       currentSeasonId:
           RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst),
+      currentEndlessSeasonId:
+          EndlessSeasonManager.currentSeasonId(nowJstOverride: nowJst),
     );
   }
 
@@ -1367,8 +1678,10 @@ class _RankingClock {
   const _RankingClock({
     required this.nowJst,
     required this.currentSeasonId,
+    required this.currentEndlessSeasonId,
   });
 
   final DateTime nowJst;
   final String currentSeasonId;
+  final String currentEndlessSeasonId;
 }

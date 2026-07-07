@@ -14,6 +14,7 @@ import 'models/badge_item.dart';
 import 'models/game_item.dart';
 import '../app_review_config.dart';
 import '../firebase_database_provider.dart';
+import '../invite/invite_manager.dart';
 
 class ItemGrantResult {
   const ItemGrantResult({
@@ -184,6 +185,9 @@ class PlayerDataManager {
   static const String _maxChainKey = 'player_max_chain';
   static const String _totalChainKey = 'player_total_chain';
   static const String _highestEndlessScoreKey = 'player_highest_endless_score';
+  static const String _endlessSeasonIdKey = 'player_endless_season_id';
+  static const String _seasonEndlessHighScoreKey =
+      'player_season_endless_high_score';
   static const String _rankedWinsKey = 'player_ranked_wins';
   static const String _rankedCurrentWinStreakKey =
       'player_ranked_current_win_streak';
@@ -206,6 +210,8 @@ class PlayerDataManager {
       'player_pending_level_up_reward_log';
   static const String _pendingLoginBonusLogKey =
       'player_pending_login_bonus_log';
+  static const String _pendingAdminGrantLogsKey =
+      'player_pending_admin_grant_logs_json';
   static const String _todayStatsDateKey = 'player_today_stats_date';
   static const String _todayTotalMatchesKey = 'player_today_total_matches';
   static const String _todayTotalWinsKey = 'player_today_total_wins';
@@ -283,6 +289,8 @@ class PlayerDataManager {
   int _maxChain = 0;
   int _totalChain = 0;
   int _highestEndlessScore = 0;
+  String _endlessSeasonId = '';
+  int _seasonEndlessHighScore = 0;
   int _rankedWins = 0;
   int _rankedCurrentWinStreak = 0;
   int _rankedMaxWinStreak = 0;
@@ -387,6 +395,8 @@ class PlayerDataManager {
   double get averageChain =>
       _totalMatches <= 0 ? 0 : _totalChain / _totalMatches;
   int get highestEndlessScore => _highestEndlessScore;
+  String get endlessSeasonId => _endlessSeasonId;
+  int get seasonEndlessHighScore => _seasonEndlessHighScore;
   int get rankedWins => _rankedWins;
   int get rankedCurrentWinStreak => _rankedCurrentWinStreak;
   int get rankedMaxWinStreak => _rankedMaxWinStreak;
@@ -540,6 +550,10 @@ class PlayerDataManager {
     _highestEndlessScore = (prefs.getInt(_highestEndlessScoreKey) ?? 0)
         .clamp(0, maxEndlessScore)
         .toInt();
+    _endlessSeasonId = prefs.getString(_endlessSeasonIdKey) ?? '';
+    _seasonEndlessHighScore = (prefs.getInt(_seasonEndlessHighScoreKey) ?? 0)
+        .clamp(0, maxEndlessScore)
+        .toInt();
     _rankedWins = prefs.getInt(_rankedWinsKey) ?? 0;
     _rankedCurrentWinStreak = prefs.getInt(_rankedCurrentWinStreakKey) ?? 0;
     _rankedMaxWinStreak = prefs.getInt(_rankedMaxWinStreakKey) ?? 0;
@@ -637,12 +651,9 @@ class PlayerDataManager {
     final ownedSeasonBadgeIds =
         _seasonRankBadges.map((badge) => badge.id).toSet();
     _equippedBadgeIds = _equippedBadgeIds
-        .map((id) => BadgeCatalog.evolvedBadgeIdFor(
+        .map((id) => _normalizeEquippedBadgeId(
               id,
-              {
-                ...unlockedBadgeIds,
-                ...ownedSeasonBadgeIds,
-              },
+              ownedSeasonBadgeIds: ownedSeasonBadgeIds,
             ))
         .where((id) =>
             unlockedBadgeIds.contains(id) || ownedSeasonBadgeIds.contains(id))
@@ -724,11 +735,24 @@ class PlayerDataManager {
       }
 
       var totalCoins = 0;
+      final rewardLogs = <String>[];
       final processedGrantIds = <String>[];
+      var completedOwnInvite = false;
+      var grantedAdRemoval = false;
       for (final entry in raw.entries) {
         final grantId = '${entry.key}';
         final grant = entry.value;
         if (grant is! Map) {
+          continue;
+        }
+        final grantType = grant['type']?.toString().trim() ?? '';
+        if (grantType == 'ad_removal') {
+          processedGrantIds.add(grantId);
+          grantedAdRemoval = true;
+          final title = grant['title']?.toString().trim() ?? '広告削除';
+          final message =
+              grant['message']?.toString().trim() ?? '広告削除を有効にしました。';
+          rewardLogs.add('$title\n$message');
           continue;
         }
         final coins = _intValue(grant['coins']);
@@ -737,17 +761,40 @@ class PlayerDataManager {
         }
         totalCoins += coins;
         processedGrantIds.add(grantId);
+        if (grantType == 'invite_reward' && grant['role'] == 'invitee') {
+          completedOwnInvite = true;
+        }
+        final title = grant['title']?.toString().trim() ?? '';
+        final message = grant['message']?.toString().trim() ?? '';
+        if (title.isNotEmpty || message.isNotEmpty) {
+          rewardLogs.add([
+            if (title.isNotEmpty) title,
+            if (message.isNotEmpty) message,
+            if (message.isEmpty) '$coinsを受け取りました。',
+          ].join('\n'));
+        } else {
+          rewardLogs.add('$coinsを受け取りました。');
+        }
       }
 
-      if (totalCoins <= 0 || processedGrantIds.isEmpty) {
+      if ((totalCoins <= 0 && !grantedAdRemoval) || processedGrantIds.isEmpty) {
         return false;
       }
 
-      _coins += totalCoins;
+      if (totalCoins > 0) {
+        _coins += totalCoins;
+      }
+      if (grantedAdRemoval) {
+        await AppSettings.instance.setAdsRemoved(true);
+      }
       await _saveEconomy();
       await grantsRef.update({
         for (final grantId in processedGrantIds) grantId: null,
       });
+      await _storePendingAdminGrantLogs(rewardLogs);
+      if (completedOwnInvite) {
+        await InviteManager.instance.markCompletedLocally();
+      }
       return true;
     } catch (_) {
       return false;
@@ -839,6 +886,15 @@ class PlayerDataManager {
     await load();
     _coins = max(0, amount);
     await _saveEconomy();
+  }
+
+  Future<bool> claimPendingServerGrants() async {
+    await load();
+    final uid = await AuthManager.instance.ensureSignedIn();
+    if (uid.isEmpty) {
+      return false;
+    }
+    return _claimAdminGrants(uid);
   }
 
   int getRequiredExp(int currentLevel) {
@@ -995,14 +1051,14 @@ class PlayerDataManager {
 
   Future<void> setEquippedBadgeIds(List<String> badgeIds) async {
     await load();
-    final unlocked = {
-      ...unlockedBadgeIds,
-      ..._seasonRankBadges.map((badge) => badge.id),
-    };
+    final ownedSeasonBadgeIds =
+        _seasonRankBadges.map((badge) => badge.id).toSet();
+    final unlocked = {...unlockedBadgeIds, ...ownedSeasonBadgeIds};
     _equippedBadgeIds = badgeIds
-        .map((id) => SeasonRankBadge.isSeasonRankBadgeId(id)
-            ? id
-            : BadgeCatalog.evolvedBadgeIdFor(id, unlocked))
+        .map((id) => _normalizeEquippedBadgeId(
+              id,
+              ownedSeasonBadgeIds: ownedSeasonBadgeIds,
+            ))
         .where((id) => unlocked.contains(id))
         .toSet()
         .take(2)
@@ -1028,29 +1084,61 @@ class PlayerDataManager {
     _seasonRankBadges = badges
         .where((badge) => badge.seasonId.isNotEmpty && badge.rank > 0)
         .toList()
-      ..sort((a, b) => b.seasonId.compareTo(a.seasonId));
+      ..sort((a, b) {
+        final kindDiff = a.kind.index.compareTo(b.kind.index);
+        if (kindDiff != 0) {
+          return kindDiff;
+        }
+        return b.seasonId.compareTo(a.seasonId);
+      });
     for (final badge in _seasonRankBadges) {
-      if (_bestRankedRank <= 0 || badge.rank < _bestRankedRank) {
+      if (badge.kind == SeasonRankBadgeKind.ranked &&
+          (_bestRankedRank <= 0 || badge.rank < _bestRankedRank)) {
         _bestRankedRank = badge.rank;
       }
     }
+    final ownedSeasonBadgeIds =
+        _seasonRankBadges.map((badge) => badge.id).toSet();
     _equippedBadgeIds = _equippedBadgeIds
-        .map((id) => BadgeCatalog.evolvedBadgeIdFor(
+        .map((id) => _normalizeEquippedBadgeId(
               id,
-              {
-                ...unlockedBadgeIds,
-                ..._seasonRankBadges.map((badge) => badge.id),
-              },
+              ownedSeasonBadgeIds: ownedSeasonBadgeIds,
             ))
         .where((id) =>
-            unlockedBadgeIds.contains(id) ||
-            SeasonRankBadge.isSeasonRankBadgeId(id))
+            unlockedBadgeIds.contains(id) || ownedSeasonBadgeIds.contains(id))
         .toSet()
         .take(2)
         .toList();
     await _saveSeasonRankBadges();
     await _savePublicProfile();
     await _syncRecordSummarySafely(force: true);
+  }
+
+  String _normalizeEquippedBadgeId(
+    String id, {
+    required Set<String> ownedSeasonBadgeIds,
+  }) {
+    final seasonBadge = SeasonRankBadge.fromId(id);
+    if (seasonBadge != null) {
+      if (ownedSeasonBadgeIds.contains(id)) {
+        return id;
+      }
+      for (final ownedBadge in _seasonRankBadges) {
+        if (ownedBadge.seasonId == seasonBadge.seasonId &&
+            ownedBadge.rank == seasonBadge.rank &&
+            ownedSeasonBadgeIds.contains(ownedBadge.id)) {
+          return ownedBadge.id;
+        }
+      }
+      return id;
+    }
+    return BadgeCatalog.evolvedBadgeIdFor(
+      id,
+      {
+        ...unlockedBadgeIds,
+        ...ownedSeasonBadgeIds,
+      },
+    );
   }
 
   Future<void> setEquippedBallSkinId(String skinId) async {
@@ -1130,6 +1218,8 @@ class PlayerDataManager {
     _maxChain = 0;
     _totalChain = 0;
     _highestEndlessScore = 0;
+    _endlessSeasonId = '';
+    _seasonEndlessHighScore = 0;
     _rankedWins = 0;
     _rankedCurrentWinStreak = 0;
     _rankedMaxWinStreak = 0;
@@ -1189,8 +1279,9 @@ class PlayerDataManager {
     _maxChain = max(_maxChain, maxChain);
     _totalChain += max(0, maxChain);
     if (mode == 'SOLO' && score != null) {
-      _highestEndlessScore =
-          max(_highestEndlessScore, score.clamp(0, maxEndlessScore).toInt());
+      final safeScore = score.clamp(0, maxEndlessScore).toInt();
+      _highestEndlessScore = max(_highestEndlessScore, safeScore);
+      _seasonEndlessHighScore = max(_seasonEndlessHighScore, safeScore);
     }
     if (mode == 'RANKED') {
       if (isWin) {
@@ -1261,6 +1352,56 @@ class PlayerDataManager {
     await _savePublicProfile();
     await _saveStats();
     await _syncRecordSummarySafely(force: true);
+    unawaited(_requestInviteCompletionIfNeeded(mode: mode));
+  }
+
+  Future<void> ensureEndlessSeason({
+    required String currentSeasonId,
+    int? currentSeasonScore,
+    bool hasCurrentSeasonRecord = false,
+  }) async {
+    await load();
+    final resolvedSeasonId = currentSeasonId.trim();
+    if (resolvedSeasonId.isEmpty) {
+      return;
+    }
+    final safeCurrentScore =
+        (currentSeasonScore ?? 0).clamp(0, maxEndlessScore).toInt();
+    if (_endlessSeasonId == resolvedSeasonId) {
+      if (hasCurrentSeasonRecord &&
+          safeCurrentScore > _seasonEndlessHighScore) {
+        _seasonEndlessHighScore = safeCurrentScore;
+        await _saveStats();
+        await _syncRecordSummarySafely(force: true);
+      }
+      return;
+    }
+
+    _endlessSeasonId = resolvedSeasonId;
+    _seasonEndlessHighScore = hasCurrentSeasonRecord ? safeCurrentScore : 0;
+    await _saveStats();
+    await _syncRecordSummarySafely(force: true);
+  }
+
+  Future<void> _requestInviteCompletionIfNeeded({required String mode}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(InviteManager.localStatusKey) != 'pending') {
+        return;
+      }
+      final uid = await AuthManager.instance.ensureSignedIn();
+      if (uid.isEmpty) {
+        return;
+      }
+      await AppFirebaseDatabase.ref().child('inviteCompletions/$uid').set({
+        'uid': uid,
+        'mode': mode,
+        'totalMatches': _totalMatches,
+        'requestedAt': ServerValue.timestamp,
+      }).timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // 招待報酬の成立通知に失敗してもゲーム結果保存は止めない。
+    }
   }
 
   Future<void> _syncGlobalDailyStatsIncrement({
@@ -1894,6 +2035,11 @@ class PlayerDataManager {
       _highestEndlessScoreKey,
       _highestEndlessScore.clamp(0, maxEndlessScore).toInt(),
     );
+    await prefs.setString(_endlessSeasonIdKey, _endlessSeasonId);
+    await prefs.setInt(
+      _seasonEndlessHighScoreKey,
+      _seasonEndlessHighScore.clamp(0, maxEndlessScore).toInt(),
+    );
     await prefs.setInt(_rankedWinsKey, _rankedWins);
     await prefs.setInt(_rankedCurrentWinStreakKey, _rankedCurrentWinStreak);
     await prefs.setInt(_rankedMaxWinStreakKey, _rankedMaxWinStreak);
@@ -2015,6 +2161,28 @@ class PlayerDataManager {
     }
     await prefs.remove(_pendingLoginBonusLogKey);
     return message;
+  }
+
+  Future<List<String>> consumePendingAdminGrantLogs() async {
+    await load();
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_pendingAdminGrantLogsKey);
+    if (raw == null || raw.isEmpty) {
+      return const [];
+    }
+    await prefs.remove(_pendingAdminGrantLogsKey);
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .map((entry) => entry.toString().trim())
+            .where((entry) => entry.isNotEmpty)
+            .toList();
+      }
+    } catch (_) {
+      return const [];
+    }
+    return const [];
   }
 
   List<Map<String, dynamic>> _generateDailyMissions() {
@@ -2290,6 +2458,8 @@ class PlayerDataManager {
       'endless': {
         'playCount': _modePlayCounts['SOLO'] ?? 0,
         'highestScore': _highestEndlessScore,
+        'seasonId': _endlessSeasonId,
+        'seasonHighestScore': _seasonEndlessHighScore,
       },
       'cpu': _cpuStatsPayload(),
       'friend': {
@@ -2387,6 +2557,31 @@ class PlayerDataManager {
         ? 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として $rewardCoins を獲得しました。'
         : 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として合計 $rewardCoins を獲得しました。';
     await prefs.setString(_pendingLevelUpRewardLogKey, message);
+  }
+
+  Future<void> _storePendingAdminGrantLogs(List<String> logs) async {
+    final normalized =
+        logs.map((log) => log.trim()).where((log) => log.isNotEmpty).toList();
+    if (normalized.isEmpty) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final current = <String>[];
+    final raw = prefs.getString(_pendingAdminGrantLogsKey);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          current.addAll(decoded.map((entry) => entry.toString()));
+        }
+      } catch (_) {
+        // 壊れた古い通知ログは今回の通知で上書きする。
+      }
+    }
+    await prefs.setString(
+      _pendingAdminGrantLogsKey,
+      jsonEncode([...current, ...normalized].take(8).toList()),
+    );
   }
 
   Future<bool> _updateLoginStreak(String today) async {

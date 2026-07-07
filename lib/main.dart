@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_settings.dart';
+import 'app_maintenance_manager.dart';
 import 'app_update_manager.dart';
 import 'app_version.dart';
 import 'auth/auth_manager.dart';
@@ -217,6 +218,9 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
 
   late final AnimationController _progressController;
+  MaintenanceNotice? _maintenanceNotice;
+  String _publicPlayerId = '';
+  bool _isRetryingMaintenance = false;
 
   @override
   void initState() {
@@ -226,6 +230,22 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       duration: const Duration(milliseconds: 1800),
     );
     _boot();
+    unawaited(_loadPublicPlayerId());
+  }
+
+  Future<void> _loadPublicPlayerId() async {
+    try {
+      final playerDataManager = PlayerDataManager.instance;
+      await playerDataManager.load();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _publicPlayerId = playerDataManager.playerId;
+      });
+    } catch (_) {
+      // ロード画面のID表示に失敗しても起動処理は止めない。
+    }
   }
 
   Future<void> _boot() async {
@@ -247,6 +267,18 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
 
     await _waitForRealtimeDatabaseConnection();
     if (!mounted) {
+      return;
+    }
+
+    final maintenanceNotice =
+        await AppMaintenanceManager.fetchGlobalMaintenance();
+    if (!mounted) {
+      return;
+    }
+    if (maintenanceNotice.enabled) {
+      setState(() {
+        _maintenanceNotice = maintenanceNotice;
+      });
       return;
     }
 
@@ -334,6 +366,31 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _retryMaintenanceCheck() async {
+    if (_isRetryingMaintenance) {
+      return;
+    }
+    setState(() {
+      _isRetryingMaintenance = true;
+    });
+    final notice = await AppMaintenanceManager.fetchGlobalMaintenance();
+    if (!mounted) {
+      return;
+    }
+    if (notice.enabled) {
+      setState(() {
+        _maintenanceNotice = notice;
+        _isRetryingMaintenance = false;
+      });
+      return;
+    }
+    setState(() {
+      _maintenanceNotice = null;
+      _isRetryingMaintenance = false;
+    });
+    unawaited(_boot());
   }
 
   Future<HomeBootstrapData> _localHomeBootstrapFallback() async {
@@ -577,6 +634,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
 
   @override
   Widget build(BuildContext context) {
+    final maintenanceNotice = _maintenanceNotice;
     return Scaffold(
       backgroundColor: GameThemeColors.background,
       body: Container(
@@ -679,9 +737,9 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                                 ),
                               ),
                               const SizedBox(width: 10),
-                              const Text(
-                                'ロード中',
-                                style: TextStyle(
+                              Text(
+                                maintenanceNotice == null ? 'ロード中' : 'メンテナンス中',
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
@@ -691,22 +749,25 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                             ],
                           ),
                           const SizedBox(height: 12),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(999),
-                            child: AnimatedBuilder(
-                              animation: _progressController,
-                              builder: (context, child) {
-                                return LinearProgressIndicator(
-                                  value: _progressController.value,
-                                  minHeight: 10,
-                                  backgroundColor: Colors.white10,
-                                  valueColor: const AlwaysStoppedAnimation(
-                                    GameThemeColors.cyan,
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
+                          if (maintenanceNotice == null)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(999),
+                              child: AnimatedBuilder(
+                                animation: _progressController,
+                                builder: (context, child) {
+                                  return LinearProgressIndicator(
+                                    value: _progressController.value,
+                                    minHeight: 10,
+                                    backgroundColor: Colors.white10,
+                                    valueColor: const AlwaysStoppedAnimation(
+                                      GameThemeColors.cyan,
+                                    ),
+                                  );
+                                },
+                              ),
+                            )
+                          else
+                            _buildMaintenanceContent(maintenanceNotice),
                         ],
                       ),
                     ),
@@ -724,23 +785,117 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                   ],
                 ),
               ),
-              const Positioned(
+              Positioned(
                 right: 18,
                 bottom: 12,
-                child: Text(
-                  'v$appVersionName',
-                  style: TextStyle(
-                    color: Colors.white38,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                  ),
+                child: _StartupVersionLabel(
+                  publicPlayerId: _publicPlayerId,
                 ),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildMaintenanceContent(MaintenanceNotice notice) {
+    final expectedEnd = notice.expectedEndAt;
+    final expectedText = expectedEnd == null
+        ? null
+        : '${expectedEnd.month.toString().padLeft(2, '0')}/'
+            '${expectedEnd.day.toString().padLeft(2, '0')} '
+            '${expectedEnd.hour.toString().padLeft(2, '0')}:'
+            '${expectedEnd.minute.toString().padLeft(2, '0')}ごろ再開予定';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          notice.title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          notice.message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 13,
+            height: 1.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (expectedText != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            expectedText,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: GameThemeColors.cyan,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        OutlinedButton(
+          onPressed: _isRetryingMaintenance
+              ? null
+              : () => unawaited(_retryMaintenanceCheck()),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: GameThemeColors.cyan,
+            side: const BorderSide(color: GameThemeColors.cyanBorder),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          child: Text(_isRetryingMaintenance ? '確認中...' : '再確認'),
+        ),
+      ],
+    );
+  }
+}
+
+class _StartupVersionLabel extends StatelessWidget {
+  const _StartupVersionLabel({
+    required this.publicPlayerId,
+  });
+
+  final String publicPlayerId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (publicPlayerId.isNotEmpty) ...[
+          Text(
+            'ID: $publicPlayerId',
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 3),
+        ],
+        const Text(
+          'v$appVersionName',
+          style: TextStyle(
+            color: Colors.white38,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.6,
+          ),
+        ),
+      ],
     );
   }
 }

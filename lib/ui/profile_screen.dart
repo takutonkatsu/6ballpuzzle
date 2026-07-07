@@ -33,7 +33,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  static const int _nameChangeCost = 1000;
+  static const int _nameChangeCost = 10000;
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final MultiplayerManager _multiplayerManager = MultiplayerManager.instance;
@@ -749,7 +749,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         label: seasonBadge.label,
         detail: seasonBadge.detailLabel,
         color: Colors.amberAccent,
-        icon: SeasonRankBadgeIcon(rank: seasonBadge.rank, size: 26),
+        icon: SeasonRankBadgeIcon(
+          rank: seasonBadge.rank,
+          kind: seasonBadge.kind,
+          size: 26,
+        ),
       );
     }
     final badge = BadgeCatalog.findById(id);
@@ -787,7 +791,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           label: badge.label,
           detail: badge.detailLabel,
           color: Colors.amberAccent,
-          icon: SeasonRankBadgeIcon(rank: badge.rank, size: 26),
+          icon: SeasonRankBadgeIcon(
+            rank: badge.rank,
+            kind: badge.kind,
+            size: 26,
+          ),
         ),
       );
     }

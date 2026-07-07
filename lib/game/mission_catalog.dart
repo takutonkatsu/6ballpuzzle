@@ -63,6 +63,7 @@ class MissionCatalog {
   static const String requiredEndlessMissionId = 'score_endless_10000';
   static const List<String> temporarilyDisabledMissionIds = [
     'win_arena_match_1',
+    'regular_daily_win_rank_first',
   ];
 
   static bool isRewardedAdMissionId(String id) {
@@ -250,14 +251,6 @@ class MissionCatalog {
       initialTarget: 1500,
       targetStep: 500,
       rewardCoins: 1000,
-    ),
-    RegularMissionDefinition(
-      id: 'regular_daily_win_rank_first',
-      title: '今日の勝利数ランキングで〇〇回1位になる',
-      progressKey: 'daily_win_rank_1',
-      initialTarget: 1,
-      targetStep: 1,
-      rewardCoins: 50000,
     ),
     RegularMissionDefinition(
       id: 'regular_hexagon_count',

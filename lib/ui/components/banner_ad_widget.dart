@@ -7,7 +7,9 @@ import '../../ads/app_ad_service.dart';
 import '../../app_settings.dart';
 
 class BannerAdWidget extends StatefulWidget {
-  const BannerAdWidget({super.key});
+  const BannerAdWidget({
+    super.key,
+  });
 
   @override
   State<BannerAdWidget> createState() => _BannerAdWidgetState();
@@ -139,9 +141,11 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
       return const SizedBox.shrink();
     }
 
+    final width = ad.size.width.toDouble();
+    final height = ad.size.height.toDouble();
     return SizedBox(
-      width: ad.size.width.toDouble(),
-      height: ad.size.height.toDouble(),
+      width: width,
+      height: height,
       child: AdWidget(ad: ad),
     );
   }

@@ -115,26 +115,36 @@ class SeasonRankBadge {
   const SeasonRankBadge({
     required this.seasonId,
     required this.rank,
+    this.kind = SeasonRankBadgeKind.ranked,
     this.rating,
+    this.score,
   });
 
   static final RegExp _idPattern =
       RegExp(r'^season_rank_(\d{4}-\d{2})_(\d{1,3})$');
+  static final RegExp _typedIdPattern = RegExp(
+      r'^(ranked|endless)_rank_([0-9]{4}(?:-[0-9]{2}|-W[0-9]{2}))_(\d{1,3})$');
 
   final String seasonId;
   final int rank;
+  final SeasonRankBadgeKind kind;
   final int? rating;
+  final int? score;
 
-  String get id => idFor(seasonId: seasonId, rank: rank);
-  String get label => 'ランク戦 $rank位';
-  String get detailLabel => '$rank位　${_seasonName(seasonId)}';
-  String get seasonName => _seasonName(seasonId);
+  String get id => idFor(seasonId: seasonId, rank: rank, kind: kind);
+  String get label => '${kind.label} $rank位';
+  String get detailLabel => '$rank位　$seasonName';
+  String get seasonName => kind == SeasonRankBadgeKind.endless
+      ? _endlessSeasonName(seasonId)
+      : _rankedSeasonName(seasonId);
 
   Map<String, dynamic> toJson() {
     return {
       'seasonId': seasonId,
       'rank': rank,
+      'kind': kind.key,
       if (rating != null) 'rating': rating,
+      if (score != null) 'score': score,
     };
   }
 
@@ -142,15 +152,37 @@ class SeasonRankBadge {
     return SeasonRankBadge(
       seasonId: json['seasonId']?.toString() ?? '',
       rank: _intValue(json['rank']) ?? 0,
+      kind: SeasonRankBadgeKind.fromKey(json['kind']?.toString()),
       rating: _intValue(json['rating']),
+      score: _intValue(json['score']),
     );
   }
 
-  static String idFor({required String seasonId, required int rank}) {
-    return 'season_rank_${seasonId}_$rank';
+  static String idFor({
+    required String seasonId,
+    required int rank,
+    SeasonRankBadgeKind kind = SeasonRankBadgeKind.ranked,
+  }) {
+    if (kind == SeasonRankBadgeKind.ranked &&
+        RegExp(r'^\d{4}-\d{2}$').hasMatch(seasonId)) {
+      return 'season_rank_${seasonId}_$rank';
+    }
+    return '${kind.key}_rank_${seasonId}_$rank';
   }
 
   static SeasonRankBadge? fromId(String id) {
+    final typedMatch = _typedIdPattern.firstMatch(id);
+    if (typedMatch != null) {
+      final rank = int.tryParse(typedMatch.group(3) ?? '');
+      if (rank == null || rank <= 0) {
+        return null;
+      }
+      return SeasonRankBadge(
+        kind: SeasonRankBadgeKind.fromKey(typedMatch.group(1)),
+        seasonId: typedMatch.group(2) ?? '',
+        rank: rank,
+      );
+    }
     final match = _idPattern.firstMatch(id);
     if (match == null) {
       return null;
@@ -174,7 +206,7 @@ class SeasonRankBadge {
     return int.tryParse('$value');
   }
 
-  static String _seasonName(String seasonId) {
+  static String _rankedSeasonName(String seasonId) {
     final parts = seasonId.split('-');
     if (parts.length != 2) {
       return 'シーズン0';
@@ -188,6 +220,35 @@ class SeasonRankBadge {
     const baseMonth = 5;
     final number = (year - baseYear) * 12 + (month - baseMonth);
     return 'シーズン$number';
+  }
+
+  static String _endlessSeasonName(String seasonId) {
+    final match = RegExp(r'^(\d{4})-W(\d{2})$').firstMatch(seasonId);
+    if (match == null) {
+      return 'エンドレス';
+    }
+    return '${match.group(1)}年 第${match.group(2)}週';
+  }
+}
+
+enum SeasonRankBadgeKind {
+  ranked,
+  endless;
+
+  String get key => switch (this) {
+        SeasonRankBadgeKind.ranked => 'ranked',
+        SeasonRankBadgeKind.endless => 'endless',
+      };
+
+  String get label => switch (this) {
+        SeasonRankBadgeKind.ranked => 'ランク戦',
+        SeasonRankBadgeKind.endless => 'エンドレス',
+      };
+
+  static SeasonRankBadgeKind fromKey(String? key) {
+    return key == 'endless'
+        ? SeasonRankBadgeKind.endless
+        : SeasonRankBadgeKind.ranked;
   }
 }
 

@@ -14,6 +14,7 @@ import 'components/gacha_animation_screen.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'components/screen_bottom_banner_ad.dart';
 import 'theme/game_theme_colors.dart';
 
 class ShopScreen extends StatefulWidget {
@@ -382,6 +383,7 @@ class _ShopScreenState extends State<ShopScreen> {
     final adsRemoved = AppSettings.instance.adsRemoved.value;
     return Scaffold(
       backgroundColor: GameThemeColors.background,
+      bottomNavigationBar: const ScreenBottomBannerAd(),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,

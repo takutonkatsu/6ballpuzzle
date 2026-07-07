@@ -10,6 +10,7 @@ import '../game/mission_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'components/screen_bottom_banner_ad.dart';
 import 'theme/game_theme_colors.dart';
 
 class MissionScreen extends StatefulWidget {
@@ -72,6 +73,7 @@ class _MissionScreenState extends State<MissionScreen> {
       length: 2,
       child: Scaffold(
         backgroundColor: const Color(0xFF080A12),
+        bottomNavigationBar: const ScreenBottomBannerAd(),
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,

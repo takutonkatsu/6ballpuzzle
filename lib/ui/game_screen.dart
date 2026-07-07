@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../ads/ranked_interstitial_debt_manager.dart';
 import '../app_settings.dart';
@@ -21,14 +24,16 @@ import '../game/friend_match_limit_manager.dart';
 import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
+import '../invite/invite_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/game_activity_presence.dart';
+import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
 import '../network/realtime_connection_guard.dart';
-import 'components/banner_ad_widget.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/interstitial_ad_manager.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'components/screen_bottom_banner_ad.dart';
 import 'components/season_rank_badge_icon.dart';
 import 'components/stamp_widget.dart';
 import 'home_screen.dart';
@@ -43,6 +48,12 @@ const Color _computerYellow = GameThemeColors.computer;
 const Color _friendPink = GameThemeColors.friend;
 const Color _mutedButtonGrey = GameThemeColors.mutedButton;
 const Duration _playerProfileSyncTimeout = Duration(seconds: 15);
+const String _shareAppIconAsset = 'assets/images/Hexagon_icon02_1024x1024.png';
+const String _shareSeasonBadgeAsset =
+    'assets/images/Badge/Ranking_Badge_Rank.png';
+const String _shareStoreQrAsset = 'assets/images/QRcode_Hexagon_iOS.png';
+const String _shareCoinAsset = 'assets/images/Hexagon_Coin.png';
+const String _shareTrophyAsset = 'assets/images/Hexagon_Trophy.png';
 
 class GameScreen extends StatefulWidget {
   final bool isCpuMode;
@@ -144,6 +155,8 @@ class _GameScreenState extends State<GameScreen>
   final PlayerDataManager _playerDataManager = PlayerDataManager.instance;
   final ArenaManager _arenaManager = ArenaManager.instance;
   final MissionManager _missionManager = MissionManager.instance;
+  static const MethodChannel _shareImageChannel =
+      MethodChannel('hexagon/share_image');
   late final PuzzleGame _playerGame;
   PuzzleGame? _cpuGame;
   final FocusNode _playerFocusNode = FocusNode();
@@ -185,6 +198,7 @@ class _GameScreenState extends State<GameScreen>
   int? _resultCoinBaseEarned;
   bool _resultCoinTripleClaimed = false;
   bool _resultCoinTripleInProgress = false;
+  bool _resultShareInProgress = false;
   late final AnimationController _resultTriplePromptController;
   bool _didLevelUpFromResultExp = false;
   int? _resultLevelAfterExp;
@@ -324,6 +338,8 @@ class _GameScreenState extends State<GameScreen>
       _isOnlineMode && !widget.isRankedMode && !widget.isArenaMode;
 
   int get _currentPlayerScore => _playerGame.scoreManager.state.value.score;
+
+  int get _currentPlayerLevel => _playerGame.scoreManager.state.value.level;
 
   bool get _isRankedBotMode =>
       widget.isCpuMode && widget.isRankedMode && !_isOnlineMode;
@@ -1039,6 +1055,9 @@ class _GameScreenState extends State<GameScreen>
       canPop: !_blocksOnlineExit,
       child: Scaffold(
         backgroundColor: const Color(0xFF0F0F13),
+        bottomNavigationBar: const ScreenBottomBannerAd(
+          reserveSpaceWhenHidden: true,
+        ),
         body: SafeArea(
           child: Stack(
             children: [
@@ -1055,24 +1074,6 @@ class _GameScreenState extends State<GameScreen>
                     _buildScoreWidget(_playerGame),
                   Expanded(child: _buildPlayerArea(_playerGame)),
                   _buildControls(_playerGame),
-                  ValueListenableBuilder<bool>(
-                    valueListenable: AppSettings.instance.adsRemoved,
-                    builder: (context, adsRemoved, child) {
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(height: 12),
-                          SizedBox(
-                            height: 50.0,
-                            width: double.infinity,
-                            child: adsRemoved
-                                ? const SizedBox.shrink()
-                                : const BannerAdWidget(),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
                 ],
               ),
               if (_isOnlineMode)
@@ -1223,7 +1224,48 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  Widget _buildResultCoinSummary({bool highlightTripleReward = false}) {
+  Widget _buildResultRewardSummaryRow({bool highlightTripleReward = false}) {
+    final expSummary = _buildResultExpSummary();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _buildResultCoinSummary(
+                compact: true,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: expSummary),
+          ],
+        ),
+        if (!AppSettings.instance.adsRemoved.value) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: _buildResultCoinTripleButton(
+              highlight: highlightTripleReward,
+            ),
+          ),
+        ],
+        if (_didLevelUpFromResultExp) ...[
+          const SizedBox(height: 8),
+          _buildResultInfoRow(
+            label: 'LEVEL UP',
+            value: _resultLevelAfterExp == null
+                ? ''
+                : 'Lv.${_resultLevelAfterExp!}',
+            color: _gameCyan,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildResultCoinSummary({
+    bool compact = false,
+  }) {
     final totalCoins = _totalResultCoinsEarned;
     if (totalCoins == null) {
       return const Text(
@@ -1236,46 +1278,48 @@ class _GameScreenState extends State<GameScreen>
       );
     }
 
-    return Container(
+    return SizedBox(
+      height: compact ? 58 : null,
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.42),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.42)),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: HexagonCoinIcon(size: 24),
-          ),
-          Center(
-            child: Text(
-              '+$totalCoins',
-              maxLines: 1,
-              style: const TextStyle(
-                color: Color(0xFFEAF6FF),
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
-          if (!AppSettings.instance.adsRemoved.value)
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 9 : 14,
+          vertical: compact ? 8 : 10,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.42),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.42)),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
             Align(
-              alignment: Alignment.centerRight,
-              child: _buildResultCoinTripleButton(
-                highlight: highlightTripleReward,
+              alignment: Alignment.centerLeft,
+              child: HexagonCoinIcon(size: compact ? 18 : 24),
+            ),
+            Center(
+              child: Text(
+                '+$totalCoins',
+                maxLines: 1,
+                style: TextStyle(
+                  color: const Color(0xFFEAF6FF),
+                  fontSize: compact ? 18 : 20,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildResultCoinTripleButton({required bool highlight}) {
+  Widget _buildResultCoinTripleButton({
+    required bool highlight,
+    bool compact = false,
+  }) {
     final waiting = _resultCoinTripleInProgress;
     final claimed = _resultCoinTripleClaimed;
     final shouldAnimate = highlight && !waiting && !claimed;
@@ -1287,8 +1331,11 @@ class _GameScreenState extends State<GameScreen>
             },
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        width: 92,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        width: compact ? 68 : 92,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 6 : 8,
+          vertical: compact ? 6 : 8,
+        ),
         decoration: BoxDecoration(
           color: claimed
               ? _endlessGreen.withValues(alpha: 0.12)
@@ -1305,12 +1352,12 @@ class _GameScreenState extends State<GameScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (!claimed && !waiting) ...[
-              const Icon(
+              Icon(
                 Icons.play_circle_fill_rounded,
                 color: Colors.amberAccent,
-                size: 24,
+                size: compact ? 18 : 20,
               ),
-              const SizedBox(width: 5),
+              SizedBox(width: compact ? 3 : 5),
             ],
             Text(
               claimed
@@ -1324,7 +1371,7 @@ class _GameScreenState extends State<GameScreen>
                     : waiting
                         ? Colors.white54
                         : Colors.amberAccent,
-                fontSize: 13,
+                fontSize: compact ? 10.5 : 13,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.6,
               ),
@@ -1382,33 +1429,19 @@ class _GameScreenState extends State<GameScreen>
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildResultInfoRow(
-          label: 'EXP',
-          value: '+$totalExp',
-          color: Colors.white,
-          centerValue: true,
-        ),
-        if (_didLevelUpFromResultExp) ...[
-          const SizedBox(height: 8),
-          _buildResultInfoRow(
-            label: 'LEVEL UP',
-            value: _resultLevelAfterExp == null
-                ? ''
-                : 'Lv.${_resultLevelAfterExp!}',
-            color: _gameCyan,
-          ),
-        ],
-      ],
+    return _buildResultInfoRow(
+      label: 'EXP',
+      value: '+$totalExp',
+      color: Colors.white,
+      centerValue: true,
+      compactHeight: true,
     );
   }
 
   Widget _buildResultScoreSummary() {
     return _buildResultInfoRow(
       label: 'スコア',
-      value: '$_currentPlayerScore',
+      value: '$_currentPlayerScore点',
       color: _endlessGreen,
       valueColor: Colors.white,
     );
@@ -1612,8 +1645,9 @@ class _GameScreenState extends State<GameScreen>
     if (widget.isCpuMode) {
       return _opponentDisplayName;
     }
-    return _displayNameForRole(_multiplayerManager.opponentRoleId) ??
-        'Opponent';
+    return _opponentSharePlayer()?.name.trim().isNotEmpty == true
+        ? _opponentSharePlayer()!.name.trim()
+        : 'Opponent';
   }
 
   String _opponentResultIconId() {
@@ -1623,8 +1657,7 @@ class _GameScreenState extends State<GameScreen>
     if (widget.isCpuMode) {
       return widget.isRankedMode ? widget.rankedBotIconId : 'icon_bolt';
     }
-    return _room?.players[_multiplayerManager.opponentRoleId]?.playerIconId ??
-        'default';
+    return _opponentSharePlayer()?.playerIconId ?? 'default';
   }
 
   String _opponentResultIconFrameId() {
@@ -1634,9 +1667,7 @@ class _GameScreenState extends State<GameScreen>
     if (widget.isCpuMode) {
       return widget.isRankedMode ? widget.rankedBotFrameId : 'default';
     }
-    return _room
-            ?.players[_multiplayerManager.opponentRoleId]?.playerIconFrameId ??
-        'default';
+    return _opponentSharePlayer()?.playerIconFrameId ?? 'default';
   }
 
   String _opponentBallSkinId() {
@@ -1656,8 +1687,37 @@ class _GameScreenState extends State<GameScreen>
     if (widget.isCpuMode) {
       return const [];
     }
-    return _room?.players[_multiplayerManager.opponentRoleId]?.badgeIds ??
-        const [];
+    return _opponentSharePlayer()?.badgeIds ?? const [];
+  }
+
+  MultiplayerPlayer? _opponentSharePlayer() {
+    final room = _room ?? _multiplayerManager.currentRoom;
+    if (room == null) {
+      return null;
+    }
+    final rolePlayer = room.players[_multiplayerManager.opponentRoleId];
+    if (rolePlayer != null && !_isLocalSharePlayer(rolePlayer)) {
+      return rolePlayer;
+    }
+    for (final entry in room.players.entries) {
+      final player = entry.value;
+      if (!_isLocalSharePlayer(player)) {
+        return player;
+      }
+    }
+    return rolePlayer;
+  }
+
+  bool _isLocalSharePlayer(MultiplayerPlayer player) {
+    final myUid = _multiplayerManager.myUid ?? '';
+    if (myUid.isNotEmpty && player.uid == myUid) {
+      return true;
+    }
+    final myPublicId = _playerDataManager.playerId;
+    if (myPublicId.isNotEmpty && player.publicId == myPublicId) {
+      return true;
+    }
+    return false;
   }
 
   Widget _buildResultInfoRow({
@@ -1668,65 +1728,38 @@ class _GameScreenState extends State<GameScreen>
     String? trailing,
     Widget? leadingValue,
     bool centerValue = false,
+    bool compactHeight = false,
   }) {
-    return Container(
+    return SizedBox(
+      height: compactHeight ? 58 : null,
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.42),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.42)),
-      ),
-      child: centerValue
-          ? Stack(
-              alignment: Alignment.center,
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: compactHeight ? 8 : 10,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.42),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.42)),
+        ),
+        child: centerValue
+            ? Stack(
+                alignment: Alignment.center,
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
-                ),
-                Center(
-                  child: Text(
-                    value,
-                    maxLines: 1,
-                    style: TextStyle(
-                      color: valueColor ?? color,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ],
-            )
-          : Row(
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const Spacer(),
-                if (leadingValue != null) ...[
-                  leadingValue,
-                  const SizedBox(width: 6),
-                ],
-                Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
+                  Center(
                     child: Text(
                       value,
                       maxLines: 1,
@@ -1738,20 +1771,54 @@ class _GameScreenState extends State<GameScreen>
                       ),
                     ),
                   ),
-                ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 8),
+                ],
+              )
+            : Row(
+                children: [
                   Text(
-                    trailing,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w900,
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
                     ),
                   ),
+                  const Spacer(),
+                  if (leadingValue != null) ...[
+                    leadingValue,
+                    const SizedBox(width: 6),
+                  ],
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        value,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: valueColor ?? color,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      trailing,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
+              ),
+      ),
     );
   }
 
@@ -1862,7 +1929,9 @@ class _GameScreenState extends State<GameScreen>
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerRight,
                         child: Text(
-                          '${state.score}',
+                          useEndlessLayout
+                              ? '${state.score}点'
+                              : '${state.score}',
                           maxLines: 1,
                           style: const TextStyle(
                             color: Color(0xFFEAF6FF),
@@ -2235,7 +2304,11 @@ class _GameScreenState extends State<GameScreen>
     if (seasonBadge != null) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: SeasonRankBadgeIcon(rank: seasonBadge.rank, size: 24),
+        child: SeasonRankBadgeIcon(
+          rank: seasonBadge.rank,
+          kind: seasonBadge.kind,
+          size: 24,
+        ),
       );
     }
     final badge = BadgeCatalog.findById(id);
@@ -2375,23 +2448,35 @@ class _GameScreenState extends State<GameScreen>
                       _buildResultScoreSummary(),
                     ],
                     const SizedBox(height: 18),
-                    _buildResultCoinSummary(
+                    _buildResultRewardSummaryRow(
                       highlightTripleReward: isBattleResult && cpuPlayerWon,
                     ),
-                    const SizedBox(height: 12),
-                    _buildResultExpSummary(),
                     if (_newlyUnlockedBadges.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       _buildBadgeUnlockResultCard(),
                     ],
+                    const SizedBox(height: 12),
+                    _buildCyberResultButton(
+                      label: _resultShareInProgress ? '共有準備中...' : '結果をシェア',
+                      baseColor: _gameCyan,
+                      icon: Icons.ios_share_rounded,
+                      isWaiting: _resultShareInProgress,
+                      onPressed: _resultShareInProgress
+                          ? null
+                          : () => unawaited(_shareCurrentResult()),
+                    ),
                     const SizedBox(height: 12),
                     if (!isBattleResult) ...[
                       _buildCyberResultButton(
                         label: 'リスタート',
                         baseColor: _endlessGreen,
                         isWaiting: false,
-                        onPressed: () {
+                        onPressed: () async {
                           _clearAllPendingAttacks();
+                          await _showPostGameInterstitialIfNeeded();
+                          if (!mounted) {
+                            return;
+                          }
                           unawaited(
                             _startLocalBattleWithReadyGo(
                               DateTime.now().millisecondsSinceEpoch,
@@ -2445,13 +2530,21 @@ class _GameScreenState extends State<GameScreen>
             _buildArenaResultSummary(),
           ],
           const SizedBox(height: 18),
-          _buildResultCoinSummary(highlightTripleReward: win),
-          const SizedBox(height: 12),
-          _buildResultExpSummary(),
+          _buildResultRewardSummaryRow(highlightTripleReward: win),
           if (_newlyUnlockedBadges.isNotEmpty) ...[
             const SizedBox(height: 12),
             _buildBadgeUnlockResultCard(),
           ],
+          const SizedBox(height: 12),
+          _buildCyberResultButton(
+            label: _resultShareInProgress ? '共有準備中...' : '結果をシェア',
+            baseColor: _gameCyan,
+            icon: Icons.ios_share_rounded,
+            isWaiting: _resultShareInProgress,
+            onPressed: _resultShareInProgress
+                ? null
+                : () => unawaited(_shareCurrentResult()),
+          ),
           const SizedBox(height: 12),
           if (_canShowRematchButton) ...[
             if (_opponentRequestedRematch) ...[
@@ -2646,6 +2739,7 @@ class _GameScreenState extends State<GameScreen>
     required VoidCallback? onPressed,
     required Color baseColor,
     required bool isWaiting,
+    IconData? icon,
   }) {
     if (isWaiting) {
       return Container(
@@ -2657,14 +2751,10 @@ class _GameScreenState extends State<GameScreen>
           border: Border.all(color: Colors.white24, width: 2),
         ),
         child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white54,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 2,
-            ),
+          child: _buildResultButtonContent(
+            label: label,
+            icon: icon,
+            color: Colors.white54,
           ),
         ),
       );
@@ -2687,16 +2777,1468 @@ class _GameScreenState extends State<GameScreen>
             border:
                 Border.all(color: baseColor.withValues(alpha: 0.8), width: 2)),
         child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 2,
-            ),
+          child: _buildResultButtonContent(
+            label: label,
+            icon: icon,
+            color: Colors.white,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildResultButtonContent({
+    required String label,
+    required IconData? icon,
+    required Color color,
+  }) {
+    final text = Text(
+      label,
+      style: TextStyle(
+        color: color,
+        fontSize: 20,
+        fontWeight: FontWeight.w900,
+        letterSpacing: 1.2,
+      ),
+    );
+    if (icon == null) {
+      return text;
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(width: 9),
+        text,
+      ],
+    );
+  }
+
+  Future<void> _shareCurrentResult() async {
+    if (_resultShareInProgress) {
+      return;
+    }
+    setState(() {
+      _resultShareInProgress = true;
+    });
+    try {
+      final data = await _buildResultShareData();
+      final pngBytes = await _renderResultShareImage(data);
+      if (!mounted) {
+        return;
+      }
+      final box = context.findRenderObject() as RenderBox?;
+      try {
+        await _shareImageChannel.invokeMethod<bool>('shareResultImage', {
+          'title': 'ヘキサゴン リザルト',
+          'text': '',
+          'imageBytes': pngBytes,
+        });
+      } catch (error, stackTrace) {
+        debugPrint('Failed to share result image natively: $error');
+        debugPrintStack(stackTrace: stackTrace);
+        await _shareResultImageViaFile(pngBytes, box);
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Failed to share result image: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) {
+        return;
+      }
+      final box = context.findRenderObject() as RenderBox?;
+      try {
+        final data = await _buildResultShareData();
+        await _shareResultText(data.shareText, box);
+      } catch (fallbackError, fallbackStackTrace) {
+        debugPrint('Failed to share result text fallback: $fallbackError');
+        debugPrintStack(stackTrace: fallbackStackTrace);
+        if (!mounted) {
+          return;
+        }
+        await _showShareErrorDialog();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _resultShareInProgress = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _shareResultText(String text, RenderBox? box) {
+    return SharePlus.instance.share(
+      ShareParams(
+        title: 'ヘキサゴン リザルト',
+        text: text,
+        sharePositionOrigin:
+            box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
+
+  Future<void> _shareResultImageViaFile(
+    Uint8List pngBytes,
+    RenderBox? box,
+  ) async {
+    final directory = Directory.systemTemp.createTempSync('hexagon_share_');
+    final file = File('${directory.path}/hexagon_result.png');
+    await file.writeAsBytes(pngBytes, flush: true);
+    await SharePlus.instance.share(
+      ShareParams(
+        title: 'ヘキサゴン リザルト',
+        files: [
+          XFile(
+            file.path,
+            mimeType: 'image/png',
+            name: 'hexagon_result.png',
+          ),
+        ],
+        fileNameOverrides: const ['hexagon_result.png'],
+        sharePositionOrigin:
+            box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
+
+  Future<_ResultShareData> _buildResultShareData() async {
+    final ranked = widget.isRankedMode && !widget.isArenaMode;
+    final endless =
+        !widget.isCpuMode && !_isOnlineMode && !widget.isTutorialMode;
+    final playerWon = _sharePlayerWon;
+    final seasonLabel =
+        seasonIdForLabel(_room?.seasonId ?? _playerDataManager.rankedSeasonId);
+    final modeLabel = endless
+        ? 'エンドレス'
+        : ranked
+            ? 'ランク戦'
+            : widget.isArenaMode
+                ? 'アリーナ'
+                : widget.isCpuMode
+                    ? 'コンピュータ対戦'
+                    : 'フレンド対戦';
+    final accentColor = endless
+        ? _endlessGreen
+        : ranked
+            ? _rankedPurple
+            : widget.isCpuMode
+                ? _computerYellow
+                : _friendPink;
+    final title = endless
+        ? ''
+        : playerWon
+            ? '勝ち'
+            : '負け';
+    final ratingChange = _rankedRatingChange;
+    final ratingDeltaLabel = ratingChange == null
+        ? ''
+        : ratingChange.delta >= 0
+            ? '+${ratingChange.delta}'
+            : '${ratingChange.delta}';
+    final rankedSummary = ranked ? await _fetchShareRankingSummary() : null;
+    final rankLabel = _shareRankLabel(rankedSummary?.ratingRankLabel);
+    final dailyWinRankLabel = _shareRankLabel(rankedSummary?.dailyWinRankLabel);
+    final dailyWinsLabel = rankedSummary == null
+        ? ''
+        : _formatShareNumber(rankedSummary.dailyWins);
+    final endlessBestScore = max(
+      _currentPlayerScore,
+      _playerDataManager.highestEndlessScore,
+    );
+    final endlessRankLabel = endless ? await _fetchShareEndlessRankLabel() : '';
+    final appIcon = await _loadShareImage(_shareAppIconAsset);
+    final seasonBadgeIcon = await _loadShareImage(_shareSeasonBadgeAsset);
+    final storeQrImage = await _loadShareImage(_shareStoreQrAsset);
+    final coinIcon = await _loadShareImage(_shareCoinAsset);
+    final trophyIcon = await _loadShareImage(_shareTrophyAsset);
+    final inviteCode = await _shareInviteCode();
+    final playerPreRating = ratingChange?.oldRating ??
+        (_room?.players[_multiplayerManager.myRoleId]?.rating ??
+            _playerDataManager.currentRating);
+
+    return _ResultShareData(
+      isRanked: ranked,
+      isEndless: endless,
+      seasonLabel: ranked ? seasonLabel : '',
+      modeLabel: modeLabel,
+      title: title,
+      titleColor: playerWon ? _battlePlayerColor : _battleOpponentColor,
+      accentColor: accentColor,
+      scoreLabel: endless ? _formatShareNumber(_currentPlayerScore) : '',
+      endlessLevelLabel: endless ? 'Lv.$_currentPlayerLevel' : '',
+      endlessBestScoreLabel:
+          endless ? _formatShareNumber(endlessBestScore) : '',
+      endlessRankLabel: endlessRankLabel,
+      ratingDeltaLabel: ratingDeltaLabel,
+      newRatingLabel: ratingChange == null
+          ? ''
+          : _formatShareNumber(ratingChange.newRating),
+      rankLabel: rankLabel,
+      dailyWinsLabel: dailyWinsLabel,
+      dailyWinRankLabel: dailyWinRankLabel,
+      player: _ShareParticipant(
+        name: _playerDataManager.displayPlayerName,
+        iconId: _playerDataManager.equippedPlayerIconId,
+        frameId: _playerDataManager.equippedIconFrameId,
+        badgeIds: _playerDataManager.equippedBadgeIds,
+        ratingLabel: ranked ? _formatShareNumber(playerPreRating) : '',
+        sideColor: _battlePlayerColor,
+      ),
+      opponent: _ShareParticipant(
+        name: _opponentResultName(),
+        iconId: _opponentResultIconId(),
+        frameId: _opponentResultIconFrameId(),
+        badgeIds: _opponentResultBadgeIds(),
+        ratingLabel: ranked ? _opponentShareRatingLabel() : '',
+        sideColor: _battleOpponentColor,
+      ),
+      inviteCode: inviteCode,
+      generatedAtLabel: _shareGeneratedAtLabel(DateTime.now()),
+      appIcon: appIcon,
+      seasonBadgeIcon: seasonBadgeIcon,
+      storeQrImage: storeQrImage,
+      coinIcon: coinIcon,
+      trophyIcon: trophyIcon,
+    );
+  }
+
+  String seasonIdForLabel(String seasonId) {
+    return seasonId.isEmpty ? '' : RankedSeasonManager.seasonName(seasonId);
+  }
+
+  String _shareGeneratedAtLabel(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '${local.year}/$month/$day $hour:$minute';
+  }
+
+  Future<String> _shareInviteCode() async {
+    try {
+      return await InviteManager.instance
+          .ensureInviteCode(
+            displayName: _playerDataManager.displayPlayerName,
+            publicId: _playerDataManager.playerId,
+          )
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<ui.Image?> _loadShareImage(String assetPath) async {
+    try {
+      final data = await rootBundle.load(assetPath);
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+      final frame = await codec.getNextFrame();
+      return frame.image;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool get _sharePlayerWon {
+    if (_onlineResultMessage != null) {
+      return _onlineResultMessage == 'YOU WIN!!';
+    }
+    if (widget.isCpuMode || widget.isTutorialMode) {
+      return _cpuBattlePlayerWon ?? false;
+    }
+    return false;
+  }
+
+  Future<RankingSummary?> _fetchShareRankingSummary() async {
+    try {
+      return await _rankingManager
+          .fetchMySummary(forceRefresh: true)
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _shareRankLabel(String? rawLabel) {
+    final label = rawLabel?.trim() ?? '';
+    return label.isEmpty || label == '圏外' ? '' : label;
+  }
+
+  Future<String> _fetchShareEndlessRankLabel() async {
+    try {
+      final entries = await _rankingManager
+          .fetchTopEndlessScoreRankings(forceRefresh: true)
+          .timeout(const Duration(seconds: 2));
+      final publicId = _playerDataManager.playerId;
+      final uid = _multiplayerManager.myUid ?? '';
+      final index = entries.indexWhere((entry) =>
+          (uid.isNotEmpty && entry.uid == uid) ||
+          (publicId.isNotEmpty && entry.publicId == publicId));
+      if (index == -1) {
+        return '';
+      }
+      final myScore = entries[index].highestEndlessScore;
+      final rank =
+          entries.where((entry) => entry.highestEndlessScore > myScore).length +
+              1;
+      return '$rank位';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _opponentShareRatingLabel() {
+    if (widget.isCpuMode) {
+      final rating = widget.rankedBotRating;
+      return rating == null ? '' : _formatShareNumber(rating);
+    }
+    final player = _opponentSharePlayer();
+    final rating = player?.rating;
+    return rating == null ? '' : _formatShareNumber(rating);
+  }
+
+  Future<Uint8List> _renderResultShareImage(_ResultShareData data) async {
+    const width = 1080.0;
+    const height = 1350.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    const size = Size(width, height);
+    final bgPaint = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset.zero,
+        const Offset(width, height),
+        [
+          const Color(0xFF080914),
+          Color.lerp(const Color(0xFF101426), data.accentColor, 0.22)!,
+          const Color(0xFF07070B),
+        ],
+        [0.0, 0.52, 1.0],
+      );
+    canvas.drawRect(Offset.zero & size, bgPaint);
+    _drawShareHexPattern(canvas, size, data.accentColor);
+
+    _drawShareHeader(canvas, data, width);
+    if (data.scoreLabel.isNotEmpty) {
+      _drawShareEndlessLayout(canvas, data, width);
+    } else {
+      _drawShareBattleLayout(canvas, data, width);
+    }
+    _drawShareFooter(canvas, data, width);
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width.toInt(), height.toInt());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) {
+      throw StateError('share image encoding failed');
+    }
+    return bytes.buffer.asUint8List();
+  }
+
+  void _drawShareHeader(Canvas canvas, _ResultShareData data, double width) {
+    final iconRect = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(72, 48, 96, 96),
+      const Radius.circular(24),
+    );
+    canvas.drawRRect(
+      iconRect,
+      Paint()..color = Colors.white.withValues(alpha: 0.08),
+    );
+    if (data.appIcon != null) {
+      canvas.save();
+      canvas.clipRRect(iconRect);
+      _drawShareImageCover(
+        canvas,
+        data.appIcon!,
+        iconRect.outerRect,
+      );
+      canvas.restore();
+    } else {
+      _drawShareIcon(
+        canvas,
+        Icons.hexagon,
+        iconRect.outerRect.center,
+        size: 52,
+        color: data.accentColor,
+      );
+    }
+    _drawShareText(
+      canvas,
+      'ヘキサゴン',
+      const Offset(188, 64),
+      fontSize: 56,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      letterSpacing: 2,
+    );
+    final modeRect = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(635, 66, 370, 68),
+      const Radius.circular(30),
+    );
+    canvas.drawRRect(
+      modeRect,
+      Paint()..color = Colors.black.withValues(alpha: 0.34),
+    );
+    canvas.drawRRect(
+      modeRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = data.accentColor.withValues(alpha: 0.7),
+    );
+    _drawShareFittedText(
+      canvas,
+      data.modeLabel,
+      const Rect.fromLTWH(655, 78, 330, 44),
+      fontSize: 31,
+      minFontSize: 19,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+  }
+
+  void _drawShareBattleLayout(
+      Canvas canvas, _ResultShareData data, double width) {
+    _drawShareResultBadge(
+      canvas,
+      rect: Rect.fromLTWH(118, data.isRanked ? 206 : 218, 844, 104),
+      text: data.title,
+      color: data.titleColor,
+      ratingDelta: data.isRanked ? data.ratingDeltaLabel : '',
+    );
+    if (data.isRanked) {
+      _drawShareRatingRankPill(
+        canvas,
+        rect: const Rect.fromLTWH(108, 348, 410, 92),
+        season: data.seasonLabel,
+        rating: data.newRatingLabel.isEmpty ? '-' : data.newRatingLabel,
+        rank: data.rankLabel.isEmpty ? '-' : data.rankLabel,
+        color: Colors.amberAccent,
+        trophyIcon: data.trophyIcon,
+      );
+      _drawShareRankPill(
+        canvas,
+        rect: const Rect.fromLTWH(562, 348, 410, 92),
+        wins: data.dailyWinsLabel.isEmpty ? '0' : data.dailyWinsLabel,
+        rank: data.dailyWinRankLabel.isEmpty ? '-' : data.dailyWinRankLabel,
+      );
+    }
+
+    _drawShareProfileCard(
+      canvas,
+      rect: Rect.fromLTWH(62, data.isRanked ? 520 : 456, 430, 330),
+      label: '自分',
+      participant: data.player,
+      seasonBadgeIcon: data.seasonBadgeIcon,
+      trophyIcon: data.trophyIcon,
+    );
+    _drawShareProfileCard(
+      canvas,
+      rect: Rect.fromLTWH(588, data.isRanked ? 520 : 456, 430, 330),
+      label: '相手',
+      participant: data.opponent,
+      seasonBadgeIcon: data.seasonBadgeIcon,
+      trophyIcon: data.trophyIcon,
+    );
+  }
+
+  void _drawShareEndlessLayout(
+    Canvas canvas,
+    _ResultShareData data,
+    double width,
+  ) {
+    final scoreRect = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(84, 292, 912, 224),
+      const Radius.circular(34),
+    );
+    canvas.drawRRect(
+      scoreRect,
+      Paint()..color = const Color(0xFF101522).withValues(alpha: 0.9),
+    );
+    canvas.drawRRect(
+      scoreRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..color = data.accentColor.withValues(alpha: 0.9),
+    );
+    _drawShareFittedText(
+      canvas,
+      '${data.scoreLabel}点',
+      const Rect.fromLTWH(120, 346, 840, 116),
+      fontSize: 78,
+      minFontSize: 44,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+    _drawShareEndlessBestPanel(canvas, data);
+    _drawShareProfileCard(
+      canvas,
+      rect: const Rect.fromLTWH(250, 670, 580, 250),
+      label: 'プレイヤー',
+      participant: data.player,
+      compact: true,
+      seasonBadgeIcon: data.seasonBadgeIcon,
+      trophyIcon: data.trophyIcon,
+    );
+  }
+
+  void _drawShareEndlessBestPanel(Canvas canvas, _ResultShareData data) {
+    const levelRect = Rect.fromLTWH(164, 548, 205, 86);
+    final levelRrect =
+        RRect.fromRectAndRadius(levelRect, const Radius.circular(18));
+    canvas.drawRRect(
+      levelRrect,
+      Paint()..color = Colors.black.withValues(alpha: 0.24),
+    );
+    canvas.drawRRect(
+      levelRrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = data.accentColor.withValues(alpha: 0.42),
+    );
+    _drawShareFittedText(
+      canvas,
+      data.endlessLevelLabel,
+      levelRect.deflate(12),
+      fontSize: 34,
+      minFontSize: 22,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+    const rect = Rect.fromLTWH(390, 548, 526, 86);
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(18));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = Colors.black.withValues(alpha: 0.24),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = data.accentColor.withValues(alpha: 0.42),
+    );
+    final bestText = data.endlessBestScoreLabel.isEmpty
+        ? '-'
+        : '${data.endlessBestScoreLabel}点';
+    _drawShareText(
+      canvas,
+      'ハイスコア',
+      Offset(rect.left + 18, rect.top + 12),
+      fontSize: 17,
+      color: Colors.white54,
+      weight: FontWeight.w900,
+      maxLines: 1,
+    );
+    _drawShareFittedText(
+      canvas,
+      bestText,
+      Rect.fromLTWH(rect.left + 18, rect.top + 32, 330, 42),
+      fontSize: 34,
+      minFontSize: 16,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+    if (data.endlessRankLabel.isNotEmpty) {
+      canvas.drawLine(
+        Offset(rect.left + 365, rect.top + 20),
+        Offset(rect.left + 365, rect.bottom - 20),
+        Paint()
+          ..strokeWidth = 1.4
+          ..color = Colors.white.withValues(alpha: 0.16),
+      );
+      _drawShareFittedText(
+        canvas,
+        data.endlessRankLabel,
+        Rect.fromLTWH(rect.left + 382, rect.top + 32, rect.width - 398, 42),
+        fontSize: 32,
+        minFontSize: 20,
+        color: Colors.white,
+        weight: FontWeight.w900,
+        align: TextAlign.center,
+      );
+    }
+  }
+
+  void _drawShareFooter(Canvas canvas, _ResultShareData data, double width) {
+    _drawShareInvitePanel(canvas, data);
+    _drawShareQrPanel(canvas, data);
+    _drawShareText(
+      canvas,
+      data.generatedAtLabel,
+      const Offset(76, 1264),
+      fontSize: 20,
+      color: Colors.white38,
+      weight: FontWeight.w800,
+      maxLines: 1,
+    );
+  }
+
+  void _drawShareProfileCard(
+    Canvas canvas, {
+    required Rect rect,
+    required String label,
+    required _ShareParticipant participant,
+    bool compact = false,
+    ui.Image? seasonBadgeIcon,
+    ui.Image? trophyIcon,
+  }) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(28));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = const Color(0xFF101522).withValues(alpha: 0.88),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = participant.sideColor.withValues(alpha: 0.78),
+    );
+    _drawShareText(
+      canvas,
+      label,
+      rect.topLeft + const Offset(24, 22),
+      fontSize: 22,
+      color: participant.sideColor,
+      weight: FontWeight.w900,
+      letterSpacing: 2,
+    );
+    final avatarSize = compact ? 116.0 : 112.0;
+    final avatarCenter = Offset(
+      rect.left + 92,
+      rect.top + (compact ? 130 : 170),
+    );
+    _drawShareAvatar(
+      canvas,
+      center: avatarCenter,
+      iconId: participant.iconId,
+      frameId: participant.frameId,
+      size: avatarSize,
+      color: participant.sideColor,
+    );
+    _drawShareProfileNameText(
+      canvas,
+      participant.name,
+      Rect.fromLTWH(
+        rect.left + (compact ? 182 : 166),
+        rect.top + (compact ? 76 : 104),
+        rect.width - (compact ? 210 : 190),
+        48,
+      ),
+      fontSize: compact ? 29 : 32,
+      minFontSize: 10,
+      color: Colors.white,
+      weight: FontWeight.w900,
+    );
+    _drawShareBadges(
+      canvas,
+      participant.badgeIds,
+      Offset(
+        rect.left + (compact ? 172 : 180),
+        rect.top + (compact ? 150 : 184),
+      ),
+      participant.sideColor,
+      seasonBadgeIcon: seasonBadgeIcon,
+      alignLeft: true,
+    );
+    if (participant.ratingLabel.isNotEmpty) {
+      _drawShareProfileRatingPill(
+        canvas,
+        Rect.fromLTWH(
+          rect.left + (rect.width - (compact ? 220 : 230)) / 2,
+          rect.top + (compact ? 186 : 248),
+          compact ? 220 : 230,
+          compact ? 50 : 56,
+        ),
+        participant.ratingLabel,
+        trophyIcon,
+        fontSize: compact ? 24 : 26,
+      );
+    }
+  }
+
+  void _drawShareAvatar(
+    Canvas canvas, {
+    required Offset center,
+    required String iconId,
+    required String frameId,
+    required double size,
+    required Color color,
+  }) {
+    final frame = GameItemCatalog.byId(frameId);
+    final radius = size / 2;
+    if (frame?.colorName == 'rainbow') {
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..shader = ui.Gradient.sweep(
+            center,
+            const [
+              Color(0xFFFF4D6D),
+              Color(0xFFFFD54A),
+              Color(0xFF35F0FF),
+              Color(0xFFB91DFF),
+              Color(0xFFFF4D6D),
+            ],
+            const [0.0, 0.25, 0.5, 0.75, 1.0],
+          ),
+      );
+    } else {
+      final frameColor = frame == null ? color : _playerIconFrameColor(frameId);
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = frameColor.withValues(alpha: 0.95),
+      );
+    }
+    canvas.drawCircle(
+      center,
+      radius - 8,
+      Paint()..color = const Color(0xFF101827),
+    );
+    _drawShareIcon(
+      canvas,
+      _playerIconData(iconId),
+      center,
+      size: 58,
+      color: Colors.white,
+    );
+  }
+
+  void _drawShareBadges(
+    Canvas canvas,
+    List<String> badgeIds,
+    Offset center,
+    Color color, {
+    ui.Image? seasonBadgeIcon,
+    bool alignLeft = false,
+  }) {
+    final ids = badgeIds.take(2).toList();
+    if (ids.isEmpty) {
+      return;
+    }
+    final totalWidth = ids.length * 58.0 + (ids.length - 1) * 12.0;
+    var x = alignLeft ? center.dx + 29 : center.dx - totalWidth / 2 + 29;
+    for (final id in ids) {
+      final seasonBadge = SeasonRankBadge.fromId(id);
+      if (seasonBadge != null) {
+        _drawShareSeasonRankBadge(
+          canvas,
+          center: Offset(x, center.dy),
+          rank: seasonBadge.rank,
+          color: color,
+          badgeImage: seasonBadgeIcon,
+        );
+      } else {
+        canvas.drawCircle(
+          Offset(x, center.dy),
+          28,
+          Paint()..color = Colors.black.withValues(alpha: 0.58),
+        );
+        canvas.drawCircle(
+          Offset(x, center.dy),
+          27,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..color = color.withValues(alpha: 0.9),
+        );
+        final badge = BadgeCatalog.findById(id);
+        _drawShareIcon(
+          canvas,
+          badge?.icon ?? Icons.star,
+          Offset(x, center.dy),
+          size: 25,
+          color: badge?.frameColor ?? color,
+        );
+      }
+      x += 70;
+    }
+  }
+
+  void _drawShareRatingRankPill(
+    Canvas canvas, {
+    required Rect rect,
+    required String season,
+    required String rating,
+    required String rank,
+    required Color color,
+    required ui.Image? trophyIcon,
+  }) {
+    _drawSharePillBase(canvas, rect);
+    _drawShareFittedText(
+      canvas,
+      season.isEmpty ? '今シーズン' : season,
+      Rect.fromLTWH(rect.left + 18, rect.top + 10, rect.width - 36, 24),
+      fontSize: 20,
+      minFontSize: 13,
+      color: Colors.white60,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+    _drawShareIconValue(
+      canvas,
+      Offset(rect.left + 62, rect.top + 42),
+      icon: trophyIcon,
+      value: rating,
+      color: color,
+      fontSize: 36,
+    );
+    canvas.drawLine(
+      Offset(rect.left + 250, rect.top + 42),
+      Offset(rect.left + 250, rect.bottom - 16),
+      Paint()
+        ..strokeWidth = 1.4
+        ..color = Colors.white.withValues(alpha: 0.16),
+    );
+    _drawShareFittedText(
+      canvas,
+      rank,
+      Rect.fromLTWH(rect.left + 264, rect.top + 42, rect.width - 282, 40),
+      fontSize: 34,
+      minFontSize: 18,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+  }
+
+  void _drawShareRankPill(
+    Canvas canvas, {
+    required Rect rect,
+    required String wins,
+    required String rank,
+  }) {
+    _drawSharePillBase(canvas, rect);
+    _drawShareFittedText(
+      canvas,
+      '今日の勝利数',
+      Rect.fromLTWH(rect.left + 20, rect.top + 14, rect.width - 40, 28),
+      fontSize: 20,
+      minFontSize: 15,
+      color: Colors.white54,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+    _drawShareFittedText(
+      canvas,
+      '$wins勝',
+      Rect.fromLTWH(rect.left + 70, rect.top + 48, 145, 34),
+      fontSize: 34,
+      minFontSize: 17,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+    canvas.drawLine(
+      Offset(rect.left + 250, rect.top + 42),
+      Offset(rect.left + 250, rect.bottom - 16),
+      Paint()
+        ..strokeWidth = 1.4
+        ..color = Colors.white.withValues(alpha: 0.16),
+    );
+    _drawShareFittedText(
+      canvas,
+      rank,
+      Rect.fromLTWH(rect.left + 264, rect.top + 42, rect.width - 282, 40),
+      fontSize: 34,
+      minFontSize: 18,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+  }
+
+  void _drawSharePillBase(Canvas canvas, Rect rect) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(24));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = Colors.black.withValues(alpha: 0.32),
+    );
+  }
+
+  void _drawShareProfileRatingPill(
+    Canvas canvas,
+    Rect rect,
+    String value,
+    ui.Image? trophyIcon, {
+    required double fontSize,
+  }) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(18));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = Colors.black.withValues(alpha: 0.24),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8
+        ..color = Colors.amberAccent.withValues(alpha: 0.55),
+    );
+    final iconSize = fontSize + 7;
+    final estimatedTextWidth = value.length * fontSize * 0.58;
+    final startX = rect.center.dx - (iconSize + 8 + estimatedTextWidth) / 2;
+    _drawShareIconValue(
+      canvas,
+      Offset(startX, rect.top + (rect.height - iconSize) / 2),
+      icon: trophyIcon,
+      value: value,
+      color: Colors.amberAccent,
+      fontSize: fontSize,
+      iconSize: iconSize,
+    );
+  }
+
+  void _drawShareIconValue(
+    Canvas canvas,
+    Offset offset, {
+    required ui.Image? icon,
+    required String value,
+    required Color color,
+    required double fontSize,
+    double? iconSize,
+  }) {
+    final size = iconSize ?? fontSize + 4;
+    if (icon != null) {
+      _drawShareImageContain(
+        canvas,
+        icon,
+        Rect.fromLTWH(offset.dx, offset.dy, size, size),
+      );
+    } else {
+      _drawShareIcon(
+        canvas,
+        Icons.emoji_events,
+        Offset(offset.dx + size / 2, offset.dy + size / 2),
+        size: size,
+        color: color,
+      );
+    }
+    _drawShareText(
+      canvas,
+      value,
+      Offset(offset.dx + size + 8, offset.dy + 2),
+      fontSize: fontSize,
+      color: color,
+      weight: FontWeight.w900,
+      maxLines: 1,
+    );
+  }
+
+  void _drawShareResultBadge(
+    Canvas canvas, {
+    required Rect rect,
+    required String text,
+    required Color color,
+    String ratingDelta = '',
+  }) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(32));
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          rect.topLeft,
+          rect.bottomRight,
+          [
+            color.withValues(alpha: 0.92),
+            Color.lerp(color, Colors.black, 0.4)!.withValues(alpha: 0.86),
+          ],
+        ),
+    );
+    _drawShareFittedText(
+      canvas,
+      text,
+      rect.deflate(18),
+      fontSize: 58,
+      minFontSize: 36,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+      letterSpacing: 2,
+    );
+    if (ratingDelta.isEmpty) {
+      return;
+    }
+    final deltaRect = Rect.fromLTWH(rect.right - 224, rect.top + 22, 184, 60);
+    final deltaRrect =
+        RRect.fromRectAndRadius(deltaRect, const Radius.circular(22));
+    final deltaColor =
+        ratingDelta.startsWith('-') ? _battleOpponentColor : _battlePlayerColor;
+    canvas.drawRRect(
+      deltaRrect,
+      Paint()..color = Colors.black.withValues(alpha: 0.22),
+    );
+    canvas.drawRRect(
+      deltaRrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white.withValues(alpha: 0.42),
+    );
+    _drawShareFittedText(
+      canvas,
+      ratingDelta.isEmpty ? '-' : ratingDelta,
+      deltaRect.deflate(12),
+      fontSize: 34,
+      minFontSize: 22,
+      color: deltaColor,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+  }
+
+  void _drawShareInvitePanel(Canvas canvas, _ResultShareData data) {
+    const rect = Rect.fromLTWH(76, 1010, 650, 220);
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(30));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = const Color(0xFF0E1422).withValues(alpha: 0.92),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = data.accentColor.withValues(alpha: 0.58),
+    );
+    _drawShareText(
+      canvas,
+      '友達招待コード',
+      Offset(rect.left + 32, rect.top + 24),
+      fontSize: 26,
+      color: data.accentColor,
+      weight: FontWeight.w900,
+      letterSpacing: 1.4,
+      maxLines: 1,
+    );
+    _drawShareText(
+      canvas,
+      'インストール時に招待コードを入力',
+      Offset(rect.left + 32, rect.top + 68),
+      fontSize: 22,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      maxLines: 1,
+    );
+    _drawShareText(
+      canvas,
+      '友達とあなたに',
+      Offset(rect.left + 32, rect.top + 102),
+      fontSize: 22,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      maxLines: 1,
+    );
+    _drawShareCoinReward(
+      canvas,
+      Offset(rect.left + 210, rect.top + 98),
+      data.coinIcon,
+    );
+    _drawShareText(
+      canvas,
+      '※1日最大3人まで',
+      Offset(rect.left + 420, rect.top + 106),
+      fontSize: 17,
+      color: Colors.white60,
+      weight: FontWeight.w800,
+      maxLines: 1,
+    );
+    final codeRect = Rect.fromLTWH(rect.left + 100, rect.top + 142, 450, 58);
+    final codeRrect =
+        RRect.fromRectAndRadius(codeRect, const Radius.circular(18));
+    canvas.drawRRect(
+      codeRrect,
+      Paint()..color = data.accentColor.withValues(alpha: 0.12),
+    );
+    canvas.drawRRect(
+      codeRrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = data.accentColor.withValues(alpha: 0.45),
+    );
+    _drawShareFittedText(
+      canvas,
+      data.inviteCode.isEmpty ? 'アプリ内で確認' : data.inviteCode,
+      codeRect.deflate(12),
+      fontSize: 39,
+      minFontSize: 28,
+      color: data.accentColor,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+      letterSpacing: 2,
+    );
+  }
+
+  void _drawShareQrPanel(Canvas canvas, _ResultShareData data) {
+    const rect = Rect.fromLTWH(790, 1018, 186, 186);
+    if (data.storeQrImage != null) {
+      _drawShareImageContain(canvas, data.storeQrImage!, rect);
+    }
+    _drawShareText(
+      canvas,
+      'App Store で入手',
+      Offset(rect.left, rect.bottom + 16),
+      fontSize: 20,
+      color: Colors.white70,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+      width: rect.width,
+      maxLines: 1,
+    );
+  }
+
+  void _drawShareCoinReward(
+    Canvas canvas,
+    Offset offset,
+    ui.Image? coinIcon,
+  ) {
+    const color = Color(0xFFEAF6FF);
+    const iconSize = 34.0;
+    if (coinIcon != null) {
+      _drawShareImageContain(
+        canvas,
+        coinIcon,
+        Rect.fromLTWH(offset.dx, offset.dy - 1, iconSize, iconSize),
+      );
+    } else {
+      _drawShareIcon(
+        canvas,
+        Icons.monetization_on,
+        Offset(offset.dx + iconSize / 2, offset.dy + iconSize / 2),
+        size: iconSize,
+        color: color,
+      );
+    }
+    _drawShareText(
+      canvas,
+      '50000',
+      Offset(offset.dx + iconSize + 8, offset.dy),
+      fontSize: 29,
+      color: color,
+      weight: FontWeight.w900,
+      maxLines: 1,
+    );
+  }
+
+  void _drawShareSeasonRankBadge(
+    Canvas canvas, {
+    required Offset center,
+    required int rank,
+    required Color color,
+    required ui.Image? badgeImage,
+  }) {
+    const size = 58.0;
+    final rect = Rect.fromCenter(center: center, width: size, height: size);
+    if (badgeImage != null) {
+      _drawShareImageCover(canvas, badgeImage, rect);
+    } else {
+      canvas.drawCircle(
+        center,
+        size / 2,
+        Paint()
+          ..shader = ui.Gradient.radial(
+            center,
+            size / 2,
+            [
+              const Color(0xFFFFF3A3),
+              color.withValues(alpha: 0.95),
+              const Color(0xFF36210A),
+            ],
+            const [0.0, 0.55, 1.0],
+          ),
+      );
+    }
+    final labelRect = Rect.fromCenter(
+      center: Offset(center.dx, center.dy + 5),
+      width: 50,
+      height: 24,
+    );
+    final labelBg =
+        RRect.fromRectAndRadius(labelRect, const Radius.circular(12));
+    canvas.drawRRect(
+      labelBg,
+      Paint()..color = Colors.black.withValues(alpha: 0.72),
+    );
+    _drawShareFittedText(
+      canvas,
+      '#$rank',
+      labelRect.deflate(3),
+      fontSize: 18,
+      minFontSize: 12,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+  }
+
+  void _drawShareHexPattern(Canvas canvas, Size size, Color color) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.15
+      ..color = Colors.white.withValues(alpha: 0.07);
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = color.withValues(alpha: 0.045);
+    const radius = 34.0;
+    final stepX = sqrt(3) * radius;
+    const stepY = radius * 1.5;
+    for (var y = -radius; y < size.height + radius; y += stepY) {
+      for (var x = -stepX; x < size.width + stepX; x += stepX) {
+        final shiftedX = x + (((y / stepY).round()).isEven ? 0 : stepX / 2);
+        final path = Path();
+        for (var i = 0; i < 6; i++) {
+          final angle = pi / 3 * i - pi / 6;
+          final point = Offset(
+            shiftedX + cos(angle) * radius,
+            y + sin(angle) * radius,
+          );
+          if (i == 0) {
+            path.moveTo(point.dx, point.dy);
+          } else {
+            path.lineTo(point.dx, point.dy);
+          }
+        }
+        path.close();
+        canvas.drawPath(path, glowPaint);
+        canvas.drawPath(path, paint);
+      }
+    }
+  }
+
+  void _drawShareImageCover(Canvas canvas, ui.Image image, Rect rect) {
+    final srcSize = Size(image.width.toDouble(), image.height.toDouble());
+    final srcRatio = srcSize.width / srcSize.height;
+    final dstRatio = rect.width / rect.height;
+    Rect src;
+    if (srcRatio > dstRatio) {
+      final width = srcSize.height * dstRatio;
+      src =
+          Rect.fromLTWH((srcSize.width - width) / 2, 0, width, srcSize.height);
+    } else {
+      final height = srcSize.width / dstRatio;
+      src = Rect.fromLTWH(
+          0, (srcSize.height - height) / 2, srcSize.width, height);
+    }
+    canvas.drawImageRect(
+        image, src, rect, Paint()..filterQuality = FilterQuality.high);
+  }
+
+  void _drawShareImageContain(Canvas canvas, ui.Image image, Rect rect) {
+    final src = Rect.fromLTWH(
+      0,
+      0,
+      image.width.toDouble(),
+      image.height.toDouble(),
+    );
+    final srcRatio = src.width / src.height;
+    final dstRatio = rect.width / rect.height;
+    Rect dst;
+    if (srcRatio > dstRatio) {
+      final height = rect.width / srcRatio;
+      dst = Rect.fromLTWH(
+        rect.left,
+        rect.top + (rect.height - height) / 2,
+        rect.width,
+        height,
+      );
+    } else {
+      final width = rect.height * srcRatio;
+      dst = Rect.fromLTWH(
+        rect.left + (rect.width - width) / 2,
+        rect.top,
+        width,
+        rect.height,
+      );
+    }
+    canvas.drawImageRect(
+      image,
+      src,
+      dst,
+      Paint()..filterQuality = FilterQuality.high,
+    );
+  }
+
+  void _drawShareIcon(
+    Canvas canvas,
+    IconData icon,
+    Offset center, {
+    required double size,
+    required Color color,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(icon.codePoint),
+        style: TextStyle(
+          fontSize: size,
+          fontFamily: icon.fontFamily,
+          package: icon.fontPackage,
+          color: color,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      center - Offset(painter.width / 2, painter.height / 2),
+    );
+  }
+
+  void _drawShareText(
+    Canvas canvas,
+    String text,
+    Offset offset, {
+    required double fontSize,
+    required Color color,
+    required FontWeight weight,
+    double letterSpacing = 0,
+    TextAlign align = TextAlign.left,
+    double? width,
+    double? top,
+    int maxLines = 2,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: weight,
+          letterSpacing: letterSpacing,
+          height: 1.05,
+        ),
+      ),
+      textAlign: align,
+      maxLines: maxLines,
+      ellipsis: '…',
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: width ?? 10000);
+    painter.paint(canvas, Offset(offset.dx, top ?? offset.dy));
+  }
+
+  void _drawShareFittedText(
+    Canvas canvas,
+    String text,
+    Rect rect, {
+    required double fontSize,
+    required double minFontSize,
+    required Color color,
+    required FontWeight weight,
+    TextAlign align = TextAlign.left,
+    double letterSpacing = 0,
+  }) {
+    var size = fontSize;
+    TextPainter painter;
+    while (true) {
+      painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            color: color,
+            fontSize: size,
+            fontWeight: weight,
+            letterSpacing: letterSpacing,
+            height: 1.05,
+          ),
+        ),
+        textAlign: align,
+        maxLines: 1,
+        ellipsis: '…',
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: rect.width);
+      final fits = painter.width <= rect.width && painter.height <= rect.height;
+      if (fits || size <= minFontSize) {
+        break;
+      }
+      size -= 2;
+    }
+    final dx = switch (align) {
+      TextAlign.center => rect.left + (rect.width - painter.width) / 2,
+      TextAlign.right || TextAlign.end => rect.right - painter.width,
+      _ => rect.left,
+    };
+    final dy = rect.top + (rect.height - painter.height) / 2;
+    painter.paint(canvas, Offset(dx, dy));
+  }
+
+  void _drawShareProfileNameText(
+    Canvas canvas,
+    String text,
+    Rect rect, {
+    required double fontSize,
+    required double minFontSize,
+    required Color color,
+    required FontWeight weight,
+  }) {
+    var size = fontSize;
+    late TextPainter painter;
+    while (true) {
+      painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            color: color,
+            fontSize: size,
+            fontWeight: weight,
+            letterSpacing: 0,
+            height: 1.05,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      )..layout();
+      if ((painter.width <= rect.width && painter.height <= rect.height) ||
+          size <= minFontSize) {
+        break;
+      }
+      size -= 1;
+    }
+
+    final scaleX =
+        painter.width <= rect.width ? 1.0 : (rect.width / painter.width);
+    final dy = rect.top + (rect.height - painter.height) / 2;
+    canvas.save();
+    canvas.translate(rect.left, dy);
+    canvas.scale(scaleX.clamp(0.72, 1.0), 1.0);
+    painter.paint(canvas, Offset.zero);
+    canvas.restore();
+  }
+
+  String _formatShareNumber(int value) {
+    return value.toString().replaceAllMapped(
+          RegExp(r'\B(?=(\d{3})+(?!\d))'),
+          (_) => ',',
+        );
+  }
+
+  Future<void> _showShareErrorDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF141421),
+        title: const Text(
+          'シェア',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+        ),
+        content: const Text(
+          'シェア画像を作成できませんでした。しばらくしてからもう一度お試しください。',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -5053,9 +6595,9 @@ class _GameScreenState extends State<GameScreen>
       }
 
       await _playerDataManager.addCoins(baseCoins * 2);
-      if (widget.isRankedMode && !widget.isArenaMode) {
-        await RankedInterstitialDebtManager.instance.clearPending();
-      }
+      await RankedInterstitialDebtManager.instance.clearPending(
+        kind: _interstitialDebtKindForCurrentMode(),
+      );
       if (!mounted) {
         return;
       }
@@ -5205,6 +6747,13 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Future<void> _recordSoloStats() async {
+    try {
+      await _rankingManager
+          .syncEndlessSeasonStateForCurrentPlayer()
+          .timeout(_playerProfileSyncTimeout);
+    } catch (_) {
+      // 週間スコアの境界同期に失敗しても、結果保存と後続同期は試す。
+    }
     await _playerDataManager.recordMatchResult(
       isWin: false,
       mode: 'SOLO',
@@ -5319,16 +6868,7 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
     final bootstrapFuture = prepareHomeBootstrapData();
-    final deferRankedHumanInterstitial =
-        widget.isRankedMode && _isOnlineMode && !widget.isArenaMode;
-    if (!_resultCoinTripleClaimed && !deferRankedHumanInterstitial) {
-      final interstitialShown =
-          await InterstitialAdManager.instance.showAfterGame();
-      if (interstitialShown && widget.isRankedMode && !widget.isArenaMode) {
-        await RankedInterstitialDebtManager.instance.clearPending();
-      }
-      await InterstitialAdManager.instance.settleAfterGame();
-    }
+    await _showPostGameInterstitialIfNeeded();
     await SfxPlayer.resetTransientAudio();
     final bootstrapData = await bootstrapFuture;
     if (!mounted) {
@@ -5339,6 +6879,41 @@ class _GameScreenState extends State<GameScreen>
         builder: (_) => HomeScreen(bootstrapData: bootstrapData),
       ),
     );
+  }
+
+  Future<void> _showPostGameInterstitialIfNeeded() async {
+    final deferRankedHumanInterstitial =
+        widget.isRankedMode && _isOnlineMode && !widget.isArenaMode;
+    if (_resultCoinTripleClaimed ||
+        deferRankedHumanInterstitial ||
+        AppSettings.instance.isInterstitialSkipActive) {
+      return;
+    }
+    final shouldRequireForSoloMode = widget.isCpuMode || !_isOnlineMode;
+    final interstitialShown = shouldRequireForSoloMode
+        ? await InterstitialAdManager.instance.showRequired(
+            loadTimeout: const Duration(seconds: 2),
+          )
+        : await InterstitialAdManager.instance.showAfterGame();
+    if (interstitialShown) {
+      await RankedInterstitialDebtManager.instance.clearPending(
+        kind: _interstitialDebtKindForCurrentMode(),
+      );
+    }
+    await InterstitialAdManager.instance.settleAfterGame();
+  }
+
+  InterstitialDebtKind _interstitialDebtKindForCurrentMode() {
+    if (widget.isRankedMode && _isOnlineMode && !widget.isArenaMode) {
+      return InterstitialDebtKind.rankedHuman;
+    }
+    if (widget.isRankedMode && widget.isCpuMode && !widget.isArenaMode) {
+      return InterstitialDebtKind.rankedBot;
+    }
+    if (widget.isCpuMode) {
+      return InterstitialDebtKind.computer;
+    }
+    return InterstitialDebtKind.endless;
   }
 
   void _handleOpponentDisconnected() {
@@ -6152,6 +7727,10 @@ class _GameScreenState extends State<GameScreen>
               .recordRankedMatchCompleted(
             isHumanOpponent: false,
           );
+        } else {
+          await RankedInterstitialDebtManager.instance.recordMatchCompleted(
+            InterstitialDebtKind.computer,
+          );
         }
         unawaited(InterstitialAdManager.instance.warmUp());
       }
@@ -6223,6 +7802,9 @@ class _GameScreenState extends State<GameScreen>
 
     unawaited(_applyBattleCoinReward(isWin: false));
     if (!_resultCoinTripleClaimed) {
+      await RankedInterstitialDebtManager.instance.recordMatchCompleted(
+        InterstitialDebtKind.endless,
+      );
       unawaited(InterstitialAdManager.instance.warmUp());
     }
     if (_currentPlayerScore >= 10000) {
@@ -6678,6 +8260,99 @@ class _GameScreenState extends State<GameScreen>
       ),
     );
   }
+}
+
+class _ResultShareData {
+  const _ResultShareData({
+    required this.isRanked,
+    required this.isEndless,
+    required this.seasonLabel,
+    required this.modeLabel,
+    required this.title,
+    required this.titleColor,
+    required this.accentColor,
+    required this.scoreLabel,
+    required this.endlessLevelLabel,
+    required this.endlessBestScoreLabel,
+    required this.endlessRankLabel,
+    required this.ratingDeltaLabel,
+    required this.newRatingLabel,
+    required this.rankLabel,
+    required this.dailyWinsLabel,
+    required this.dailyWinRankLabel,
+    required this.player,
+    required this.opponent,
+    required this.inviteCode,
+    required this.generatedAtLabel,
+    required this.appIcon,
+    required this.seasonBadgeIcon,
+    required this.storeQrImage,
+    required this.coinIcon,
+    required this.trophyIcon,
+  });
+
+  final bool isRanked;
+  final bool isEndless;
+  final String seasonLabel;
+  final String modeLabel;
+  final String title;
+  final Color titleColor;
+  final Color accentColor;
+  final String scoreLabel;
+  final String endlessLevelLabel;
+  final String endlessBestScoreLabel;
+  final String endlessRankLabel;
+  final String ratingDeltaLabel;
+  final String newRatingLabel;
+  final String rankLabel;
+  final String dailyWinsLabel;
+  final String dailyWinRankLabel;
+  final _ShareParticipant player;
+  final _ShareParticipant opponent;
+  final String inviteCode;
+  final String generatedAtLabel;
+  final ui.Image? appIcon;
+  final ui.Image? seasonBadgeIcon;
+  final ui.Image? storeQrImage;
+  final ui.Image? coinIcon;
+  final ui.Image? trophyIcon;
+
+  String get shareText {
+    final buffer = StringBuffer('ヘキサゴンのリザルトをシェアしました！');
+    if (scoreLabel.isNotEmpty) {
+      buffer.write('\nスコア: $scoreLabel点');
+    } else {
+      buffer.write('\n$title');
+      if (newRatingLabel.isNotEmpty) {
+        buffer.write(' / レート: $newRatingLabel');
+      }
+      if (ratingDeltaLabel.isNotEmpty) {
+        buffer.write(' ($ratingDeltaLabel)');
+      }
+      if (rankLabel.isNotEmpty) {
+        buffer.write(' / 順位: $rankLabel');
+      }
+    }
+    return buffer.toString();
+  }
+}
+
+class _ShareParticipant {
+  const _ShareParticipant({
+    required this.name,
+    required this.iconId,
+    required this.frameId,
+    required this.badgeIds,
+    required this.ratingLabel,
+    required this.sideColor,
+  });
+
+  final String name;
+  final String iconId;
+  final String frameId;
+  final List<String> badgeIds;
+  final String ratingLabel;
+  final Color sideColor;
 }
 
 class _ControlAction {

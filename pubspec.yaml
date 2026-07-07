@@ -1,7 +1,7 @@
 name: six_ball_puzzle
 description: "Hexagon puzzle battle game."
 publish_to: 'none'
-version: 1.2.6+41
+version: 1.2.9+44
 
 environment:
   sdk: ^3.0.0
@@ -23,7 +23,7 @@ dependencies:
   url_launcher: ^6.3.1
   app_tracking_transparency: ^2.0.6+1
   package_info_plus: ^10.1.0
-
+  share_plus: ^13.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

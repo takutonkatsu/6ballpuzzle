@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../ads/ranked_interstitial_debt_manager.dart';
+import '../app_maintenance_manager.dart';
 import '../app_settings.dart';
 import '../app_notice_manager.dart';
 import '../app_review_config.dart';
@@ -17,6 +18,7 @@ import '../game/arena_manager.dart';
 import '../game/friend_match_limit_manager.dart';
 import '../game/mission_catalog.dart';
 import '../game/mission_manager.dart';
+import '../invite/invite_manager.dart';
 import '../data/models/game_item.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranked_season_manager.dart';
@@ -26,11 +28,11 @@ import '../network/server_time_manager.dart';
 import '../purchases/ad_removal_purchase_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
-import 'components/banner_ad_widget.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/interstitial_ad_manager.dart';
 import 'components/rewarded_ad_manager.dart';
+import 'components/screen_bottom_banner_ad.dart';
 import 'components/stamp_widget.dart';
 import 'collection_screen.dart';
 import 'game_screen.dart';
@@ -47,6 +49,7 @@ class HomeBootstrapData {
     required this.rating,
     this.pendingLevelUpRewardLog,
     this.pendingRankedSeasonResultLog,
+    this.pendingAdminGrantLogs = const [],
     this.abandonedMatchMessage,
   });
 
@@ -54,6 +57,7 @@ class HomeBootstrapData {
   final int rating;
   final String? pendingLevelUpRewardLog;
   final String? pendingRankedSeasonResultLog;
+  final List<String> pendingAdminGrantLogs;
   final String? abandonedMatchMessage;
 }
 
@@ -108,6 +112,8 @@ const Color _endlessGreen = GameThemeColors.endless;
 const Color _computerYellow = GameThemeColors.computer;
 const Color _friendPink = GameThemeColors.friend;
 const Color _mutedButtonGrey = GameThemeColors.mutedButton;
+const int _interstitialSkipTicketCost = 50000;
+const Duration _interstitialSkipTicketDuration = Duration(minutes: 30);
 
 Future<HomeBootstrapData> prepareHomeBootstrapData() async {
   final multiplayerManager = MultiplayerManager();
@@ -209,6 +215,8 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
     final pendingLevelUpRewardLog =
         await playerDataManager.consumePendingLevelUpRewardLog();
     await playerDataManager.consumePendingLoginBonusLog();
+    final pendingAdminGrantLogs =
+        await playerDataManager.consumePendingAdminGrantLogs();
     final pendingRankedSeasonResultLog =
         await playerDataManager.consumePendingRankedSeasonResultLog();
 
@@ -217,6 +225,7 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
       rating: rating,
       pendingLevelUpRewardLog: pendingLevelUpRewardLog,
       pendingRankedSeasonResultLog: pendingRankedSeasonResultLog,
+      pendingAdminGrantLogs: pendingAdminGrantLogs,
       abandonedMatchMessage: abandonedMatchMessage,
     );
   } catch (_) {
@@ -371,8 +380,13 @@ class _HomeScreenState extends State<HomeScreen>
 
   static const _playerNameKey = 'player_name';
   static const _lastSeenNoticeIdKey = 'home_last_seen_notice_id';
+  static const _shareFeatureNoticeHiddenDateKey =
+      'home_share_feature_notice_hidden_date';
+  static const _lastAdRemovalPromptAtKey = 'home_last_ad_removal_prompt_at';
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
   static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
+  static const Duration _adRemovalPromptCooldown = Duration(hours: 24);
+  static const int _adRemovalPromptMinMatches = 3;
   static const bool _debugControlsEnabled = AppReviewConfig.debugMenuEnabled;
   static const bool _adGiftCodeIssuerEnabled =
       AppReviewConfig.adRemovalGiftCodeIssuerEnabled;
@@ -404,6 +418,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _homeBgmSuspendedByLifecycle = false;
   bool _isInitialNamePromptVisible = false;
   bool _isOpeningProfileScreen = false;
+  bool _isAdRemovalPromptVisible = false;
+  bool _didCheckAdRemovalPromptThisSession = false;
   Timer? _seasonStateTimer;
   bool _isSyncingRankedSeason = false;
 
@@ -551,6 +567,11 @@ class _HomeScreenState extends State<HomeScreen>
     )..repeat();
     unawaited(_refreshCurrentSeasonName());
     unawaited(_loadRemoteNotice(showUnread: true));
+    if (widget.bootstrapData == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_maybeShowShareFeatureNotice());
+      });
+    }
     _startSeasonStateMonitor();
     unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_startHomeBgm());
@@ -708,6 +729,16 @@ class _HomeScreenState extends State<HomeScreen>
       });
     }
 
+    final pendingAdminGrantLogs = bootstrapData.pendingAdminGrantLogs;
+    if (pendingAdminGrantLogs.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        unawaited(_showPendingRewardLogs(pendingAdminGrantLogs));
+      });
+    }
+
     final pendingRankedSeasonResultLog =
         bootstrapData.pendingRankedSeasonResultLog;
     if (pendingRankedSeasonResultLog != null &&
@@ -748,6 +779,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _loadPlayerEconomy() async {
     try {
       await _playerDataManager.load();
+      await _playerDataManager.claimPendingServerGrants();
       await _playerDataManager.checkDailyReset();
       await _missionManager.load();
       await _arenaManager.load();
@@ -755,6 +787,8 @@ class _HomeScreenState extends State<HomeScreen>
           await _missionManager.regularClaimableCount();
       final pendingLevelUpRewardLog =
           await _playerDataManager.consumePendingLevelUpRewardLog();
+      final pendingAdminGrantLogs =
+          await _playerDataManager.consumePendingAdminGrantLogs();
       await _playerDataManager.consumePendingLoginBonusLog();
       if (!mounted) {
         return;
@@ -777,13 +811,45 @@ class _HomeScreenState extends State<HomeScreen>
           );
         });
       }
+      if (pendingAdminGrantLogs.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          unawaited(_showPendingRewardLogs(pendingAdminGrantLogs));
+        });
+      }
+      unawaited(_maybeShowAdRemovalPrompt());
     } catch (_) {
       // ローカルデータ読込に失敗してもホーム表示は継続する。
     }
   }
 
+  Future<void> _showPendingRewardLogs(List<String> logs) async {
+    for (final log in logs) {
+      if (!mounted) {
+        return;
+      }
+      final lines = log
+          .split('\n')
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty)
+          .toList();
+      final title = lines.isEmpty ? '報酬' : lines.first;
+      final message = lines.length <= 1 ? log : lines.skip(1).join('\n');
+      await _showAlert(
+        context,
+        title,
+        message,
+        buttonLabel: '受け取る',
+      );
+      await _refreshPlayerEconomy();
+    }
+  }
+
   Future<void> _refreshPlayerEconomy() async {
     await _playerDataManager.load();
+    await _playerDataManager.claimPendingServerGrants();
     await _playerDataManager.checkDailyReset();
     await _missionManager.load();
     await _arenaManager.load();
@@ -794,6 +860,100 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _syncPlayerEconomyState(regularClaimableCount: regularClaimableCount);
     });
+    unawaited(_maybeShowAdRemovalPrompt());
+  }
+
+  Future<void> _maybeShowAdRemovalPrompt() async {
+    if (_didCheckAdRemovalPromptThisSession || _isAdRemovalPromptVisible) {
+      return;
+    }
+    _didCheckAdRemovalPromptThisSession = true;
+    if (!mounted ||
+        !AdRemovalPurchaseManager.isSupportedPlatform ||
+        !AdRemovalPurchaseManager.instance.isConfigured ||
+        AppSettings.instance.adsRemoved.value ||
+        _playerDataManager.totalMatches < _adRemovalPromptMinMatches) {
+      return;
+    }
+    final purchaseReady = await AdRemovalPurchaseManager.instance.initialize();
+    if (!purchaseReady || AppSettings.instance.adsRemoved.value) {
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final lastPromptAtMillis = prefs.getInt(_lastAdRemovalPromptAtKey) ?? 0;
+    final now = DateTime.now();
+    if (lastPromptAtMillis > 0) {
+      final lastPromptAt =
+          DateTime.fromMillisecondsSinceEpoch(lastPromptAtMillis);
+      if (now.difference(lastPromptAt) < _adRemovalPromptCooldown) {
+        return;
+      }
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted ||
+        _isAdRemovalPromptVisible ||
+        _isInitialNamePromptVisible ||
+        AppSettings.instance.adsRemoved.value) {
+      return;
+    }
+    _isAdRemovalPromptVisible = true;
+    await prefs.setInt(_lastAdRemovalPromptAtKey, now.millisecondsSinceEpoch);
+    try {
+      await _showAdRemovalPromptDialog();
+    } finally {
+      _isAdRemovalPromptVisible = false;
+    }
+  }
+
+  Future<void> _showAdRemovalPromptDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _homeCyan,
+          title: 'もっと快適にプレイ',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '広告削除を有効にすると、広告なしで遊べるほか、毎日の無料ガチャや報酬アップが利用できます。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.45,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildAdRemovalBenefitLine('広告の完全削除'),
+              _buildAdRemovalBenefitLine('毎日1回の無料ガチャ'),
+              _buildAdRemovalBenefitLine('無制限のフレンド対戦'),
+              _buildAdRemovalBenefitLine('対戦後のコイン報酬が毎回3倍に'),
+              _buildAdRemovalBenefitLine('デイリーミッションのコイン獲得量が2倍に'),
+              const SizedBox(height: 16),
+              _buildCyberDialogButton(
+                label: '広告削除を見る',
+                accentColor: _homeCyan,
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  unawaited(_showAdRemovalDialog(context));
+                },
+              ),
+              const SizedBox(height: 10),
+              _buildCyberDialogButton(
+                label: 'あとで',
+                accentColor: Colors.white54,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _syncPlayerEconomyState({int regularClaimableCount = 0}) {
@@ -887,6 +1047,116 @@ class _HomeScreenState extends State<HomeScreen>
     } finally {
       _isLoadingNotice = false;
     }
+  }
+
+  Future<void> _maybeShowShareFeatureNotice() async {
+    if (!mounted) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final todayKey = _localDateKey(DateTime.now());
+    if (prefs.getString(_shareFeatureNoticeHiddenDateKey) == todayKey) {
+      return;
+    }
+    if (!mounted || _isInitialNamePromptVisible) {
+      return;
+    }
+    await _showShareFeatureNoticeDialog(todayKey);
+  }
+
+  String _localDateKey(DateTime value) {
+    final local = value.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    return '${local.year}-$month-$day';
+  }
+
+  Future<void> _showShareFeatureNoticeDialog(String todayKey) {
+    var hideToday = false;
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> close() async {
+              if (hideToday) {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString(
+                  _shareFeatureNoticeHiddenDateKey,
+                  todayKey,
+                );
+              }
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop();
+              }
+            }
+
+            return _buildCyberDialog(
+              accentColor: _homeCyan,
+              title: '結果をシェア機能追加',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildShareNoticeMessage(),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: InkWell(
+                          onTap: () {
+                            setDialogState(() {
+                              hideToday = !hideToday;
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Row(
+                            children: [
+                              Checkbox(
+                                value: hideToday,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    hideToday = value ?? false;
+                                  });
+                                },
+                                activeColor: _homeCyan,
+                                checkColor: Colors.black,
+                                side: const BorderSide(
+                                  color: _homeCyanBorder,
+                                  width: 1.4,
+                                ),
+                              ),
+                              const Expanded(
+                                child: Text(
+                                  '今日はもう表示しない',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        width: 118,
+                        child: _buildCyberDialogButton(
+                          label: '閉じる',
+                          accentColor: _homeCyan,
+                          onPressed: () => unawaited(close()),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _showNoticeList(List<AppNotice> notices) async {
@@ -1202,6 +1472,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
     _isInitialNamePromptVisible = true;
     final controller = TextEditingController(text: _playerNameController.text);
+    final inviteCodeController = TextEditingController();
     try {
       await showDialog<void>(
         context: context,
@@ -1227,9 +1498,24 @@ class _HomeScreenState extends State<HomeScreen>
                   errorText = null;
                 });
                 try {
+                  final inviteCode = inviteCodeController.text.trim();
                   await _saveAndSyncPlayerName(nextName);
+                  InviteRedeemResult? inviteResult;
+                  if (inviteCode.isNotEmpty) {
+                    inviteResult = await InviteManager.instance.redeemCode(
+                      inviteCode,
+                      inviteeName: nextName,
+                      inviteePublicId: _playerDataManager.playerId,
+                    );
+                  }
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
+                  }
+                  if (inviteResult != null && mounted) {
+                    await _showInviteRedeemResult(
+                      this.context,
+                      inviteResult,
+                    );
                   }
                 } catch (error) {
                   setDialogState(() {
@@ -1278,6 +1564,26 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                       ),
                       const SizedBox(height: 10),
+                      TextField(
+                        controller: inviteCodeController,
+                        textCapitalization: TextCapitalization.characters,
+                        textInputAction: TextInputAction.done,
+                        onSubmitted: (_) => unawaited(submit()),
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: '招待コード（任意）',
+                          helperText: '友達からコードを受け取っている場合はこちら',
+                          helperStyle: TextStyle(color: Colors.white38),
+                          labelStyle: TextStyle(color: Colors.white70),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: _homeCyanBorder),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: _homeCyanBorder),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       _buildCyberDialogButton(
                         label: isSubmitting ? '登録中...' : '登録',
                         accentColor: _homeCyan,
@@ -1298,6 +1604,7 @@ class _HomeScreenState extends State<HomeScreen>
       );
     } finally {
       controller.dispose();
+      inviteCodeController.dispose();
       _isInitialNamePromptVisible = false;
     }
   }
@@ -1306,6 +1613,9 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F13),
+      bottomNavigationBar: const ScreenBottomBannerAd(
+        reserveSpaceWhenHidden: true,
+      ),
       body: Stack(
         children: [
           const HexagonGridBackground(
@@ -1345,8 +1655,8 @@ class _HomeScreenState extends State<HomeScreen>
                     ],
                   ),
                 ),
+                _buildInterstitialSkipTicketHomeButton(),
                 _buildBottomBannerTop(),
-                _buildBottomBannerAdPlaceholder(),
               ],
             ),
           ),
@@ -2552,6 +2862,94 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildInterstitialSkipTicketHomeButton() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppSettings.instance.adsRemoved,
+      builder: (context, adsRemoved, child) {
+        if (adsRemoved) {
+          return const SizedBox.shrink();
+        }
+        return ValueListenableBuilder<DateTime?>(
+          valueListenable: AppSettings.instance.interstitialSkipUntil,
+          builder: (context, skipUntil, child) {
+            final remaining = AppSettings.instance.remainingInterstitialSkip;
+            final active = remaining > Duration.zero;
+            final label = active
+                ? '広告なし 残り${_formatSkipTicketRemaining(remaining)}'
+                : '30分広告なし';
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+              child: InkWell(
+                onTap: () {
+                  _playUiTap();
+                  unawaited(_showInterstitialSkipTicketDialog(context));
+                },
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.44),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _homeCyan.withValues(alpha: active ? 0.9 : 0.58),
+                      width: active ? 1.8 : 1.2,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.block_rounded,
+                        color: active ? Colors.amberAccent : _homeCyan,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            const Text(
+                              'フレンドバトルも無制限',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildCoinAmount(
+                        _interstitialSkipTicketCost,
+                        iconSize: 17,
+                        fontSize: 13,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _openExternalUri(String value) async {
     final uri = Uri.tryParse(value);
     if (uri == null) {
@@ -2629,17 +3027,146 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildBottomBannerAdPlaceholder() {
-    return ValueListenableBuilder<bool>(
-      valueListenable: AppSettings.instance.adsRemoved,
-      builder: (context, adsRemoved, child) {
-        return SizedBox(
-          width: double.infinity,
-          height: 50,
-          child: adsRemoved ? const SizedBox.shrink() : const BannerAdWidget(),
-        );
-      },
-    );
+  Future<void> _showInterstitialSkipTicketDialog(BuildContext context) async {
+    await _playerDataManager.load();
+    if (!context.mounted) {
+      return;
+    }
+    Timer? countdownTimer;
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final remaining = AppSettings.instance.remainingInterstitialSkip;
+              final hasActiveSkip = remaining > Duration.zero;
+              if (hasActiveSkip) {
+                countdownTimer ??= Timer.periodic(
+                  const Duration(seconds: 1),
+                  (_) {
+                    if (dialogContext.mounted) {
+                      setDialogState(() {});
+                    }
+                  },
+                );
+              } else {
+                countdownTimer?.cancel();
+                countdownTimer = null;
+              }
+              final canBuy = !hasActiveSkip &&
+                  _playerDataManager.coins >= _interstitialSkipTicketCost;
+              final buttonLabel = hasActiveSkip
+                  ? '適用中'
+                  : canBuy
+                      ? '30分広告なしを購入'
+                      : 'コイン不足';
+              return _buildCyberDialog(
+                accentColor: _homeCyan,
+                title: '30分広告なし',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      '30分間、ゲーム後の広告なしで遊べます。\nこの間はフレンドバトルも無制限に遊べます。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        height: 1.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (hasActiveSkip)
+                      Text(
+                        '残り${_formatSkipTicketRemaining(remaining)}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: _homeCyan,
+                          height: 1.4,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                          '価格 ',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        _buildCoinAmount(
+                          _interstitialSkipTicketCost,
+                          color: const Color(0xFFEAF6FF),
+                          iconSize: 20,
+                          fontSize: 18,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _buildCyberDialogButton(
+                      label: buttonLabel,
+                      accentColor: canBuy ? _homeCyan : Colors.white54,
+                      onPressed: canBuy
+                          ? () => unawaited(
+                                _buyInterstitialSkipTicket(
+                                  dialogContext,
+                                  setDialogState,
+                                ),
+                              )
+                          : () {},
+                    ),
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: '閉じる',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      countdownTimer?.cancel();
+    }
+  }
+
+  Future<void> _buyInterstitialSkipTicket(
+    BuildContext dialogContext,
+    StateSetter setDialogState,
+  ) async {
+    try {
+      await _playerDataManager.spendCoins(_interstitialSkipTicketCost);
+      await AppSettings.instance.activateInterstitialSkip(
+        _interstitialSkipTicketDuration,
+      );
+      await RankedInterstitialDebtManager.instance.clearAllPending();
+      await _refreshPlayerEconomy();
+      if (dialogContext.mounted) {
+        setDialogState(() {});
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      await _showAlert(context, 'コイン不足', 'コインが不足しています。');
+    }
+  }
+
+  String _formatSkipTicketRemaining(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    if (minutes > 0) {
+      return '$minutes分${seconds.toString().padLeft(2, '0')}秒';
+    }
+    return '$seconds秒';
   }
 
   Future<void> _enableAdsFromAdRemovalDialog(
@@ -2917,11 +3444,21 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _startGame(
+  Future<void> _startGame(
     BuildContext context,
     bool isCpuMode, {
     CPUDifficulty cpuDifficulty = CPUDifficulty.hard,
-  }) {
+  }) async {
+    final debtKind = isCpuMode
+        ? InterstitialDebtKind.computer
+        : InterstitialDebtKind.endless;
+    final allowed = await _consumePendingInterstitialBeforeStart(
+      context,
+      kinds: [debtKind],
+    );
+    if (!allowed || !mounted || !context.mounted) {
+      return;
+    }
     if (!isCpuMode) {
       unawaited(_missionManager.recordEvent('play_endless'));
     }
@@ -2936,8 +3473,36 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<bool> _ensureModeAvailable(
+    BuildContext context,
+    MaintenanceMode mode,
+  ) async {
+    final notice = await AppMaintenanceManager.checkModeAvailability(mode);
+    if (!mounted || !context.mounted) {
+      return false;
+    }
+    if (!notice.enabled) {
+      return true;
+    }
+    await _showAlert(context, notice.title, _modeMaintenanceMessage(notice));
+    return false;
+  }
+
+  String _modeMaintenanceMessage(MaintenanceNotice notice) {
+    final expectedEnd = notice.expectedEndAt;
+    if (expectedEnd == null) {
+      return notice.message;
+    }
+    final expectedText = '${expectedEnd.month.toString().padLeft(2, '0')}/'
+        '${expectedEnd.day.toString().padLeft(2, '0')} '
+        '${expectedEnd.hour.toString().padLeft(2, '0')}:'
+        '${expectedEnd.minute.toString().padLeft(2, '0')}ごろ再開予定';
+    return '${notice.message}\n$expectedText';
+  }
+
   Future<void> _showEndlessStartDialog(BuildContext context) {
     final highScore = _playerDataManager.highestEndlessScore;
+    final weeklyScore = _playerDataManager.seasonEndlessHighScore;
     return showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -2970,22 +3535,27 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 child: Column(
                   children: [
-                    Text(
-                      'ハイスコア',
-                      style: TextStyle(
-                        color: _endlessGreen.withValues(alpha: 0.9),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$highScore',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildEndlessStartScoreValue(
+                            label: '今週のスコア',
+                            value: weeklyScore,
+                          ),
+                        ),
+                        Container(
+                          width: 1,
+                          height: 46,
+                          margin: const EdgeInsets.symmetric(horizontal: 12),
+                          color: _endlessGreen.withValues(alpha: 0.28),
+                        ),
+                        Expanded(
+                          child: _buildEndlessStartScoreValue(
+                            label: 'ハイスコア',
+                            value: highScore,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -3005,9 +3575,16 @@ class _HomeScreenState extends State<HomeScreen>
                     child: _buildCyberDialogButton(
                       label: '開始',
                       accentColor: _endlessGreen,
-                      onPressed: () {
+                      onPressed: () async {
+                        final available = await _ensureModeAvailable(
+                          context,
+                          MaintenanceMode.endless,
+                        );
+                        if (!available || !context.mounted) {
+                          return;
+                        }
                         Navigator.of(dialogContext).pop();
-                        _startGame(context, false);
+                        unawaited(_startGame(context, false));
                       },
                     ),
                   ),
@@ -3017,6 +3594,46 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _buildEndlessStartScoreValue({
+    required String label,
+    required int value,
+  }) {
+    return Column(
+      children: [
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: _endlessGreen.withValues(alpha: 0.9),
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            '${_formatScoreNumber(value)}点',
+            maxLines: 1,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatScoreNumber(int value) {
+    final digits = value.toString();
+    return digits.replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (_) => ',',
     );
   }
 
@@ -3069,10 +3686,12 @@ class _HomeScreenState extends State<HomeScreen>
                   level: option.level,
                   onTap: () {
                     Navigator.of(dialogContext).pop();
-                    _startGame(
-                      context,
-                      true,
-                      cpuDifficulty: option.difficulty,
+                    unawaited(
+                      _startGame(
+                        context,
+                        true,
+                        cpuDifficulty: option.difficulty,
+                      ),
                     );
                   },
                 ),
@@ -4524,6 +5143,12 @@ class _HomeScreenState extends State<HomeScreen>
     if (_isBusy) {
       return;
     }
+    final available = isArenaMode
+        ? true
+        : await _ensureModeAvailable(context, MaintenanceMode.ranked);
+    if (!available || !mounted || !context.mounted) {
+      return;
+    }
     setState(() {
       _isBusy = true;
     });
@@ -4572,6 +5197,8 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                   const _RankedMatchmakingEstimate(),
+                  const SizedBox(height: 14),
+                  const _RankedMatchmakingHint(),
                   const SizedBox(height: 24),
                   _buildCyberDialogButton(
                     label: 'キャンセル',
@@ -4706,13 +5333,37 @@ class _HomeScreenState extends State<HomeScreen>
     BuildContext context, {
     required bool isArenaMode,
   }) async {
-    if (isArenaMode ||
-        !await RankedInterstitialDebtManager.instance.hasPending()) {
+    if (isArenaMode) {
       return true;
     }
+    return _consumePendingInterstitialBeforeStart(
+      context,
+      kinds: const [
+        InterstitialDebtKind.rankedHuman,
+        InterstitialDebtKind.rankedBot,
+      ],
+    );
+  }
 
+  Future<bool> _consumePendingInterstitialBeforeStart(
+    BuildContext context, {
+    required List<InterstitialDebtKind> kinds,
+  }) async {
+    InterstitialDebtKind? pendingKind;
+    for (final kind in kinds) {
+      if (await RankedInterstitialDebtManager.instance.hasPending(kind: kind)) {
+        pendingKind = kind;
+        break;
+      }
+    }
+    if (pendingKind == null) {
+      return true;
+    }
     final shown = await InterstitialAdManager.instance.showRequired();
     if (shown) {
+      await RankedInterstitialDebtManager.instance.clearPending(
+        kind: pendingKind,
+      );
       await InterstitialAdManager.instance.settleAfterGame();
       return true;
     }
@@ -4929,8 +5580,9 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _showAlert(
     BuildContext context,
     String title,
-    String message,
-  ) {
+    String message, {
+    String buttonLabel = 'OK',
+  }) {
     final isSeasonResult = title == 'シーズン結果';
     final isLevelUp = title == 'レベルアップ';
     return showDialog<void>(
@@ -4947,17 +5599,10 @@ class _HomeScreenState extends State<HomeScreen>
                   children: [
                     isLevelUp
                         ? _buildLevelUpAlertMessage(message)
-                        : Text(
-                            message,
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              height: 1.5,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
+                        : _buildAlertMessage(message),
                     const SizedBox(height: 20),
                     _buildCyberDialogButton(
-                      label: 'OK',
+                      label: buttonLabel,
                       accentColor: _homeCyan,
                       onPressed: () => Navigator.of(dialogContext).pop(),
                     ),
@@ -5019,6 +5664,45 @@ class _HomeScreenState extends State<HomeScreen>
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildAlertMessage(String message) {
+    final coinReceived = RegExp(
+      r'^([\d,，]+)\s*(?:コイン)?を受け取りました。$',
+    ).firstMatch(message.trim());
+    if (coinReceived != null) {
+      final amountText =
+          (coinReceived.group(1) ?? '').replaceAll(RegExp(r'[,，]'), '');
+      final amount = int.tryParse(amountText) ?? 0;
+      if (amount > 0) {
+        return Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            _buildCoinAmount(
+              amount,
+              iconSize: 18,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+            const Text(
+              'を受け取りました。',
+              style: TextStyle(color: Colors.white70, height: 1.5),
+            ),
+          ],
+        );
+      }
+    }
+    return Text(
+      message,
+      style: const TextStyle(
+        color: Colors.white70,
+        height: 1.5,
+      ),
+      textAlign: TextAlign.center,
     );
   }
 
@@ -5367,6 +6051,14 @@ class _HomeScreenState extends State<HomeScreen>
                       _openOnboardingFromSettings(dialogContext),
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  _buildCyberDialogButton(
+                    label: '招待コード',
+                    accentColor: _homeCyan,
+                    onPressed: () => unawaited(
+                      _showInviteCodeDialog(dialogContext),
+                    ),
+                  ),
                   if (_showsSettingsAdRemovalActions &&
                       AdRemovalPurchaseManager.isSupportedPlatform) ...[
                     const SizedBox(height: 10),
@@ -5529,6 +6221,345 @@ class _HomeScreenState extends State<HomeScreen>
           },
         );
       },
+    );
+  }
+
+  Future<void> _showInviteCodeDialog(BuildContext parentContext) async {
+    await _playerDataManager.load();
+    if (!parentContext.mounted) {
+      return;
+    }
+    final inviteCodeController = TextEditingController();
+    var ownCode = '';
+    var loadingCode = true;
+    var redeeming = false;
+
+    try {
+      await showDialog<void>(
+        context: parentContext,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              Future<void> loadCode() async {
+                if (!loadingCode && ownCode.isNotEmpty) {
+                  return;
+                }
+                final code = await InviteManager.instance.ensureInviteCode(
+                  displayName: _playerDataManager.displayPlayerName,
+                  publicId: _playerDataManager.playerId,
+                );
+                if (!dialogContext.mounted) {
+                  return;
+                }
+                setDialogState(() {
+                  ownCode = code;
+                  loadingCode = false;
+                });
+              }
+
+              if (loadingCode) {
+                unawaited(loadCode());
+              }
+
+              Future<void> redeemCode() async {
+                if (redeeming) {
+                  return;
+                }
+                setDialogState(() {
+                  redeeming = true;
+                });
+                final result = await InviteManager.instance.redeemCode(
+                  inviteCodeController.text,
+                  inviteeName: _playerDataManager.displayPlayerName,
+                  inviteePublicId: _playerDataManager.playerId,
+                );
+                if (dialogContext.mounted) {
+                  setDialogState(() {
+                    redeeming = false;
+                  });
+                  Navigator.of(dialogContext).pop();
+                }
+                if (!mounted) {
+                  return;
+                }
+                await _showInviteRedeemResult(
+                  this.context,
+                  result,
+                );
+              }
+
+              Future<void> copyOwnCode() async {
+                if (ownCode.isEmpty || loadingCode) {
+                  return;
+                }
+                await Clipboard.setData(ClipboardData(text: ownCode));
+                if (!mounted) {
+                  return;
+                }
+                await _showAlert(
+                  this.context,
+                  '招待コード',
+                  '友達招待コードをコピーしました。',
+                );
+              }
+
+              return _buildCyberDialog(
+                accentColor: _homeCyan,
+                title: '招待コード',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildInviteRewardDescription(
+                      fontSize: 12,
+                      firstLine: '24時間以内に3人まで使える友達招待コードです。',
+                      secondLine: '友達がコードを使って1回プレイすると、友達とあなたに',
+                      suffix: 'が届きます。',
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 13,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: _homeCyanBorder),
+                      ),
+                      child: Column(
+                        children: [
+                          const Text(
+                            '友達招待コード',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SelectableText(
+                            loadingCode
+                                ? '発行中...'
+                                : ownCode.isEmpty
+                                    ? '取得できませんでした'
+                                    : ownCode,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: _homeCyan,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 2.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: 'コピー',
+                      accentColor: _homeCyan,
+                      onPressed: ownCode.isEmpty || loadingCode
+                          ? () {}
+                          : () => unawaited(copyOwnCode()),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: inviteCodeController,
+                      textCapitalization: TextCapitalization.characters,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: '友達の招待コード',
+                        labelStyle: TextStyle(color: Colors.white70),
+                        helperText: '新しく始めたプレイヤーのみ、1回だけ入力できます',
+                        helperStyle: TextStyle(color: Colors.white38),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: _homeCyanBorder),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: _homeCyanBorder),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: redeeming ? '確認中...' : 'コードを使う',
+                      accentColor: _homeCyan,
+                      onPressed:
+                          redeeming ? () {} : () => unawaited(redeemCode()),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildCyberDialogButton(
+                      label: '閉じる',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      inviteCodeController.dispose();
+    }
+  }
+
+  String _inviteRedeemTitle(InviteRedeemStatus status) {
+    return switch (status) {
+      InviteRedeemStatus.accepted => '招待コード',
+      InviteRedeemStatus.alreadyUsed => '招待コード',
+      InviteRedeemStatus.notEligible => '招待コード',
+      InviteRedeemStatus.expired => 'コードエラー',
+      InviteRedeemStatus.codeUsed => 'コードエラー',
+      InviteRedeemStatus.ownCode => 'コードエラー',
+      InviteRedeemStatus.notFound => 'コードエラー',
+      InviteRedeemStatus.disabled => 'コードエラー',
+      InviteRedeemStatus.invalid => 'コードエラー',
+      InviteRedeemStatus.failed => '通信エラー',
+    };
+  }
+
+  String _inviteRedeemMessage(InviteRedeemResult result) {
+    return switch (result.status) {
+      InviteRedeemStatus.accepted =>
+        '${result.inviterName}さんの招待コードを登録しました。\nいずれかのゲームモードを1回プレイすると、友達とあなたに報酬が届きます。',
+      InviteRedeemStatus.alreadyUsed => '招待コードは1アカウントにつき1回だけ使用できます。',
+      InviteRedeemStatus.notEligible =>
+        '招待コード特典は、招待コード機能の開始後に新しく始めたプレイヤーが対象です。',
+      InviteRedeemStatus.expired => 'この友達招待コードは有効期限が切れています。',
+      InviteRedeemStatus.codeUsed => 'この友達招待コードはすでに使用されています。',
+      InviteRedeemStatus.ownCode => '自分の招待コードは使用できません。',
+      InviteRedeemStatus.notFound => 'この招待コードは見つかりませんでした。',
+      InviteRedeemStatus.disabled => 'この招待コードは現在使用できません。',
+      InviteRedeemStatus.invalid => '招待コードの形式が正しくありません。',
+      InviteRedeemStatus.failed => '招待コードを確認できませんでした。通信状況を確認してもう一度お試しください。',
+    };
+  }
+
+  Future<void> _showInviteRedeemResult(
+    BuildContext context,
+    InviteRedeemResult result,
+  ) {
+    if (result.status != InviteRedeemStatus.accepted) {
+      return _showAlert(
+        context,
+        _inviteRedeemTitle(result.status),
+        _inviteRedeemMessage(result),
+      );
+    }
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _homeCyan,
+          title: '招待コード',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${result.inviterName}さんの招待コードを登録しました。',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  height: 1.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildInviteRewardDescription(
+                fontSize: 13,
+                firstLine: 'いずれかのゲームモードを1回プレイすると、',
+                secondLine: '友達とあなたに',
+                suffix: 'が届きます。',
+              ),
+              const SizedBox(height: 20),
+              _buildCyberDialogButton(
+                label: 'OK',
+                accentColor: _homeCyan,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildShareNoticeMessage() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'リザルト画面から、対戦結果やエンドレスのスコアを画像でシェアできるようになりました。',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white70,
+            height: 1.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _buildInviteRewardDescription(
+          fontSize: 13,
+          firstLine: 'シェア画像内の招待コードを友達がインストール時に入力すると、',
+          secondLine: '友達とあなたに',
+          suffix: 'が届きます。',
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'じゃんじゃん結果を共有して、ライバルに挑戦状を送りましょう！',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white70,
+            height: 1.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInviteRewardDescription({
+    required double fontSize,
+    required String firstLine,
+    required String secondLine,
+    required String suffix,
+  }) {
+    final textStyle = TextStyle(
+      color: Colors.white70,
+      fontSize: fontSize,
+      height: 1.45,
+      fontWeight: FontWeight.w700,
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          firstLine,
+          textAlign: TextAlign.center,
+          style: textStyle,
+        ),
+        const SizedBox(height: 3),
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 4,
+          runSpacing: 3,
+          children: [
+            Text(secondLine, style: textStyle),
+            _buildCoinAmount(
+              InviteManager.rewardCoins,
+              iconSize: fontSize + 4,
+              fontSize: fontSize + 2,
+              fontWeight: FontWeight.w900,
+            ),
+            Text(suffix, style: textStyle),
+          ],
+        ),
+      ],
     );
   }
 
@@ -6224,6 +7255,141 @@ class _RankedMatchmakingEstimateState
           fontSize: 13,
           fontWeight: FontWeight.w900,
           letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+}
+
+class _RankedMatchmakingHint extends StatefulWidget {
+  const _RankedMatchmakingHint();
+
+  @override
+  State<_RankedMatchmakingHint> createState() => _RankedMatchmakingHintState();
+}
+
+class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
+  static const List<String> _hints = [
+    'ネクストボールを見ると、次の一手が少しだけ未来になります。',
+    'ヘキサゴンを狙いすぎると、盤面が小声で止めてきます。',
+    '序盤は低く、終盤は冷静に。だいたいこれで助かります。',
+    '相手の盤面が高い時は、攻めるチャンスです。',
+    '自分の盤面が高い時は、まず深呼吸。次に消しましょう。',
+    'ピラミッドは作りやすく、頼れるフォーメーションです。',
+    'ストレートは素早く妨害を送りたい時に有効です。',
+    '端に積みすぎると、あとで端に泣かされます。',
+    '大技が見えない時は、小さな消去で流れを作りましょう。',
+    '相手のネクストを見ると、攻撃タイミングを読みやすくなります。',
+    'ハードドロップは速いですが、置きミスも速いです。',
+    '迷ったら中央を整えると、次の一手が楽になります。',
+    '妨害ボールも、使い方次第では味方になります。',
+    '勝っている時ほど、安全確認が大事です。',
+    '負けている時でも、1回のフォーメーションでひっくり返せます。',
+    'レートは大事。でもまずは目の前の3個です。',
+    '連勝中の油断は、だいたい次の試合で回収されます。',
+    '盤面が荒れてきたら、大技よりも整地を優先しましょう。',
+    'たまには守りの一手が、一番攻撃的な一手になります。',
+    'マッチング中は指を温めておきましょう。心も少しだけ。',
+    'レート差があっても、盤面は平等です。',
+    '焦って置いた1手は、未来の自分への宿題になります。',
+    '今日の勝利数ランキング、上の方はだいたい本気です。',
+    '調子が悪い時は、ボールのせいにしてから切り替えましょう。',
+    '負けても次があります。レートは逃げますが、また捕まえられます。',
+  ];
+
+  late int _index;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = DateTime.now().millisecondsSinceEpoch % _hints.length;
+    _timer = Timer.periodic(const Duration(seconds: 8), (_) => _nextHint());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _nextHint() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _index = (_index + 1) % _hints.length;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _nextHint,
+      child: Container(
+        width: double.infinity,
+        height: 92,
+        decoration: BoxDecoration(
+          color: _rankedPurple.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: _rankedPurple.withValues(alpha: 0.28),
+          ),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              left: 14,
+              top: 9,
+              child: Text(
+                'ヒント',
+                style: TextStyle(
+                  color: _rankedPurple.withValues(alpha: 0.95),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ),
+            Positioned(
+              right: 10,
+              top: 0,
+              bottom: 0,
+              child: Icon(
+                Icons.play_arrow_rounded,
+                size: 26,
+                color: Colors.white.withValues(alpha: 0.78),
+              ),
+            ),
+            Positioned.fill(
+              left: 18,
+              right: 42,
+              top: 28,
+              bottom: 12,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: Center(
+                  key: ValueKey(_index),
+                  child: Text(
+                    _hints[_index],
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.82),
+                      fontSize: 13,
+                      height: 1.35,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

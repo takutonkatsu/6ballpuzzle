@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../../ads/app_ad_service.dart';
+import '../../app_settings.dart';
 import '../../audio/seamless_bgm.dart';
 
 class InterstitialAdManager {
@@ -35,6 +36,9 @@ class InterstitialAdManager {
   }
 
   Future<bool> showAfterGame() async {
+    if (AppSettings.instance.isInterstitialSkipActive) {
+      return false;
+    }
     if (!AppAdService.instance.canRequestAds) {
       return false;
     }
@@ -54,6 +58,9 @@ class InterstitialAdManager {
   Future<bool> showRequired({
     Duration loadTimeout = const Duration(seconds: 5),
   }) async {
+    if (AppSettings.instance.isInterstitialSkipActive) {
+      return true;
+    }
     if (!AppAdService.instance.canRequestAds) {
       return false;
     }

@@ -1,10 +1,15 @@
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../app_settings.dart';
 import '../audio/sfx.dart';
 import '../auth/auth_manager.dart';
+import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
 import '../network/ranked_season_manager.dart';
@@ -12,6 +17,7 @@ import '../network/ranking_manager.dart';
 import '../network/server_time_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/hexagon_grid_background.dart';
+import 'components/screen_bottom_banner_ad.dart';
 import 'profile_screen.dart';
 import 'theme/game_theme_colors.dart';
 
@@ -23,6 +29,11 @@ class RecordScreen extends StatefulWidget {
 }
 
 class _RecordScreenState extends State<RecordScreen> {
+  static const String _shareAppIconAsset =
+      'assets/images/Hexagon_icon02_1024x1024.png';
+  static const String _shareTrophyAsset = 'assets/images/Hexagon_Trophy.png';
+  static const MethodChannel _shareImageChannel =
+      MethodChannel('hexagon/share_image');
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final RankingManager _rankingManager = RankingManager.instance;
   bool _loading = true;
@@ -30,6 +41,7 @@ class _RecordScreenState extends State<RecordScreen> {
   RankingSummary? _rankingSummary;
   RankingEntry? _currentSeasonEntry;
   DateTime? _currentSeasonStartJst;
+  bool _sharingRecord = false;
 
   @override
   void initState() {
@@ -75,6 +87,7 @@ class _RecordScreenState extends State<RecordScreen> {
       length: 2,
       child: Scaffold(
         backgroundColor: GameThemeColors.background,
+        bottomNavigationBar: const ScreenBottomBannerAd(),
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
@@ -102,6 +115,22 @@ class _RecordScreenState extends State<RecordScreen> {
             subtitle: 'PLAYER DATA',
           ),
           centerTitle: true,
+          actions: [
+            IconButton(
+              tooltip: 'レコードをシェア',
+              onPressed: _sharingRecord ? null : () => _shareRecordImage(),
+              icon: _sharingRecord
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: GameThemeColors.cyan,
+                      ),
+                    )
+                  : const Icon(Icons.ios_share_rounded),
+            ),
+          ],
           bottom: const PreferredSize(
             preferredSize: Size.fromHeight(62),
             child: _RecordNeonTabBar(
@@ -135,6 +164,673 @@ class _RecordScreenState extends State<RecordScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _shareRecordImage() async {
+    if (_sharingRecord) {
+      return;
+    }
+    setState(() {
+      _sharingRecord = true;
+    });
+    try {
+      final bytes = await _renderRecordShareImage();
+      if (!mounted) {
+        return;
+      }
+      try {
+        await _shareImageChannel.invokeMethod<bool>('shareResultImage', {
+          'title': 'ヘキサゴン レコード',
+          'text': '',
+          'imageBytes': bytes,
+        });
+        return;
+      } catch (error, stackTrace) {
+        debugPrint('Failed to share record image natively: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      final directory = Directory.systemTemp.createTempSync('hexagon_record_');
+      final file = File('${directory.path}/hexagon_record.png');
+      await file.writeAsBytes(bytes, flush: true);
+      if (!mounted) {
+        return;
+      }
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(
+        ShareParams(
+          title: 'ヘキサゴン レコード',
+          files: [
+            XFile(
+              file.path,
+              mimeType: 'image/png',
+              name: 'hexagon_record.png',
+            ),
+          ],
+          fileNameOverrides: const ['hexagon_record.png'],
+          sharePositionOrigin:
+              box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+        ),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Failed to share record image: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('レコード画像を共有できませんでした。')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sharingRecord = false;
+        });
+      }
+    }
+  }
+
+  Future<Uint8List> _renderRecordShareImage() async {
+    const width = 1080.0;
+    const height = 1350.0;
+    final appIcon = await _loadRecordShareImage(_shareAppIconAsset);
+    final trophyIcon = await _loadRecordShareImage(_shareTrophyAsset);
+    final endlessRankLabel = await _currentEndlessRankLabel();
+    final bestEndlessRankLabel =
+        _bestEndlessRankLabel(fallback: endlessRankLabel);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final bgPaint = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset.zero,
+        const Offset(width, height),
+        [
+          const Color(0xFF080914),
+          Color.lerp(
+            const Color(0xFF101426),
+            GameThemeColors.cyan,
+            0.22,
+          )!,
+          const Color(0xFF07070B),
+        ],
+        const [0.0, 0.52, 1.0],
+      );
+    canvas.drawRect(const Rect.fromLTWH(0, 0, width, height), bgPaint);
+    _drawRecordShareHexGrid(canvas, const Size(width, height));
+    _drawRecordShareHeader(canvas, appIcon);
+
+    final seasonWins = _currentSeasonEntry?.seasonWins ??
+        _currentSeasonRankedHistoryRecord().wins;
+    final seasonLosses = _currentSeasonEntry?.seasonLosses ??
+        _currentSeasonRankedHistoryRecord().losses;
+    final counts = _playerData.wazaCounts;
+    _drawRecordShareSection(
+      canvas,
+      const Rect.fromLTWH(72, 190, 936, 112),
+      title: '総合',
+      rows: [
+        ('総プレイ回数', _formatNumber(_playerData.totalMatches)),
+        ('勝利数', _formatNumber(_playerData.totalWins)),
+        ('累計消去ボール数', _formatNumber(_playerData.totalClearedBalls)),
+      ],
+      color: GameThemeColors.cyan,
+      columns: 3,
+    );
+    _drawRecordShareSection(
+      canvas,
+      const Rect.fromLTWH(72, 318, 936, 112),
+      title: 'フォーメーション累計',
+      rows: [
+        ('ヘキサゴン', _formatNumber(counts['hexagon'] ?? 0)),
+        ('ピラミッド', _formatNumber(counts['pyramid'] ?? 0)),
+        ('ストレート', _formatNumber(counts['straight'] ?? 0)),
+      ],
+      color: GameThemeColors.cyan,
+      columns: 3,
+    );
+    _drawRecordShareSection(
+      canvas,
+      const Rect.fromLTWH(72, 446, 936, 112),
+      title: 'ランク戦 / 今シーズン',
+      rows: [
+        ('現在のレート', 'rate:${_formatNumber(_playerData.currentRating)}'),
+        ('順位', _rankingSummary?.ratingRankLabel ?? '圏外'),
+        ('勝利数', '$seasonWins'),
+        ('敗北数', '$seasonLosses'),
+      ],
+      color: GameThemeColors.ranked,
+      columns: 4,
+      trophyIcon: trophyIcon,
+    );
+    _drawRecordShareSection(
+      canvas,
+      const Rect.fromLTWH(72, 574, 936, 112),
+      title: 'ランク戦 / 過去のシーズン',
+      rows: [
+        ('最高レート', 'rate:${_formatNumber(_playerData.highestRating)} / シーズン0'),
+        (
+          '最高順位',
+          _playerData.bestRankedRank > 0
+              ? '${_playerData.bestRankedRank}位'
+              : '記録なし'
+        ),
+      ],
+      color: GameThemeColors.ranked,
+      columns: 2,
+      trophyIcon: trophyIcon,
+    );
+    _drawRecordShareSection(
+      canvas,
+      const Rect.fromLTWH(72, 702, 936, 112),
+      title: 'エンドレス',
+      rows: [
+        ('今週のスコア', '${_formatNumber(_playerData.seasonEndlessHighScore)}点'),
+        ('ハイスコア', '${_formatNumber(_playerData.highestEndlessScore)}点'),
+        ('最高順位', bestEndlessRankLabel),
+      ],
+      color: GameThemeColors.endless,
+      columns: 3,
+    );
+    _drawRecordShareRadarPanel(
+      canvas,
+      const Rect.fromLTWH(72, 830, 936, 400),
+      _recordPlayStyleData(),
+    );
+    _drawRecordShareText(
+      canvas,
+      _recordShareGeneratedAtLabel(DateTime.now()),
+      const Rect.fromLTWH(72, 1260, 360, 30),
+      fontSize: 20,
+      minFontSize: 14,
+      color: Colors.white38,
+      weight: FontWeight.w800,
+    );
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width.toInt(), height.toInt());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    if (bytes == null) {
+      throw StateError('record image encoding failed');
+    }
+    return bytes.buffer.asUint8List();
+  }
+
+  void _drawRecordShareHexGrid(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.15
+      ..color = Colors.white.withValues(alpha: 0.07);
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0
+      ..color = GameThemeColors.cyan.withValues(alpha: 0.045);
+    const radius = 34.0;
+    final stepX = math.sqrt(3) * radius;
+    const stepY = radius * 1.5;
+    for (var y = -radius; y < size.height + radius; y += stepY) {
+      for (var x = -stepX; x < size.width + stepX; x += stepX) {
+        final shiftedX = x + (((y / stepY).round()).isEven ? 0 : stepX / 2);
+        final path = Path();
+        for (var i = 0; i < 6; i++) {
+          final angle = math.pi / 3 * i - math.pi / 6;
+          final point = Offset(
+            shiftedX + math.cos(angle) * radius,
+            y + math.sin(angle) * radius,
+          );
+          if (i == 0) {
+            path.moveTo(point.dx, point.dy);
+          } else {
+            path.lineTo(point.dx, point.dy);
+          }
+        }
+        path.close();
+        canvas.drawPath(path, glowPaint);
+        canvas.drawPath(path, paint);
+      }
+    }
+  }
+
+  Future<ui.Image?> _loadRecordShareImage(String assetPath) async {
+    try {
+      final data = await rootBundle.load(assetPath);
+      final codec = await ui.instantiateImageCodec(
+        data.buffer.asUint8List(),
+        targetWidth: assetPath == _shareAppIconAsset ? 256 : null,
+        targetHeight: assetPath == _shareAppIconAsset ? 256 : null,
+      );
+      final frame = await codec.getNextFrame();
+      return frame.image;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _recordShareGeneratedAtLabel(DateTime dateTime) {
+    final local = dateTime.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '${local.year}/$month/$day $hour:$minute';
+  }
+
+  Future<String> _currentEndlessRankLabel() async {
+    try {
+      final entries = await _rankingManager.fetchTopEndlessScoreRankings(
+          forceRefresh: true);
+      final uid = await AuthManager.instance.ensureSignedIn();
+      final publicId = _playerData.playerId;
+      final index = entries.indexWhere(
+        (entry) =>
+            (uid.isNotEmpty && entry.uid == uid) ||
+            (publicId.isNotEmpty && entry.publicId == publicId),
+      );
+      if (index == -1) {
+        return '';
+      }
+      final score = entries[index].highestEndlessScore;
+      final rank =
+          entries.where((entry) => entry.highestEndlessScore > score).length +
+              1;
+      return '$rank位';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _bestEndlessRankLabel({String fallback = ''}) {
+    final ranks = _playerData.seasonRankBadges
+        .where((badge) => badge.kind == SeasonRankBadgeKind.endless)
+        .map((badge) => badge.rank)
+        .where((rank) => rank > 0);
+    if (ranks.isNotEmpty) {
+      return '${ranks.reduce(math.min)}位';
+    }
+    return fallback.isEmpty ? '圏外' : fallback;
+  }
+
+  void _drawRecordShareHeader(Canvas canvas, ui.Image? appIcon) {
+    final iconRect = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(72, 48, 96, 96),
+      const Radius.circular(24),
+    );
+    canvas.drawRRect(
+      iconRect,
+      Paint()..color = Colors.white.withValues(alpha: 0.08),
+    );
+    if (appIcon != null) {
+      canvas.save();
+      canvas.clipRRect(iconRect);
+      _drawRecordShareImageCover(canvas, appIcon, iconRect.outerRect);
+      canvas.restore();
+    }
+    _drawRecordShareText(
+      canvas,
+      'ヘキサゴン',
+      const Rect.fromLTWH(188, 64, 420, 64),
+      fontSize: 56,
+      color: Colors.white,
+      weight: FontWeight.w900,
+    );
+    final modeRect = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(710, 66, 270, 68),
+      const Radius.circular(30),
+    );
+    canvas.drawRRect(
+      modeRect,
+      Paint()..color = Colors.black.withValues(alpha: 0.34),
+    );
+    canvas.drawRRect(
+      modeRect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = GameThemeColors.cyan.withValues(alpha: 0.7),
+    );
+    _drawRecordShareText(
+      canvas,
+      'レコード',
+      const Rect.fromLTWH(730, 78, 230, 44),
+      fontSize: 32,
+      minFontSize: 22,
+      color: Colors.white,
+      weight: FontWeight.w900,
+      align: TextAlign.center,
+    );
+  }
+
+  void _drawRecordShareImageCover(
+    Canvas canvas,
+    ui.Image image,
+    Rect rect,
+  ) {
+    final srcSize = Size(image.width.toDouble(), image.height.toDouble());
+    final srcAspect = srcSize.width / srcSize.height;
+    final dstAspect = rect.width / rect.height;
+    Rect src;
+    if (srcAspect > dstAspect) {
+      final width = srcSize.height * dstAspect;
+      src =
+          Rect.fromLTWH((srcSize.width - width) / 2, 0, width, srcSize.height);
+    } else {
+      final height = srcSize.width / dstAspect;
+      src = Rect.fromLTWH(
+          0, (srcSize.height - height) / 2, srcSize.width, height);
+    }
+    canvas.drawImageRect(image, src, rect, Paint());
+  }
+
+  void _drawRecordShareSection(
+    Canvas canvas,
+    Rect rect, {
+    required String title,
+    required List<(String, String)> rows,
+    required Color color,
+    int columns = 2,
+    ui.Image? trophyIcon,
+  }) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(28));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = const Color(0xFF101522).withValues(alpha: 0.86),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..color = color.withValues(alpha: 0.62),
+    );
+    _drawRecordShareText(
+      canvas,
+      title,
+      Rect.fromLTWH(rect.left + 30, rect.top + 14, rect.width - 60, 28),
+      fontSize: 22,
+      minFontSize: 16,
+      color: color,
+      weight: FontWeight.w900,
+    );
+    final itemWidth = (rect.width - 60) / columns;
+    for (var i = 0; i < rows.length; i++) {
+      final col = i % columns;
+      final row = i ~/ columns;
+      final x = rect.left + 30 + col * itemWidth;
+      final y = rect.top + 48 + row * 44;
+      _drawRecordShareText(
+        canvas,
+        rows[i].$1,
+        Rect.fromLTWH(x, y, itemWidth - 12, 20),
+        fontSize: 15,
+        minFontSize: 10,
+        color: Colors.white70,
+        weight: FontWeight.w800,
+        align: TextAlign.center,
+      );
+      final value = rows[i].$2;
+      final valueRect = Rect.fromLTWH(x, y + 20, itemWidth - 12, 28);
+      if (value.startsWith('rate:')) {
+        _drawRecordShareRateValue(
+          canvas,
+          valueRect,
+          value.substring(5),
+          trophyIcon,
+        );
+      } else {
+        _drawRecordShareText(
+          canvas,
+          value,
+          valueRect,
+          fontSize: 22,
+          minFontSize: 12,
+          color: Colors.white,
+          weight: FontWeight.w900,
+          align: TextAlign.center,
+        );
+      }
+    }
+  }
+
+  void _drawRecordShareRateValue(
+    Canvas canvas,
+    Rect rect,
+    String value,
+    ui.Image? trophyIcon,
+  ) {
+    const trophyColor = Colors.amberAccent;
+    final iconSize = math.min(24.0, rect.height);
+    final textWidth = value.length * 13.0;
+    final startX = rect.center.dx - (iconSize + 7 + textWidth) / 2;
+    if (trophyIcon != null) {
+      _drawRecordShareImageContain(
+        canvas,
+        trophyIcon,
+        Rect.fromLTWH(startX, rect.top + (rect.height - iconSize) / 2, iconSize,
+            iconSize),
+      );
+    }
+    _drawRecordShareText(
+      canvas,
+      value,
+      Rect.fromLTWH(
+          startX + iconSize + 7, rect.top, rect.right - startX, rect.height),
+      fontSize: 22,
+      minFontSize: 12,
+      color: trophyColor,
+      weight: FontWeight.w900,
+      align: TextAlign.left,
+    );
+  }
+
+  void _drawRecordShareImageContain(
+    Canvas canvas,
+    ui.Image image,
+    Rect rect,
+  ) {
+    final src =
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
+    canvas.drawImageRect(image, src, rect, Paint());
+  }
+
+  ({List<double> values, List<String> labels, List<String> details})
+      _recordPlayStyleData() {
+    final now = DateTime.now();
+    final cutoff = now.subtract(const Duration(days: 7));
+    final recentBattles = _playerData.matchHistory
+        .where(
+          (entry) => entry.mode != 'SOLO' && !entry.playedAt.isBefore(cutoff),
+        )
+        .toList();
+    final styleBattles =
+        recentBattles.where((entry) => entry.hasStyleMetrics).toList();
+    final matches = math.max(1, styleBattles.length);
+    final counts = <String, int>{
+      'straight': 0,
+      'pyramid': 0,
+      'hexagon': 0,
+    };
+    var normalClearedBalls = 0;
+    var totalChain = 0;
+    for (final entry in styleBattles) {
+      normalClearedBalls += entry.normalClearedBalls;
+      totalChain += entry.maxChain;
+      for (final count in entry.wazaCounts.entries) {
+        counts[count.key] = (counts[count.key] ?? 0) + count.value;
+      }
+    }
+    final hexAvg = (counts['hexagon'] ?? 0) / matches;
+    final pyramidAvg = (counts['pyramid'] ?? 0) / matches;
+    final straightAvg = (counts['straight'] ?? 0) / matches;
+    final normalClearAvg = normalClearedBalls / matches;
+    final dailyPlayAvg = recentBattles.length / 7;
+    final averageChain = totalChain / matches;
+    return (
+      values: [
+        _score(hexAvg, 3),
+        _score(pyramidAvg, 3),
+        _score(straightAvg, 3),
+        _score(normalClearAvg, 100),
+        _score(averageChain, 5),
+        _score(dailyPlayAvg, 100),
+      ],
+      labels: const [
+        'ヘキサゴン',
+        'ピラミッド',
+        'ストレート',
+        '通常消し',
+        '連鎖',
+        'プレイ頻度',
+      ],
+      details: [
+        '${hexAvg.toStringAsFixed(1)} / 3.0',
+        '${pyramidAvg.toStringAsFixed(1)} / 3.0',
+        '${straightAvg.toStringAsFixed(1)} / 3.0',
+        '${normalClearAvg.toStringAsFixed(0)} / 100',
+        '${averageChain.toStringAsFixed(1)} / 5.0',
+        '${dailyPlayAvg.toStringAsFixed(1)} / 100',
+      ],
+    );
+  }
+
+  void _drawRecordShareRadarPanel(
+    Canvas canvas,
+    Rect rect,
+    ({List<double> values, List<String> labels, List<String> details}) data,
+  ) {
+    final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(28));
+    canvas.drawRRect(
+      rrect,
+      Paint()..color = const Color(0xFF101522).withValues(alpha: 0.86),
+    );
+    canvas.drawRRect(
+      rrect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..color = GameThemeColors.ranked.withValues(alpha: 0.62),
+    );
+    _drawRecordShareText(
+      canvas,
+      'プレイスタイル（直近7日）',
+      Rect.fromLTWH(rect.left + 30, rect.top + 22, rect.width - 60, 34),
+      fontSize: 27,
+      color: Colors.white,
+      weight: FontWeight.w900,
+    );
+    final center = Offset(rect.center.dx, rect.top + 215);
+    const radius = 112.0;
+    final gridPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.16)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final axisPaint = Paint()
+      ..color = GameThemeColors.cyan.withValues(alpha: 0.18)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final fillPaint = Paint()
+      ..color = GameThemeColors.ranked.withValues(alpha: 0.24)
+      ..style = PaintingStyle.fill;
+    final linePaint = Paint()
+      ..color = GameThemeColors.cyan
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2;
+    for (var step = 1; step <= 4; step++) {
+      canvas.drawPath(
+        _recordRadarPath(center, radius * step / 4, List.filled(6, 100)),
+        gridPaint,
+      );
+    }
+    for (var i = 0; i < 6; i++) {
+      canvas.drawLine(
+          center, _recordRadarPoint(center, radius, i, 100), axisPaint);
+    }
+    final valuePath = _recordRadarPath(center, radius, data.values);
+    canvas.drawPath(valuePath, fillPaint);
+    canvas.drawPath(valuePath, linePaint);
+    for (var i = 0; i < data.labels.length; i++) {
+      final point = _recordRadarPoint(center, radius + 42, i, 100);
+      _drawRecordShareText(
+        canvas,
+        '${data.labels[i]}\n${data.details[i]}',
+        Rect.fromCenter(center: point, width: 110, height: 44),
+        fontSize: 14,
+        minFontSize: 10,
+        color: GameThemeColors.cyan,
+        weight: FontWeight.w900,
+        align: TextAlign.center,
+        maxLines: 2,
+      );
+    }
+  }
+
+  Path _recordRadarPath(Offset center, double radius, List<double> values) {
+    final path = Path();
+    for (var i = 0; i < 6; i++) {
+      final point = _recordRadarPoint(center, radius, i, values[i]);
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  Offset _recordRadarPoint(
+    Offset center,
+    double radius,
+    int index,
+    double value,
+  ) {
+    final angle = -math.pi / 2 + (math.pi * 2 / 6) * index;
+    final scaled = radius * (value.clamp(0, 100) / 100);
+    return Offset(
+      center.dx + math.cos(angle) * scaled,
+      center.dy + math.sin(angle) * scaled,
+    );
+  }
+
+  void _drawRecordShareText(
+    Canvas canvas,
+    String text,
+    Rect rect, {
+    required double fontSize,
+    double? minFontSize,
+    required Color color,
+    required FontWeight weight,
+    TextAlign align = TextAlign.left,
+    int maxLines = 1,
+  }) {
+    var size = fontSize;
+    final minSize = minFontSize ?? fontSize;
+    late TextPainter painter;
+    while (true) {
+      painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            color: color,
+            fontSize: size,
+            fontWeight: weight,
+            letterSpacing: 0,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        textAlign: align,
+        maxLines: maxLines,
+      )..layout(maxWidth: rect.width);
+      if ((painter.width <= rect.width && painter.height <= rect.height) ||
+          size <= minSize) {
+        break;
+      }
+      size -= 1;
+    }
+    final dx = switch (align) {
+      TextAlign.center => rect.left + (rect.width - painter.width) / 2,
+      TextAlign.right || TextAlign.end => rect.right - painter.width,
+      _ => rect.left,
+    };
+    final dy = rect.top + (rect.height - painter.height) / 2;
+    painter.paint(canvas, Offset(dx, dy));
   }
 
   Widget _summaryTab() {
@@ -185,9 +881,14 @@ class _RecordScreenState extends State<RecordScreen> {
         _statGrid([
           _StatItem('挑戦回数', '${counts['SOLO'] ?? 0}'),
           _StatItem(
-            '最高スコア',
-            _formatNumber(_playerData.highestEndlessScore),
+            '今週のスコア',
+            '${_formatNumber(_playerData.seasonEndlessHighScore)}点',
           ),
+          _StatItem(
+            'ハイスコア',
+            '${_formatNumber(_playerData.highestEndlessScore)}点',
+          ),
+          _StatItem('最高順位', _bestEndlessRankLabel()),
         ], accentColor: GameThemeColors.endless),
         _sectionTitle('コンピュータ対戦'),
         _statGrid([

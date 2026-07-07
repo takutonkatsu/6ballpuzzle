@@ -42,6 +42,17 @@
       ".read": true,
       ".write": true
     },
+    "endlessSeasons": {
+      ".read": true,
+      ".write": true,
+      "seasons": {
+        "$seasonId": {
+          "rankings": {
+            ".indexOn": ["highestEndlessScore", "updatedAt"]
+          }
+        }
+      }
+    },
     "serverTimePings": {
       ".read": true,
       ".write": true
@@ -60,6 +71,19 @@
       ".write": true
     },
     "adminGrants": {
+      ".read": true,
+      ".write": true
+    },
+    "inviteCodes": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["uid", "updatedAt"]
+    },
+    "inviteClaims": {
+      ".read": true,
+      ".write": true
+    },
+    "inviteCompletions": {
       ".read": true,
       ".write": true
     },

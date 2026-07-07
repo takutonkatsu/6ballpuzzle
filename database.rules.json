@@ -71,6 +71,34 @@
         ".write": "auth != null"
       }
     },
+    "endlessSeasons": {
+      ".read": "auth != null",
+      "currentSeasonId": {
+        ".write": false
+      },
+      "seasons": {
+        "$seasonId": {
+          "rankings": {
+            ".indexOn": ["highestEndlessScore", "updatedAt"],
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid"
+            }
+          },
+          "finalTop100": {
+            ".write": false
+          },
+          "finalTop100SchemaVersion": {
+            ".write": false
+          },
+          "finalized": {
+            ".write": false
+          },
+          "finalizedAt": {
+            ".write": false
+          }
+        }
+      }
+    },
     "serverTimePings": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
@@ -102,6 +130,25 @@
         "$grantId": {
           ".write": "auth != null && auth.uid === $uid && !newData.exists()"
         }
+      }
+    },
+    "inviteCodes": {
+      ".read": "auth != null",
+      ".indexOn": ["uid", "updatedAt"],
+      "$code": {
+        ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid && newData.child('status').val() === 'active') || (data.exists() && data.child('uid').val() === auth.uid && newData.child('uid').val() === auth.uid && newData.child('type').val() === data.child('type').val() && newData.child('status').val() === data.child('status').val() && newData.child('maxUses').val() === data.child('maxUses').val() && newData.child('usedCount').val() === data.child('usedCount').val() && newData.child('usedByUid').val() === data.child('usedByUid').val() && newData.child('expiresAt').val() === data.child('expiresAt').val() && newData.child('createdAt').val() === data.child('createdAt').val()) || (data.exists() && data.child('uid').val() !== auth.uid && data.child('status').val() === 'active' && (data.child('maxUses').val() <= 0 || data.child('usedCount').val() < data.child('maxUses').val()) && newData.child('uid').val() === data.child('uid').val() && newData.child('displayName').val() === data.child('displayName').val() && newData.child('publicId').val() === data.child('publicId').val() && newData.child('type').val() === data.child('type').val() && newData.child('maxUses').val() === data.child('maxUses').val() && newData.child('expiresAt').val() === data.child('expiresAt').val() && (newData.child('status').val() === 'active' || newData.child('status').val() === 'used') && newData.child('usedCount').val() === data.child('usedCount').val() + 1 && !data.child('usedUids').child(auth.uid).exists() && newData.child('usedUids').child(auth.uid).exists()))"
+      }
+    },
+    "inviteClaims": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.child('invitedUid').val() === auth.uid && newData.child('status').val() === 'pending'"
+      }
+    },
+    "inviteCompletions": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
       }
     },
     "playerRecordSummaries": {

@@ -8,11 +8,140 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     purgeRealtimeDatabasePersistenceCache()
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    if let controller = window?.rootViewController as? FlutterViewController {
+      configureShareImageChannel(binaryMessenger: controller.binaryMessenger)
+    }
+    return result
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HexagonShareImage") {
+      configureShareImageChannel(binaryMessenger: registrar.messenger())
+    }
+  }
+
+  private func configureShareImageChannel(binaryMessenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(
+      name: "hexagon/share_image",
+      binaryMessenger: binaryMessenger
+    )
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "shareResultImage" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      guard
+        let arguments = call.arguments as? [String: Any],
+        let imageBytes = arguments["imageBytes"] as? FlutterStandardTypedData,
+        !imageBytes.data.isEmpty
+      else {
+        result(FlutterError(
+          code: "empty_image",
+          message: "Share image bytes are empty.",
+          details: nil
+        ))
+        return
+      }
+
+      let title = (arguments["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let text = (arguments["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard UIImage(data: imageBytes.data) != nil else {
+        result(FlutterError(
+          code: "decode_failed",
+          message: "Share image bytes could not be decoded.",
+          details: nil
+        ))
+        return
+      }
+
+      let shareDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("hexagon_share", isDirectory: true)
+      do {
+        if FileManager.default.fileExists(atPath: shareDirectory.path) {
+          let oldItems = try FileManager.default.contentsOfDirectory(
+            at: shareDirectory,
+            includingPropertiesForKeys: nil
+          )
+          for item in oldItems {
+            try? FileManager.default.removeItem(at: item)
+          }
+        } else {
+          try FileManager.default.createDirectory(
+            at: shareDirectory,
+            withIntermediateDirectories: true
+          )
+        }
+      } catch {
+        result(FlutterError(
+          code: "share_file_prepare_failed",
+          message: error.localizedDescription,
+          details: nil
+        ))
+        return
+      }
+
+      let imageURL = shareDirectory.appendingPathComponent("hexagon_result.png")
+      do {
+        try imageBytes.data.write(to: imageURL, options: .atomic)
+      } catch {
+        result(FlutterError(
+          code: "share_file_write_failed",
+          message: error.localizedDescription,
+          details: nil
+        ))
+        return
+      }
+
+      var items: [Any] = [imageURL]
+      if let text, !text.isEmpty {
+        items.append(text)
+      }
+
+      DispatchQueue.main.async {
+        guard let presenter = self?.topViewController() else {
+          result(FlutterError(
+            code: "no_presenter",
+            message: "No view controller is available for sharing.",
+            details: nil
+          ))
+          return
+        }
+        let activityController = UIActivityViewController(
+          activityItems: items,
+          applicationActivities: nil
+        )
+        if let title, !title.isEmpty {
+          activityController.setValue(title, forKey: "subject")
+        }
+        if let popover = activityController.popoverPresentationController {
+          popover.sourceView = presenter.view
+          popover.sourceRect = CGRect(
+            x: presenter.view.bounds.midX,
+            y: presenter.view.bounds.midY,
+            width: 1,
+            height: 1
+          )
+          popover.permittedArrowDirections = []
+        }
+        presenter.present(activityController, animated: true)
+        result(true)
+      }
+    }
+  }
+
+  private func topViewController() -> UIViewController? {
+    let activeScene = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .first { $0.activationState == .foregroundActive }
+    let root = activeScene?.windows.first { $0.isKeyWindow }?.rootViewController
+      ?? window?.rootViewController
+    var top = root
+    while let presented = top?.presentedViewController {
+      top = presented
+    }
+    return top
   }
 
   private func purgeRealtimeDatabasePersistenceCache() {
