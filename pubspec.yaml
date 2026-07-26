@@ -1,7 +1,7 @@
 name: six_ball_puzzle
 description: "Hexagon puzzle battle game."
 publish_to: 'none'
-version: 1.2.9+44
+version: 1.2.10+45
 
 environment:
   sdk: ^3.0.0

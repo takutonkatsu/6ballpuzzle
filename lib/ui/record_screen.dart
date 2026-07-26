@@ -1356,6 +1356,7 @@ class _RecordScreenState extends State<RecordScreen> {
     }
     final name = entry.opponentName.trim();
     return name == 'Player' ||
+        name == 'プレイヤー' ||
         name.startsWith('ランクBot') ||
         name.startsWith('CPU') ||
         name.startsWith('コンピュータ');

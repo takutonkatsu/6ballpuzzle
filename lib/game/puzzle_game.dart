@@ -164,6 +164,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   static const double _lockedBallFallMinDuration = 0.085;
   static const double _lockedBallFallAcceleration = 0.0;
   static const Curve _lockedBallFallCurve = Curves.linear;
+  static const Duration _defaultHapticCooldown = Duration(milliseconds: 90);
 
   final List<OjamaBlockComponent> activeOjamaBlocks = [];
   int pendingOjamaSpawns = 0;
@@ -193,6 +194,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Map<HexCoordinate, _RemoteBoardCell>? _pendingSpectatorBoardState;
   async.Timer? _deferredRemoteBoardTimer;
   Map<String, dynamic>? _deferredRemoteBoardState;
+  final Map<String, DateTime> _lastHapticAtByKey = {};
   int _remoteAttackFormationGeneration = 0;
   static const Duration _minimumRemoteOjamaVisibleDuration =
       Duration(milliseconds: 180);
@@ -234,6 +236,23 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (!_shouldPlayHaptics) {
       return;
     }
+    unawaited(_triggerHapticFeedbackSafely(action));
+  }
+
+  void _triggerThrottledHapticFeedback(
+    String key,
+    Future<void> Function() action, {
+    Duration cooldown = _defaultHapticCooldown,
+  }) {
+    if (!_shouldPlayHaptics) {
+      return;
+    }
+    final now = DateTime.now();
+    final last = _lastHapticAtByKey[key];
+    if (last != null && now.difference(last) < cooldown) {
+      return;
+    }
+    _lastHapticAtByKey[key] = now;
     unawaited(_triggerHapticFeedbackSafely(action));
   }
 
@@ -437,6 +456,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       if (_playsBoardSfx) {
         _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
       }
+      _triggerThrottledHapticFeedback(
+        'preview_ojama_spawn',
+        HapticFeedback.heavyImpact,
+        cooldown: const Duration(milliseconds: 240),
+      );
 
       _pendingPreviewOjamaSpawns = max(0, _pendingPreviewOjamaSpawns - 1);
       if (i < numSets - 1) {
@@ -883,6 +907,23 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _updateGhostPosition();
   }
 
+  void snapCpuPieceTransformBeforeDrop({
+    required double x,
+    required int rotation,
+  }) {
+    if (activePiece == null || activePiece!.isLocked) {
+      return;
+    }
+    activePiece!.position.x = x;
+    activePiece!.setRotationIndex(rotation);
+    if (ghostPiece != null) {
+      ghostPiece!.setRotationIndex(rotation);
+    }
+    _markGhostPositionDirty();
+    _enforceBounds();
+    _updateGhostPosition();
+  }
+
   void setFixedPieceColumn(int column) {
     if (activePiece == null || activePiece!.isLocked) {
       return;
@@ -928,7 +969,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (_playsBoardSfx) {
       _playSfx(_hardDropSfx, volume: 0.85);
     }
-    _triggerHapticFeedback(HapticFeedback.mediumImpact);
+    _triggerHapticFeedback(HapticFeedback.heavyImpact);
     _notifyActivePieceState(force: true, action: 'hard_drop');
 
     if (activePiece?.parent != null) {
@@ -939,7 +980,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     activePiece = null;
     ghostPiece = null;
-    await _executeLogicDrop(positions, colors);
+    await _executeLogicDrop(
+      positions,
+      colors,
+      lockedHexes: targets.take(colors.length).toList(growable: false),
+    );
   }
 
   Vector2 _pieceSpawnPositionForColumn(int column) {
@@ -1640,6 +1685,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
               if (_playsBoardSfx) {
                 _playSfx(_clearSfx, volume: 1.0);
+              }
+              if (matchResult.highestWaza == WazaType.none) {
+                _triggerThrottledHapticFeedback(
+                  'normal_clear',
+                  HapticFeedback.heavyImpact,
+                  cooldown: const Duration(milliseconds: 140),
+                );
               }
               for (var hex in validTargets) {
                 BallComponent? comp = grid.lockedBalls.remove(hex);
@@ -2552,6 +2604,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         if (_playsBoardSfx) {
           _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
         }
+        _triggerThrottledHapticFeedback(
+          'ojama_spawn',
+          HapticFeedback.heavyImpact,
+          cooldown: const Duration(milliseconds: 240),
+        );
         final dropSeed = _asInt(spawnData['dropSeed']) ?? _rng.nextInt(999999);
         syncDropRng = Random(dropSeed);
         pendingOjamaSpawns--;
@@ -2792,6 +2849,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (_playsBoardSfx) {
       _playSfx(_rotationSfx, volume: 0.14);
     }
+    _triggerThrottledHapticFeedback(
+      'piece_rotate',
+      HapticFeedback.mediumImpact,
+      cooldown: const Duration(milliseconds: 45),
+    );
     _notifyActivePieceState(force: true, action: 'rotate_left');
   }
 
@@ -2803,6 +2865,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (_playsBoardSfx) {
       _playSfx(_rotationSfx, volume: 0.14);
     }
+    _triggerThrottledHapticFeedback(
+      'piece_rotate',
+      HapticFeedback.mediumImpact,
+      cooldown: const Duration(milliseconds: 45),
+    );
     _notifyActivePieceState(force: true, action: 'rotate_right');
   }
 
@@ -2852,7 +2919,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       if (_playsBoardSfx) {
         _playSfx(_hardDropSfx, volume: 0.85);
       }
-      _triggerHapticFeedback(HapticFeedback.mediumImpact);
+      _triggerHapticFeedback(HapticFeedback.heavyImpact);
       _notifyActivePieceState(force: true, action: 'hard_drop');
     }
   }

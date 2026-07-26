@@ -259,6 +259,22 @@ class _MatchmakingCandidate {
   final int timestamp;
 }
 
+class _RankedMatchmakingConfig {
+  const _RankedMatchmakingConfig({
+    required this.botFallbackSeconds,
+    required this.rangeGrowthPerSecond,
+  });
+
+  static const fallback = _RankedMatchmakingConfig(
+    botFallbackSeconds: MultiplayerManager.rankedBotFallbackSeconds,
+    rangeGrowthPerSecond:
+        MultiplayerManager.rankedMatchmakingRangeGrowthPerSecond,
+  );
+
+  final int botFallbackSeconds;
+  final int rangeGrowthPerSecond;
+}
+
 class MultiplayerManager {
   MultiplayerManager._internal();
 
@@ -274,10 +290,13 @@ class MultiplayerManager {
   static const int rankedBotRatingLeadVariance = 40;
   static const int rankedBotStrengthMinRating = 700;
   static const int rankedMatchmakingInitialRange = 50;
-  static const int rankedMatchmakingRangeGrowthPerSecond = 50;
+  static const int rankedMatchmakingRangeGrowthPerSecond = 40;
+  static const int rankedBotFallbackSeconds = 10;
   static const Duration rankedBotTopRatingTimeout = Duration(seconds: 3);
   static const Duration matchmakingDatabaseOperationTimeout =
       Duration(seconds: 5);
+  static const Duration rankedMatchmakingConfigTimeout = Duration(seconds: 2);
+  static const Duration rankedMatchmakingConfigCacheTtl = Duration(seconds: 30);
   static const String rankedBotRoomId = '__ranked_bot__';
   static const String _savedSessionPrefsKey = 'multiplayer_saved_session_v2';
   static const List<String> _legacySavedSessionPrefsKeys = [
@@ -331,6 +350,10 @@ class MultiplayerManager {
   bool _opponentDisconnectNotified = false;
   bool? _presencePreserveMode;
   DateTime? _matchmakingStartedAt;
+  _RankedMatchmakingConfig _activeRankedMatchmakingConfig =
+      _RankedMatchmakingConfig.fallback;
+  _RankedMatchmakingConfig? _rankedMatchmakingConfigCache;
+  DateTime? _rankedMatchmakingConfigCacheAt;
   String? _activeMatchmakingPath;
   int _matchmakingGeneration = 0;
 
@@ -800,6 +823,7 @@ class MultiplayerManager {
     rankedBotSeasonEndsAt = null;
     _isMatchFound = false;
     _isMatchmakingAttemptInProgress = false;
+    _activeRankedMatchmakingConfig = await _loadRankedMatchmakingConfig();
     _matchmakingStartedAt = DateTime.now();
     _activeMatchmakingPath = 'matchmaking';
     final completer = Completer<String?>();
@@ -835,7 +859,7 @@ class MultiplayerManager {
         (_) => unawaited(_tryRandomMatch(myRating)),
       );
       rankedBotTimer = Timer(
-        const Duration(seconds: 15),
+        Duration(seconds: _activeRankedMatchmakingConfig.botFallbackSeconds),
         () => unawaited(_completeRankedBotMatch(myRating)),
       );
 
@@ -2053,8 +2077,62 @@ class MultiplayerManager {
   }
 
   int _rankedMatchmakingRangeForElapsedSeconds(int elapsedSeconds) {
+    final config = _activeRankedMatchmakingConfig;
     return rankedMatchmakingInitialRange +
-        (max(0, elapsedSeconds) * rankedMatchmakingRangeGrowthPerSecond);
+        (max(0, elapsedSeconds) * config.rangeGrowthPerSecond);
+  }
+
+  Future<_RankedMatchmakingConfig> _loadRankedMatchmakingConfig({
+    bool forceRefresh = false,
+  }) async {
+    final cached = _rankedMatchmakingConfigCache;
+    final cachedAt = _rankedMatchmakingConfigCacheAt;
+    if (!forceRefresh &&
+        cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < rankedMatchmakingConfigCacheTtl) {
+      return cached;
+    }
+
+    try {
+      final snapshot = await _db
+          .child('appConfig/rankedMatchmaking')
+          .get()
+          .timeout(rankedMatchmakingConfigTimeout);
+      final value = snapshot.value;
+      if (value is! Map) {
+        return _cacheRankedMatchmakingConfig(
+          _RankedMatchmakingConfig.fallback,
+        );
+      }
+
+      final botFallbackSeconds =
+          (_intValue(value['botFallbackSeconds']) ?? rankedBotFallbackSeconds)
+              .clamp(3, 60)
+              .toInt();
+      final rangeGrowthPerSecond = (_intValue(value['rangeGrowthPerSecond']) ??
+              rankedMatchmakingRangeGrowthPerSecond)
+          .clamp(0, 200)
+          .toInt();
+      return _cacheRankedMatchmakingConfig(
+        _RankedMatchmakingConfig(
+          botFallbackSeconds: botFallbackSeconds,
+          rangeGrowthPerSecond: rangeGrowthPerSecond,
+        ),
+      );
+    } catch (_) {
+      return _cacheRankedMatchmakingConfig(
+        _RankedMatchmakingConfig.fallback,
+      );
+    }
+  }
+
+  _RankedMatchmakingConfig _cacheRankedMatchmakingConfig(
+    _RankedMatchmakingConfig config,
+  ) {
+    _rankedMatchmakingConfigCache = config;
+    _rankedMatchmakingConfigCacheAt = DateTime.now();
+    return config;
   }
 
   bool _isFreshMatchmakingEntry(Map data) {
@@ -2153,7 +2231,7 @@ class MultiplayerManager {
       savedAt: DateTime.now().millisecondsSinceEpoch,
       snapshot: {
         'opponentRating': opponentRating,
-        'opponentName': 'Player',
+        'opponentName': 'プレイヤー',
         'opponentIconId': rankedBotIconId,
         'opponentFrameId': rankedBotFrameId,
         if (rankedBotSeasonId != null) 'seasonId': rankedBotSeasonId,
@@ -2347,7 +2425,7 @@ class MultiplayerManager {
     final opponentName =
         session.snapshot?['opponentName']?.toString().trim().isNotEmpty == true
             ? session.snapshot!['opponentName'].toString().trim()
-            : 'Player';
+            : 'プレイヤー';
     final uid = myUid ?? await _loadAuthenticatedUid();
     myUid = uid;
 

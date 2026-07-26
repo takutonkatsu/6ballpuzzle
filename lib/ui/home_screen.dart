@@ -5287,7 +5287,7 @@ class _HomeScreenState extends State<HomeScreen>
               cpuDifficulty:
                   _multiplayerManager.rankedBotDifficulty ?? CPUDifficulty.hard,
               rankedBotRating: _multiplayerManager.rankedBotRating,
-              rankedBotName: 'Player',
+              rankedBotName: 'プレイヤー',
               rankedBotIconId: _multiplayerManager.rankedBotIconId,
               rankedBotFrameId: _multiplayerManager.rankedBotFrameId,
             ),

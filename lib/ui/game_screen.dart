@@ -54,6 +54,7 @@ const String _shareSeasonBadgeAsset =
 const String _shareStoreQrAsset = 'assets/images/QRcode_Hexagon_iOS.png';
 const String _shareCoinAsset = 'assets/images/Hexagon_Coin.png';
 const String _shareTrophyAsset = 'assets/images/Hexagon_Trophy.png';
+const String _rankedBotDefaultName = 'プレイヤー';
 
 class GameScreen extends StatefulWidget {
   final bool isCpuMode;
@@ -80,7 +81,7 @@ class GameScreen extends StatefulWidget {
     this.isArenaMode = false,
     this.cpuDifficulty = CPUDifficulty.hard,
     this.rankedBotRating,
-    this.rankedBotName = 'Player',
+    this.rankedBotName = _rankedBotDefaultName,
     this.rankedBotIconId = 'default',
     this.rankedBotFrameId = 'default',
     this.isTutorialMode = false,
@@ -95,7 +96,7 @@ class GameScreen extends StatefulWidget {
     this.isArenaMode = false,
   })  : cpuDifficulty = CPUDifficulty.hard,
         rankedBotRating = null,
-        rankedBotName = 'Player',
+        rankedBotName = _rankedBotDefaultName,
         rankedBotIconId = 'default',
         rankedBotFrameId = 'default',
         isTutorialMode = false,
@@ -6423,14 +6424,16 @@ class _GameScreenState extends State<GameScreen>
     bool incrementSeasonLoss = false,
   }) async {
     final syncRating = rating ?? _playerDataManager.currentRating;
-    await Future.wait<void>(
+    final results = await Future.wait<bool>(
       [
-        _runRequiredProfileSyncTask(
+        _runBestEffortProfileSyncTask(
+          'userName',
           () => _multiplayerManager
               .updateUserName(_playerDataManager.playerName)
               .timeout(_playerProfileSyncTimeout),
         ),
-        _runRequiredProfileSyncTask(
+        _runBestEffortProfileSyncTask(
+          'rankings',
           () => _rankingManager
               .updateMyRating(
                 rating: syncRating,
@@ -6440,7 +6443,8 @@ class _GameScreenState extends State<GameScreen>
               )
               .timeout(_playerProfileSyncTimeout),
         ),
-        _runRequiredProfileSyncTask(
+        _runBestEffortProfileSyncTask(
+          'recordSummary',
           () => _playerDataManager
               .syncRecordSummary(force: true, rethrowErrors: true)
               .timeout(_playerProfileSyncTimeout),
@@ -6448,25 +6452,37 @@ class _GameScreenState extends State<GameScreen>
       ],
       eagerError: false,
     );
+    if (results.any((synced) => !synced)) {
+      debugPrint(
+        'Some result profile sync tasks failed; local result was kept.',
+      );
+    }
   }
 
-  Future<void> _runRequiredProfileSyncTask(
+  Future<bool> _runBestEffortProfileSyncTask(
+    String label,
     Future<void> Function() task,
   ) async {
     Object? lastError;
+    StackTrace? lastStackTrace;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         await task();
-        return;
-      } catch (error) {
+        return true;
+      } catch (error, stackTrace) {
         lastError = error;
+        lastStackTrace = stackTrace;
         if (attempt < 2) {
           await Future<void>.delayed(
               Duration(milliseconds: 250 * (attempt + 1)));
         }
       }
     }
-    throw StateError('プロフィール同期に失敗しました: $lastError');
+    debugPrint('Result profile sync task failed: $label: $lastError');
+    if (lastStackTrace != null) {
+      debugPrintStack(stackTrace: lastStackTrace);
+    }
+    return false;
   }
 
   Widget _buildBadgeUnlockResultCard() {
@@ -6768,13 +6784,7 @@ class _GameScreenState extends State<GameScreen>
       maxChain: _playerGame.scoreManager.maxChainThisRun,
       score: _currentPlayerScore,
     );
-    try {
-      await _syncPlayerProfileOnline(rating: _playerDataManager.currentRating);
-    } catch (_) {
-      if (mounted) {
-        _showRealtimeOfflineMessage();
-      }
-    }
+    await _syncPlayerProfileOnline(rating: _playerDataManager.currentRating);
     _refreshNewlyUnlockedBadgesFromSnapshot();
   }
 
@@ -6818,32 +6828,29 @@ class _GameScreenState extends State<GameScreen>
     if (_isReturningToHome || _isCheckingHomeReturnConnection) {
       return;
     }
-    _isCheckingHomeReturnConnection = true;
-    try {
-      var connected = _realtimeConnected;
-      if (connected) {
-        final currentConnected =
-            await RealtimeConnectionGuard.currentConnected();
-        if (currentConnected != null) {
-          connected = currentConnected;
-        } else {
-          connected = await RealtimeConnectionGuard.waitForConnected(
-            timeout: const Duration(milliseconds: 700),
-          );
+    if (_isOnlineMode && widget.isRankedMode && !widget.isArenaMode) {
+      _isCheckingHomeReturnConnection = true;
+      try {
+        var connected = _realtimeConnected;
+        if (connected) {
+          final currentConnected =
+              await RealtimeConnectionGuard.currentConnected();
+          if (currentConnected != null) {
+            connected = currentConnected;
+          } else {
+            connected = await RealtimeConnectionGuard.waitForConnected(
+              timeout: const Duration(milliseconds: 700),
+            );
+          }
         }
-      }
-      _realtimeConnected = connected;
-      if (!connected) {
-        if (mounted) {
-          await _showCyberAlertDialog(
-            'ランク戦に失敗しました',
-            RealtimeConnectionGuard.offlineMessage,
-          );
+        _realtimeConnected = connected;
+        if (!connected) {
+          debugPrint(
+              'Realtime connection unavailable on ranked result return.');
         }
-        return;
+      } finally {
+        _isCheckingHomeReturnConnection = false;
       }
-    } finally {
-      _isCheckingHomeReturnConnection = false;
     }
     if (!mounted || _isReturningToHome) {
       return;
@@ -7313,6 +7320,7 @@ class _GameScreenState extends State<GameScreen>
     }
 
     final shouldResumeBattle = _pauseBattleForSettings();
+    var shouldResumeAfterSettings = shouldResumeBattle;
 
     return showDialog<void>(
       context: context,
@@ -7346,19 +7354,16 @@ class _GameScreenState extends State<GameScreen>
                   ),
                 ),
                 const SizedBox(height: 20),
-                OutlinedButton.icon(
+                OutlinedButton(
                   onPressed: () {
                     _playUiTap();
                     Navigator.of(dialogContext).pop();
-                    unawaited(_returnHomeFromSettings());
                   },
-                  icon: const Icon(Icons.home, size: 18),
-                  label: const Text('ホーム画面に戻る'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _gameCyan,
                     side: BorderSide(
-                      color: _gameCyan.withValues(alpha: 0.72),
-                      width: 1.3,
+                      color: _gameCyan.withValues(alpha: 0.76),
+                      width: 1.4,
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
@@ -7366,15 +7371,56 @@ class _GameScreenState extends State<GameScreen>
                     ),
                     textStyle: const TextStyle(
                       fontWeight: FontWeight.w900,
-                      letterSpacing: 0.8,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  child: const Text('ゲームに戻る'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    _playUiTap();
+                    final confirmed = await _showAbortCurrentPlayConfirmDialog(
+                      title: 'ホーム画面に戻りますか？',
+                    );
+                    if (confirmed != true || !dialogContext.mounted) {
+                      return;
+                    }
+                    shouldResumeAfterSettings = false;
+                    Navigator.of(dialogContext).pop();
+                    unawaited(_returnHomeFromSettings());
+                  },
+                  icon: const Icon(Icons.home, size: 18),
+                  label: const Text('ホーム画面に戻る'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.30),
+                      width: 1.2,
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    textStyle: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.6,
                     ),
                   ),
                 ),
                 if (!_isOnlineMode && !widget.isCpuMode) ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
-                    onPressed: () {
+                    onPressed: () async {
                       _playUiTap();
+                      final confirmed =
+                          await _showAbortCurrentPlayConfirmDialog(
+                        title: 'リスタートしますか？',
+                      );
+                      if (confirmed != true || !dialogContext.mounted) {
+                        return;
+                      }
+                      shouldResumeAfterSettings = false;
                       Navigator.of(dialogContext).pop();
                       _clearAllPendingAttacks();
                       unawaited(
@@ -7386,54 +7432,80 @@ class _GameScreenState extends State<GameScreen>
                     icon: const Icon(Icons.restart_alt, size: 18),
                     label: const Text('リスタート'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: _gameCyan,
+                      foregroundColor: Colors.white70,
                       side: BorderSide(
-                        color: _gameCyan.withValues(alpha: 0.72),
-                        width: 1.3,
+                        color: Colors.white.withValues(alpha: 0.30),
+                        width: 1.2,
                       ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                       textStyle: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.8,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.6,
                       ),
                     ),
                   ),
                 ],
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: () {
-                    _playUiTap();
-                    Navigator.of(dialogContext).pop();
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.36),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    textStyle: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.4,
-                    ),
-                  ),
-                  child: const Text('閉じる'),
-                ),
               ],
             ),
           ),
         );
       },
     ).whenComplete(() {
-      if (shouldResumeBattle) {
+      if (shouldResumeAfterSettings) {
         _resumeBattleFromSettings();
       }
     });
+  }
+
+  Future<bool?> _showAbortCurrentPlayConfirmDialog({
+    required String title,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (confirmContext) {
+        return _buildCyberDialog(
+          title: title,
+          accentColor: _mutedButtonGrey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '現在のプレイが中断されますが、よろしいですか？',
+                style: TextStyle(
+                  color: Colors.white70,
+                  height: 1.5,
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'キャンセル',
+                      accentColor: _gameCyan,
+                      onPressed: () => Navigator.of(confirmContext).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: '中断する',
+                      accentColor: _mutedButtonGrey,
+                      onPressed: () => Navigator.of(confirmContext).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   bool _pauseBattleForSettings() {

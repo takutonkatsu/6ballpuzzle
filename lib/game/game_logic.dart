@@ -193,7 +193,7 @@ class SimGrid {
     final visited = {start};
     while (queue.isNotEmpty) {
       var curr = queue.removeAt(0);
-      for (var dir in ['f', 'g', 'a', 'd', 'b', 'c']) {
+      for (var dir in ['a', 'd', 'b', 'c', 'f', 'g']) {
         var n = getNeighbor(curr, dir);
         if (n != null && !isOutOfBounds(n) && !visited.contains(n)) {
           if (!isOccupied(n)) return n;

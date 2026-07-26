@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -832,12 +833,18 @@ class RankingManager {
         await AuthManager.instance.ensureSignedIn();
     await PlayerDataManager.instance.load();
     final resolvedPublicId = publicId ?? PlayerDataManager.instance.playerId;
-    final currentEntry = await _fetchEntryByUidOrPublicId(
-      _endlessSeasonRankingRef(seasonId),
-      uid: resolvedUid,
-      publicId: resolvedPublicId,
-      ignoreSeededLegacy: true,
-    );
+    RankingEntry? currentEntry;
+    try {
+      currentEntry = await _fetchEntryByUidOrPublicId(
+        _endlessSeasonRankingRef(seasonId),
+        uid: resolvedUid,
+        publicId: resolvedPublicId,
+        ignoreSeededLegacy: true,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Failed to fetch endless season entry for $seasonId: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
     await PlayerDataManager.instance.ensureEndlessSeason(
       currentSeasonId: seasonId,
       currentSeasonScore: currentEntry?.highestEndlessScore,

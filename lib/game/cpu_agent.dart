@@ -105,11 +105,13 @@ class _CpuMoveResult {
     required this.x,
     required this.rotation,
     required this.elapsedMicroseconds,
+    this.isImmediateWaza = false,
   });
 
   final double x;
   final int rotation;
   final int elapsedMicroseconds;
+  final bool isImmediateWaza;
 }
 
 _CpuMoveResult? _computeBestMoveInIsolate(_CpuMoveRequest request) {
@@ -142,11 +144,14 @@ class _RankedCpuProfile {
 
 class ExtendedSimDropResult extends SimDropResult {
   final bool shapeCollapsed;
+  final List<HexCoordinate> orderedTargetHexes;
+
   ExtendedSimDropResult(SimGrid simGrid, Map<HexCoordinate, BallColor> newBalls,
       Set<HexCoordinate> allMatched,
       {bool wazaCompleted = false,
       double highestWazaMult = 0.0,
-      this.shapeCollapsed = false})
+      this.shapeCollapsed = false,
+      this.orderedTargetHexes = const []})
       : super(simGrid, newBalls, allMatched,
             wazaCompleted: wazaCompleted, highestWazaMult: highestWazaMult);
 }
@@ -154,14 +159,17 @@ class ExtendedSimDropResult extends SimDropResult {
 class CPUAgent {
   static const double _hardDropLockYOffset = 5.0;
   static const double _postMoveDropSettleDelay = 0.10;
-  static const double _preciseDropSettleDelay = 0.16;
+  static const double _preciseDropSettleDelay = 0.06;
+  static const double _preciseWazaDropSettleDelay = 0.14;
 
   final PuzzleGame game;
   CPUDifficulty difficulty;
   final CPUWeights weights;
 
   double? _targetPixelX;
+  int _targetRotationIndex = 0;
   int _targetRotationCount = 0;
+  bool _targetIsImmediateWaza = false;
   bool _isThinking = false;
   bool _isComputing = false;
 
@@ -216,15 +224,15 @@ class CPUAgent {
         _thinkDelay = 0.5;
         _moveDelay = 0.09;
         _rotationDelay = 0.09;
-        _mistakeRate = 0.04;
+        _mistakeRate = 0.02;
         _lookaheadCount = 0;
         break;
       case CPUDifficulty.oni:
-        _thinkDelay = 0.1;
-        _moveDelay = 0.04;
-        _rotationDelay = 0.18;
+        _thinkDelay = 0.0;
+        _moveDelay = 0.015;
+        _rotationDelay = 0.12;
         _mistakeRate = 0.0;
-        _lookaheadCount = Platform.isAndroid ? 8 : 12;
+        _lookaheadCount = Platform.isAndroid ? 12 : 16;
         break;
       default:
         break;
@@ -256,7 +264,7 @@ class CPUAgent {
     return difficulty == CPUDifficulty.easy;
   }
 
-  double get _postRotationDropDelay => _usesPostRotationDropPause ? 0.18 : 0.0;
+  double get _postRotationDropDelay => _usesPostRotationDropPause ? 0.18 : 0.12;
 
   bool get _usesPreciseDropSnap {
     final rankedLevel = _rankedLevel;
@@ -342,7 +350,7 @@ class CPUAgent {
       case CPUDifficulty.normal:
         return 4.0;
       case CPUDifficulty.hard:
-        return 1.5;
+        return 0.75;
       case CPUDifficulty.oni:
         return 0.0;
       default:
@@ -350,7 +358,7 @@ class CPUAgent {
     }
   }
 
-  int get _oniDepth2TargetsPerRotation => Platform.isAndroid ? 8 : 10;
+  int get _oniDepth2TargetsPerRotation => Platform.isAndroid ? 10 : 12;
 
   int? get _rankedLevel {
     return switch (difficulty) {
@@ -369,7 +377,7 @@ class CPUAgent {
   }
 
   _RankedCpuProfile _rankedProfile(int level) {
-    final oniLookahead = Platform.isAndroid ? 8 : 12;
+    final oniLookahead = Platform.isAndroid ? 12 : 16;
     return switch (level.clamp(1, 10)) {
       1 => const _RankedCpuProfile(
           thinkDelay: 2.3,
@@ -441,39 +449,39 @@ class CPUAgent {
           thinkDelay: 0.60,
           moveDelay: 0.105,
           rotationDelay: 0.105,
-          mistakeRate: 0.055,
+          mistakeRate: 0.035,
           lookaheadCount: 0,
-          delayJitterRate: 0.17,
-          hesitationChance: 0.06,
-          maxHesitationDuration: 0.08,
-          targetJitterPixels: 2.0,
+          delayJitterRate: 0.12,
+          hesitationChance: 0.04,
+          maxHesitationDuration: 0.05,
+          targetJitterPixels: 1.2,
         ),
       8 => const _RankedCpuProfile(
           thinkDelay: 0.50,
           moveDelay: 0.09,
           rotationDelay: 0.09,
-          mistakeRate: 0.04,
+          mistakeRate: 0.02,
           lookaheadCount: 0,
-          delayJitterRate: 0.14,
-          hesitationChance: 0.05,
-          maxHesitationDuration: 0.07,
-          targetJitterPixels: 1.5,
+          delayJitterRate: 0.09,
+          hesitationChance: 0.03,
+          maxHesitationDuration: 0.04,
+          targetJitterPixels: 0.8,
         ),
       9 => _RankedCpuProfile(
           thinkDelay: 0.22,
           moveDelay: 0.052,
           rotationDelay: 0.10,
-          mistakeRate: 0.004,
-          lookaheadCount: Platform.isAndroid ? 5 : 8,
-          delayJitterRate: 0.025,
-          hesitationChance: 0.01,
-          maxHesitationDuration: 0.02,
-          targetJitterPixels: 0.25,
+          mistakeRate: 0.0,
+          lookaheadCount: Platform.isAndroid ? 8 : 12,
+          delayJitterRate: 0.0,
+          hesitationChance: 0.0,
+          maxHesitationDuration: 0.0,
+          targetJitterPixels: 0.0,
         ),
       _ => _RankedCpuProfile(
-          thinkDelay: 0.1,
-          moveDelay: 0.04,
-          rotationDelay: 0.18,
+          thinkDelay: 0.0,
+          moveDelay: 0.015,
+          rotationDelay: 0.12,
           mistakeRate: 0.0,
           lookaheadCount: oniLookahead,
           delayJitterRate: 0.0,
@@ -490,7 +498,6 @@ class CPUAgent {
       _resetState();
       return;
     }
-
     if (_targetPixelX == null && !_isThinking && !_isComputing) {
       _isThinking = true;
       _timer = _humanizedDelay(_thinkDelay);
@@ -545,15 +552,20 @@ class CPUAgent {
           _dropSettleStarted = true;
           _dropTimer = max(
             _dropTimer,
-            _humanizedDelay(_dropSettleDelay),
+            _targetIsImmediateWaza
+                ? _preciseWazaDropSettleDelay
+                : _humanizedDelay(_dropSettleDelay),
           );
         }
-        if (rotatedThisFrame && _usesPostRotationDropPause) {
+        if (rotatedThisFrame) {
           _dropTimer = max(_dropTimer, _postRotationDropDelay);
         }
         if ((_dropTimer -= dt) <= 0) {
           if (_usesPreciseDropSnap && _targetPixelX != null) {
-            game.snapCpuPieceXBeforeDrop(_targetPixelX!);
+            game.snapCpuPieceTransformBeforeDrop(
+              x: _targetPixelX!,
+              rotation: _targetRotationIndex,
+            );
           }
           game.refreshGhostPositionForCurrentPiece();
           game.hardDrop();
@@ -568,7 +580,9 @@ class CPUAgent {
 
   void _resetState() {
     _targetPixelX = null;
+    _targetRotationIndex = 0;
     _targetRotationCount = 0;
+    _targetIsImmediateWaza = false;
     _isThinking = false;
     _isComputing = false;
     _lastCpuX = -9999.0;
@@ -717,7 +731,9 @@ class CPUAgent {
             score += weights.hintBonus * 2.0 * mult;
           else if (needed == 2)
             score += weights.reachBonus * 5.0 * mult;
-          else if (needed == 3) score += weights.reachBonus * 2.0 * mult;
+          else if (needed == 3)
+            score += weights.reachBonus * 2.0 * mult;
+          else if (needed == 4) score += weights.reachBonus * 0.55 * mult;
 
           int minOtherNeeded = 99;
           for (var otherColor in colorNeeds.keys) {
@@ -843,9 +859,22 @@ class CPUAgent {
       return;
     }
 
+    if (!_matchesCurrentDecisionState(request)) {
+      _isComputing = false;
+      _targetPixelX = null;
+      _targetRotationIndex = 0;
+      _targetRotationCount = 0;
+      _targetIsImmediateWaza = false;
+      _dropSettleStarted = false;
+      return;
+    }
+
     if (game.activePiece != null && !game.activePiece!.isLocked) {
-      _targetPixelX = _humanizedTargetX(selected.x);
-      int bestRot = selected.rotation;
+      _targetIsImmediateWaza = selected.isImmediateWaza;
+      _targetPixelX =
+          _targetIsImmediateWaza ? selected.x : _humanizedTargetX(selected.x);
+      final bestRot = selected.rotation;
+      _targetRotationIndex = bestRot;
       _targetRotationCount = bestRot > 3 ? bestRot - 6 : bestRot;
     }
 
@@ -854,6 +883,35 @@ class CPUAgent {
     _dropTimer = _humanizedDelay(_moveDelay);
     _dropSettleStarted = false;
     _humanPauseTimer = _initialHumanPause();
+  }
+
+  bool _matchesCurrentDecisionState(_CpuMoveRequest request) {
+    final piece = game.activePiece;
+    if (piece == null || piece.isLocked) {
+      return false;
+    }
+    final currentColors = piece.colors.map((color) => color.index).toList();
+    if (currentColors.length != request.currentColors.length) {
+      return false;
+    }
+    for (var i = 0; i < currentColors.length; i++) {
+      if (currentColors[i] != request.currentColors[i]) {
+        return false;
+      }
+    }
+
+    final currentBoardKey = _boardKey({
+      for (final entry in game.grid.lockedBalls.entries)
+        entry.key: entry.value.ballColor,
+    });
+    final requestBoardKey = _boardKey({
+      for (final entry in request.boardEntries)
+        if (entry.length >= 3 &&
+            entry[2] >= 0 &&
+            entry[2] < BallColor.values.length)
+          HexCoordinate(entry[0], entry[1]): BallColor.values[entry[2]],
+    });
+    return currentBoardKey == requestBoardKey;
   }
 
   _EvalOption _selectEasyOption(List<_EvalOption> options) {
@@ -1097,7 +1155,7 @@ class CPUAgent {
     _EvalOption? best;
     var bestScore = -double.infinity;
     for (final option in ranked) {
-      if (!option.simResult.wazaCompleted) {
+      if (!option.simResult.wazaCompleted || option.simResult.shapeCollapsed) {
         continue;
       }
       final score = option.simResult.highestWazaMult * 1000000000000000.0 +
@@ -1128,7 +1186,7 @@ class CPUAgent {
             validTargetXsByRotation[rot2] ?? const <double>{};
         for (final targetX2 in validTargetXs2) {
           final sim2 = _simulateDrop(board2, targetX2, nextColors, rot2);
-          if (!sim2.wazaCompleted) {
+          if (!sim2.wazaCompleted || sim2.shapeCollapsed) {
             continue;
           }
           final score2 = _evaluateSim(
@@ -1313,7 +1371,7 @@ class CPUAgent {
         }
       }
 
-      if (!isDead && colorCount >= 3 && colorCount <= 5) {
+      if (!isDead && colorCount >= 2 && colorCount <= 5) {
         int needed = 6 - colorCount;
         for (var e in emptySpots) {
           seeds.putIfAbsent(e, () => {});
@@ -1446,10 +1504,12 @@ class CPUAgent {
     Map<HexCoordinate, BallColor> newBalls = {};
 
     List<_BallDrop> drops = [];
+    final orderedTargetHexes =
+        List<HexCoordinate?>.filled(colors.length, null, growable: false);
     for (int i = 0; i < 3; i++) {
       double nx = baseOffsets[i].x * cos(rad) - baseOffsets[i].y * sin(rad);
       double ny = baseOffsets[i].x * sin(rad) + baseOffsets[i].y * cos(rad);
-      drops.add(_BallDrop(colors[i], nx, ny));
+      drops.add(_BallDrop(i, colors[i], nx, ny));
     }
 
     double minGy = game.grid.floorY + 1000.0;
@@ -1479,7 +1539,7 @@ class CPUAgent {
           Vector2(x + drop.nx, minGy + _hardDropLockYOffset + drop.ny);
       var start = game.grid.pixelToHex(finalPx);
 
-      if (initialStartHexes.contains(start)) {
+      if (initialStartHexes.contains(start) || sim.isOccupied(start)) {
         shapeCollapsed = true;
       }
       initialStartHexes.add(start);
@@ -1490,6 +1550,9 @@ class CPUAgent {
       var finalHex = sim.dropBall(start, localOffset, color: drop.color);
       sim.board[finalHex] = drop.color;
       newBalls[finalHex] = drop.color;
+      if (drop.index >= 0 && drop.index < orderedTargetHexes.length) {
+        orderedTargetHexes[drop.index] = finalHex;
+      }
     }
 
     bool wazaCompleted = false;
@@ -1553,7 +1616,9 @@ class CPUAgent {
     return ExtendedSimDropResult(sim, newBalls, allMatched,
         wazaCompleted: wazaCompleted,
         highestWazaMult: highestWazaMult,
-        shapeCollapsed: shapeCollapsed);
+        shapeCollapsed: shapeCollapsed,
+        orderedTargetHexes:
+            orderedTargetHexes.whereType<HexCoordinate>().toList());
   }
 }
 
@@ -1567,7 +1632,7 @@ class _CpuMoveComputer {
   final Random _random;
 
   CPUWeights get weights => request.weights;
-  int get _oniDepth2TargetsPerRotation => request.isAndroid ? 8 : 10;
+  int get _oniDepth2TargetsPerRotation => request.isAndroid ? 10 : 12;
 
   int? get _rankedLevel {
     return switch (difficulty) {
@@ -1588,11 +1653,15 @@ class _CpuMoveComputer {
   int get _lookaheadCount {
     final rankedLevel = _rankedLevel;
     if (rankedLevel != null) {
-      if (rankedLevel == 9) return request.isAndroid ? 3 : 4;
-      if (rankedLevel >= 10) return request.isAndroid ? 8 : 12;
+      if (rankedLevel == 9) return request.isAndroid ? 8 : 12;
+      if (rankedLevel >= 10) return request.isAndroid ? 12 : 16;
       return 0;
     }
-    return difficulty == CPUDifficulty.oni ? (request.isAndroid ? 8 : 12) : 0;
+    return difficulty == CPUDifficulty.oni ? (request.isAndroid ? 12 : 16) : 0;
+  }
+
+  bool get _usesPreciseImmediateWazaSearch {
+    return difficulty == CPUDifficulty.oni || _rankedLevel == 10;
   }
 
   double get _mistakeRate {
@@ -1605,16 +1674,16 @@ class _CpuMoveComputer {
         4 => 0.16,
         5 => 0.12,
         6 => 0.08,
-        7 => 0.055,
-        8 => 0.04,
-        9 => 0.015,
+        7 => 0.035,
+        8 => 0.02,
+        9 => 0.0,
         _ => 0.0,
       };
     }
     return switch (difficulty) {
       CPUDifficulty.easy => 0.30,
       CPUDifficulty.normal => 0.12,
-      CPUDifficulty.hard => 0.04,
+      CPUDifficulty.hard => 0.02,
       CPUDifficulty.oni => 0.0,
       _ => 0.0,
     };
@@ -1646,6 +1715,12 @@ class _CpuMoveComputer {
     final validTargetXsByRotation = <int, Set<double>>{};
     final depth1BestByBoard = <String, _EvalOption>{};
     final candidateCenterXs = _candidateCenterXs();
+    final shouldSearchImmediateWaza = _usesPreciseImmediateWazaSearch &&
+        _hasImmediateWazaPotential(rootAnalysis, currentColors);
+    final shouldUseOpeningLineSetup =
+        _usesOpeningLineSetup(board, currentColors);
+    _EvalOption? bestImmediateWaza;
+    _EvalOption? bestOpeningLine;
 
     for (int rot = 0; rot < 6; rot++) {
       final rad = rot * pi / 3;
@@ -1661,6 +1736,28 @@ class _CpuMoveComputer {
       final validMinX = request.leftWallX + 15.0 - minNx + 1.0;
       final validMaxX = request.rightWallX - 15.0 - maxNx - 1.0;
       final validTargetXs = <double>{};
+
+      if (shouldSearchImmediateWaza) {
+        for (final targetX
+            in _immediateWazaTargetXs(rot, validMinX, validMaxX)) {
+          final sim = _simulateDrop(board, targetX, currentColors, rot);
+          if (!sim.wazaCompleted ||
+              sim.shapeCollapsed ||
+              _isTerminalBoard(sim.simGrid)) {
+            continue;
+          }
+          final score = _evaluateSim(
+            sim,
+            rootAnalysis.wazaSeeds,
+            board,
+            rootAnalysis.protectedWazaBalls,
+          );
+          final option = _EvalOption(targetX, rot, score, sim);
+          if (_isBetterImmediateWaza(option, bestImmediateWaza)) {
+            bestImmediateWaza = option;
+          }
+        }
+      }
 
       for (final centerX in candidateCenterXs) {
         for (final targetX in _candidateOffsetsFromCenter(centerX)) {
@@ -1682,10 +1779,32 @@ class _CpuMoveComputer {
         final option = _EvalOption(targetX, rot, score, sim);
         final boardKey = _boardKey(sim.simGrid.board);
         final existing = depth1BestByBoard[boardKey];
-        if (existing == null || score > existing.score) {
+        if (existing == null ||
+            _depth1DedupPriority(option) > _depth1DedupPriority(existing)) {
           depth1BestByBoard[boardKey] = option;
         }
+        if (shouldUseOpeningLineSetup &&
+            _isBetterOpeningLine(option, bestOpeningLine)) {
+          bestOpeningLine = option;
+        }
       }
+    }
+
+    if (bestImmediateWaza != null) {
+      return _CpuMoveResult(
+        x: bestImmediateWaza.x,
+        rotation: bestImmediateWaza.rot,
+        elapsedMicroseconds: stopwatch.elapsedMicroseconds,
+        isImmediateWaza: true,
+      );
+    }
+
+    if (bestOpeningLine != null) {
+      return _CpuMoveResult(
+        x: bestOpeningLine.x,
+        rotation: bestOpeningLine.rot,
+        elapsedMicroseconds: stopwatch.elapsedMicroseconds,
+      );
     }
 
     final depth1Options = depth1BestByBoard.values.toList()
@@ -1705,6 +1824,91 @@ class _CpuMoveComputer {
       rotation: selected.rot,
       elapsedMicroseconds: stopwatch.elapsedMicroseconds,
     );
+  }
+
+  double _depth1DedupPriority(_EvalOption option) {
+    final sim = option.simResult;
+    var priority = option.score;
+    if (!sim.shapeCollapsed && !_isTerminalBoard(sim.simGrid)) {
+      priority += 1000000000000.0;
+    }
+    if (sim.wazaCompleted) {
+      priority += 1000000000000000000.0 * sim.highestWazaMult;
+    }
+    return priority;
+  }
+
+  bool _usesOpeningLineSetup(
+    Map<HexCoordinate, BallColor> board,
+    List<BallColor> currentColors,
+  ) {
+    return _usesPreciseImmediateWazaSearch &&
+        board.isEmpty &&
+        currentColors.length == 3 &&
+        currentColors.toSet().length == 3;
+  }
+
+  bool _isBetterOpeningLine(_EvalOption candidate, _EvalOption? currentBest) {
+    final candidateScore = _openingLineScore(candidate);
+    if (candidateScore == null) {
+      return false;
+    }
+    final currentScore =
+        currentBest == null ? null : _openingLineScore(currentBest);
+    return currentScore == null || candidateScore > currentScore;
+  }
+
+  double? _openingLineScore(_EvalOption option) {
+    final targets = option.simResult.orderedTargetHexes;
+    if (targets.length != 3 || option.simResult.shapeCollapsed) {
+      return null;
+    }
+    final row = targets.first.row;
+    if (targets.any((hex) => hex.row != row)) {
+      return null;
+    }
+
+    final cols = targets.map((hex) => hex.col).toList()..sort();
+    if (cols.toSet().length != 3 || cols.last - cols.first != 2) {
+      return null;
+    }
+
+    final middleCol = cols[1];
+    final rowCenter = row.isOdd ? 4.5 : 4.0;
+    final centerPenalty = (middleCol - rowCenter).abs();
+    final rotationPenalty = option.rot == 3 ? 0.0 : 0.25;
+    return row * 1000.0 - centerPenalty * 20.0 - rotationPenalty;
+  }
+
+  bool _hasImmediateWazaPotential(
+    _BoardAnalysis analysis,
+    List<BallColor> currentColors,
+  ) {
+    final colorCounts = <BallColor, int>{};
+    for (final color in currentColors) {
+      colorCounts[color] = (colorCounts[color] ?? 0) + 1;
+    }
+
+    for (final seed in analysis.wazaSeeds.values) {
+      for (final entry in seed.entries) {
+        if ((colorCounts[entry.key] ?? 0) >= entry.value.needed) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool _isBetterImmediateWaza(_EvalOption candidate, _EvalOption? currentBest) {
+    if (currentBest == null) {
+      return true;
+    }
+    final candidateMult = candidate.simResult.highestWazaMult;
+    final bestMult = currentBest.simResult.highestWazaMult;
+    if (candidateMult != bestMult) {
+      return candidateMult > bestMult;
+    }
+    return _demonAttackScore(candidate) > _demonAttackScore(currentBest);
   }
 
   _EvalOption _selectOption(
@@ -1878,7 +2082,9 @@ class _CpuMoveComputer {
     _EvalOption? best;
     var bestScore = -double.infinity;
     for (final option in ranked) {
-      if (!option.simResult.wazaCompleted) {
+      if (!option.simResult.wazaCompleted ||
+          option.simResult.shapeCollapsed ||
+          _isTerminalBoard(option.simResult.simGrid)) {
         continue;
       }
       final score = option.simResult.highestWazaMult * 1000000000000000.0 +
@@ -1909,7 +2115,9 @@ class _CpuMoveComputer {
             validTargetXsByRotation[rot2] ?? const <double>{};
         for (final targetX2 in validTargetXs2) {
           final sim2 = _simulateDrop(board2, targetX2, nextColors, rot2);
-          if (!sim2.wazaCompleted || _isTerminalBoard(sim2.simGrid)) {
+          if (!sim2.wazaCompleted ||
+              sim2.shapeCollapsed ||
+              _isTerminalBoard(sim2.simGrid)) {
             continue;
           }
           final score2 = _evaluateSim(
@@ -2009,6 +2217,7 @@ class _CpuMoveComputer {
     if (score <= -900000000.0) score -= 10000000000.0;
     if (sim.wazaCompleted) score += 1000000000000.0 * sim.highestWazaMult;
     score += _wazaBuildScore(sim.simGrid, sim.newBalls);
+    score += _wazaFoundationScore(sim.simGrid, sim.newBalls);
 
     if (sim.allMatched.isNotEmpty && !sim.wazaCompleted) {
       var isPrematureClear = false;
@@ -2075,6 +2284,8 @@ class _CpuMoveComputer {
             score += weights.reachBonus * 5.0 * mult;
           } else if (needed == 3) {
             score += weights.reachBonus * 2.0 * mult;
+          } else if (needed == 4) {
+            score += weights.reachBonus * 0.55 * mult;
           }
 
           var minOtherNeeded = 99;
@@ -2233,7 +2444,7 @@ class _CpuMoveComputer {
         }
       }
 
-      if (isDead || newCount == 0 || colorCount < 3 || colorCount >= 6) {
+      if (isDead || newCount == 0 || colorCount < 2 || colorCount >= 6) {
         continue;
       }
       if (!_areWazaEmptiesOpen(simGrid, emptySpots)) {
@@ -2245,11 +2456,102 @@ class _CpuMoveComputer {
         score += 120000000.0 * mult;
       } else if (colorCount == 4) {
         score += 24000000.0 * mult;
-      } else {
+      } else if (colorCount == 3) {
         score += 6000000.0 * mult;
+      } else {
+        score += 1200000.0 * mult;
       }
     }
     return score;
+  }
+
+  double _wazaFoundationScore(
+    SimGrid simGrid,
+    Map<HexCoordinate, BallColor> newBalls,
+  ) {
+    if (newBalls.isEmpty) return 0.0;
+
+    var score = 0.0;
+    for (final def in WazaPatterns.detailedPatterns) {
+      BallColor? patternColor;
+      var colorCount = 0;
+      var newCount = 0;
+      var isDead = false;
+      final occupied = <HexCoordinate>[];
+      final emptySpots = <HexCoordinate>[];
+
+      for (final hex in def.hexes) {
+        final color = simGrid.board[hex];
+        if (color == null) {
+          emptySpots.add(hex);
+          continue;
+        }
+        if (patternColor == null) {
+          patternColor = color;
+        } else if (patternColor != color) {
+          isDead = true;
+          break;
+        }
+        colorCount++;
+        occupied.add(hex);
+        if (newBalls.containsKey(hex)) {
+          newCount++;
+        }
+      }
+
+      if (isDead || newCount == 0 || colorCount < 2 || colorCount >= 6) {
+        continue;
+      }
+      if (!_areWazaEmptiesOpen(simGrid, emptySpots)) {
+        continue;
+      }
+
+      var supportedCount = 0;
+      for (final hex in occupied) {
+        if (_isFoundationSupported(simGrid, hex)) {
+          supportedCount++;
+        }
+      }
+      final supportRatio = supportedCount / max(1, occupied.length);
+      if (supportRatio < 0.55) {
+        continue;
+      }
+
+      final averageRow =
+          occupied.fold<double>(0.0, (sum, hex) => sum + hex.row) /
+              occupied.length;
+      final lowBoardBonus = 1.0 + (averageRow / 12.0).clamp(0.0, 1.0) * 0.8;
+      final typeBonus = switch (def.type) {
+        WazaType.hexagon => 2.2,
+        WazaType.pyramid => 1.7,
+        WazaType.straight => 1.25,
+        WazaType.none => 1.0,
+      };
+      final progressBonus = switch (colorCount) {
+        5 => 900000000.0,
+        4 => 220000000.0,
+        3 => 52000000.0,
+        _ => 12000000.0,
+      };
+
+      score += progressBonus *
+          typeBonus *
+          lowBoardBonus *
+          (0.55 + supportRatio * 0.45);
+    }
+    return score;
+  }
+
+  bool _isFoundationSupported(SimGrid simGrid, HexCoordinate hex) {
+    if (hex.row >= simGrid.numRows - 1) {
+      return true;
+    }
+    final downLeft = simGrid.getNeighbor(hex, 'b');
+    final downRight = simGrid.getNeighbor(hex, 'c');
+    final straightDown = simGrid.getNeighbor(hex, 'e');
+    return (downLeft != null && simGrid.isOccupied(downLeft)) ||
+        (downRight != null && simGrid.isOccupied(downRight)) ||
+        (straightDown != null && simGrid.isOccupied(straightDown));
   }
 
   bool _areWazaEmptiesOpen(
@@ -2401,8 +2703,49 @@ class _CpuMoveComputer {
 
   Iterable<double> _candidateOffsetsFromCenter(double centerX) sync* {
     const offset = 3.0;
+    yield centerX;
     yield centerX - offset;
     yield centerX + offset;
+  }
+
+  Iterable<double> _immediateWazaTargetXs(
+    int rot,
+    double validMinX,
+    double validMaxX,
+  ) sync* {
+    final rad = rot * pi / 3;
+    final baseOffsets = _pieceBaseOffsets();
+    final rotatedXs = [
+      for (final offset in baseOffsets)
+        offset.x * cos(rad) - offset.y * sin(rad),
+    ];
+    final yielded = <String>{};
+    const fineOffsets = [0.0, -1.5, 1.5, -3.0, 3.0];
+
+    for (final hex in _allBoardHexes()) {
+      final hexX = _hexToPixel(hex).x;
+      for (final rotatedX in rotatedXs) {
+        for (final fineOffset in fineOffsets) {
+          final targetX = hexX - rotatedX + fineOffset;
+          if (targetX < validMinX || targetX > validMaxX) {
+            continue;
+          }
+          final key = targetX.toStringAsFixed(3);
+          if (yielded.add(key)) {
+            yield targetX;
+          }
+        }
+      }
+    }
+  }
+
+  Iterable<HexCoordinate> _allBoardHexes() sync* {
+    for (var row = 0; row < 12; row++) {
+      final columns = row.isOdd ? 10 : 9;
+      for (var col = 0; col < columns; col++) {
+        yield HexCoordinate(col, row);
+      }
+    }
   }
 
   _BoardAnalysis _analyzeBoard(Map<HexCoordinate, BallColor> board) {
@@ -2440,7 +2783,7 @@ class _CpuMoveComputer {
         }
       }
 
-      if (!isDead && colorCount >= 3 && colorCount <= 5) {
+      if (!isDead && colorCount >= 2 && colorCount <= 5) {
         final needed = 6 - colorCount;
         for (final empty in emptySpots) {
           seeds.putIfAbsent(empty, () => {});
@@ -2558,11 +2901,13 @@ class _CpuMoveComputer {
     final sim = SimGrid(12, board);
     final newBalls = <HexCoordinate, BallColor>{};
     final drops = <_BallDrop>[];
+    final orderedTargetHexes =
+        List<HexCoordinate?>.filled(colors.length, null, growable: false);
 
     for (int i = 0; i < 3; i++) {
       final nx = baseOffsets[i].x * cos(rad) - baseOffsets[i].y * sin(rad);
       final ny = baseOffsets[i].x * sin(rad) + baseOffsets[i].y * cos(rad);
-      drops.add(_BallDrop(colors[i], nx, ny));
+      drops.add(_BallDrop(i, colors[i], nx, ny));
     }
 
     var minGy = request.floorY + 1000.0;
@@ -2589,7 +2934,7 @@ class _CpuMoveComputer {
       final finalPx =
           Vector2(x + drop.nx, minGy + CPUAgent._hardDropLockYOffset + drop.ny);
       var start = _pixelToHex(finalPx);
-      if (initialStartHexes.contains(start)) {
+      if (initialStartHexes.contains(start) || sim.isOccupied(start)) {
         shapeCollapsed = true;
       }
       initialStartHexes.add(start);
@@ -2599,6 +2944,9 @@ class _CpuMoveComputer {
       final finalHex = sim.dropBall(start, localOffset, color: drop.color);
       sim.board[finalHex] = drop.color;
       newBalls[finalHex] = drop.color;
+      if (drop.index >= 0 && drop.index < orderedTargetHexes.length) {
+        orderedTargetHexes[drop.index] = finalHex;
+      }
     }
 
     var wazaCompleted = false;
@@ -2657,6 +3005,8 @@ class _CpuMoveComputer {
       wazaCompleted: wazaCompleted,
       highestWazaMult: highestWazaMult,
       shapeCollapsed: shapeCollapsed,
+      orderedTargetHexes:
+          orderedTargetHexes.whereType<HexCoordinate>().toList(),
     );
   }
 
@@ -2696,8 +3046,9 @@ List<Vector2> _pieceBaseOffsets() {
 }
 
 class _BallDrop {
+  final int index;
   final BallColor color;
   final double nx;
   final double ny;
-  _BallDrop(this.color, this.nx, this.ny);
+  _BallDrop(this.index, this.color, this.nx, this.ny);
 }
