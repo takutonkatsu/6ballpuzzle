@@ -6,6 +6,9 @@ import 'network/server_time_manager.dart';
 enum MaintenanceMode {
   ranked,
   endless,
+  friend,
+  cpu,
+  arena,
 }
 
 class MaintenanceNotice {
@@ -38,8 +41,13 @@ class MaintenanceNotice {
       return disabled;
     }
     final data = Map<dynamic, dynamic>.from(raw);
-    final enabled = _boolValue(data['enabled']);
+    final enabled =
+        _boolValue(data['enabled']) || _boolValue(data['matchmakingDisabled']);
     if (!enabled) {
+      return disabled;
+    }
+    final startsAt = _dateTimeValue(data['startsAt']);
+    if (startsAt != null && DateTime.now().isBefore(startsAt)) {
       return disabled;
     }
     return MaintenanceNotice(
@@ -136,6 +144,10 @@ class AppMaintenanceManager {
               message: 'エンドレスランキングを集計しています。しばらくお待ちください。',
             );
           }
+        case MaintenanceMode.friend:
+        case MaintenanceMode.cpu:
+        case MaintenanceMode.arena:
+          break;
       }
     } catch (_) {
       return MaintenanceNotice.disabled;
@@ -154,9 +166,13 @@ class AppMaintenanceManager {
       return MaintenanceNotice.fromMap(
         snapshot.value,
         defaultTitle: 'メンテナンス中',
-        defaultMessage: mode == MaintenanceMode.ranked
-            ? '現在ランク戦はメンテナンス中です。完了までしばらくお待ちください。'
-            : '現在エンドレスはメンテナンス中です。完了までしばらくお待ちください。',
+        defaultMessage: switch (mode) {
+          MaintenanceMode.ranked => '現在ランク戦はメンテナンス中です。完了までしばらくお待ちください。',
+          MaintenanceMode.endless => '現在エンドレスはメンテナンス中です。完了までしばらくお待ちください。',
+          MaintenanceMode.friend => '現在フレンド対戦はメンテナンス中です。完了までしばらくお待ちください。',
+          MaintenanceMode.cpu => '現在コンピュータ対戦はメンテナンス中です。完了までしばらくお待ちください。',
+          MaintenanceMode.arena => '現在アリーナはメンテナンス中です。完了までしばらくお待ちください。',
+        },
       );
     } catch (_) {
       return MaintenanceNotice.disabled;

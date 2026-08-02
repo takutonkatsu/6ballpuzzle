@@ -3449,6 +3449,13 @@ class _HomeScreenState extends State<HomeScreen>
     bool isCpuMode, {
     CPUDifficulty cpuDifficulty = CPUDifficulty.hard,
   }) async {
+    final available = await _ensureModeAvailable(
+      context,
+      isCpuMode ? MaintenanceMode.cpu : MaintenanceMode.endless,
+    );
+    if (!available || !mounted || !context.mounted) {
+      return;
+    }
     final debtKind = isCpuMode
         ? InterstitialDebtKind.computer
         : InterstitialDebtKind.endless;
@@ -4659,6 +4666,14 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
 
+    final available = await _ensureModeAvailable(
+      context,
+      MaintenanceMode.arena,
+    );
+    if (!available || !mounted || !context.mounted) {
+      return;
+    }
+
     setState(() {
       _isBusy = true;
     });
@@ -4933,6 +4948,13 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _createRoom() async {
+    final available = await _ensureModeAvailable(
+      context,
+      MaintenanceMode.friend,
+    );
+    if (!available || !mounted) {
+      return;
+    }
     final hasAllowance = await _ensureFriendMatchAllowance();
     if (!mounted || !hasAllowance) {
       return;
@@ -4988,6 +5010,13 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _joinRoom() async {
+    final available = await _ensureModeAvailable(
+      context,
+      MaintenanceMode.friend,
+    );
+    if (!available || !mounted) {
+      return;
+    }
     final hasAllowance = await _ensureFriendMatchAllowance();
     if (!mounted || !hasAllowance) {
       return;
@@ -5143,9 +5172,10 @@ class _HomeScreenState extends State<HomeScreen>
     if (_isBusy) {
       return;
     }
-    final available = isArenaMode
-        ? true
-        : await _ensureModeAvailable(context, MaintenanceMode.ranked);
+    final available = await _ensureModeAvailable(
+      context,
+      isArenaMode ? MaintenanceMode.arena : MaintenanceMode.ranked,
+    );
     if (!available || !mounted || !context.mounted) {
       return;
     }

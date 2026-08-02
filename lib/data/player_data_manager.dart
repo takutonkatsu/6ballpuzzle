@@ -491,11 +491,7 @@ class PlayerDataManager {
 
     var shouldSaveProfile = false;
     var shouldSaveStats = false;
-    _playerName = prefs.getString(_playerNameKey) ?? 'プレイヤー';
-    if (_playerName.trim().isEmpty) {
-      _playerName = 'プレイヤー';
-      shouldSaveProfile = true;
-    }
+    _playerName = prefs.getString(_playerNameKey) ?? '';
     final savedPlayerId = prefs.getString(_playerIdKey) ?? '';
     if (savedPlayerId.trim().isEmpty || savedPlayerId.length > 10) {
       _playerId = _generatePublicPlayerId();
@@ -1265,6 +1261,7 @@ class PlayerDataManager {
     int? score,
     int? ratingAfter,
     int? ratingDelta,
+    bool isPvp = false,
   }) async {
     await load();
     _ensureTodayStatsDate(_todayKey());
@@ -1323,6 +1320,7 @@ class PlayerDataManager {
       maxChain: maxChain,
       score: score,
       ratingDelta: ratingDelta,
+      isPvp: isPvp,
     ));
     if (ratingAfter != null) {
       _currentRating = ratingAfter;
@@ -1413,6 +1411,7 @@ class PlayerDataManager {
     required int maxChain,
     int? score,
     int? ratingDelta,
+    bool isPvp = false,
   }) async {
     try {
       final uid = await AuthManager.instance.ensureSignedIn();
@@ -1421,6 +1420,9 @@ class PlayerDataManager {
       }
       final date = _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate;
       final safeMode = _sanitizeDatabaseKey(mode);
+      final statsMode = safeMode == 'SOLO' ? 'ENDLESS' : safeMode;
+      final isRankedPvp = mode == 'RANKED' && isPvp;
+      final isFriendPvp = mode == 'FRIEND';
       final updates = <String, Object?>{
         'date': date,
         'updatedAt': ServerValue.timestamp,
@@ -1434,26 +1436,26 @@ class PlayerDataManager {
         'totals/clearedBalls': ServerValue.increment(max(0, clearedBalls)),
         'totals/normalClearedBalls':
             ServerValue.increment(max(0, normalClearedBalls)),
-        'modePlayCounts/$safeMode': ServerValue.increment(1),
+        'modePlayCounts/$statsMode': ServerValue.increment(1),
       };
+      if (isRankedPvp) {
+        updates['modePlayCounts/RANKED_PVP'] = ServerValue.increment(1);
+      }
+      if (isFriendPvp || isRankedPvp) {
+        updates['modePlayCounts/VERSUS'] = ServerValue.increment(1);
+      }
       if (mode == 'RANKED') {
         updates['ranked/matches'] = ServerValue.increment(1);
         updates['ranked/wins'] = ServerValue.increment(isWin ? 1 : 0);
         updates['ranked/losses'] = ServerValue.increment(isWin ? 0 : 1);
         updates['ranked/ratingDelta'] = ServerValue.increment(ratingDelta ?? 0);
       }
-      if (mode == 'SOLO' && score != null) {
-        updates['endless/playCount'] = ServerValue.increment(1);
-        updates['endless/scoreTotal'] =
-            ServerValue.increment(score.clamp(0, maxEndlessScore).toInt());
-      }
-      updates['chains/totalMaxChain'] = ServerValue.increment(max(0, maxChain));
       for (final entry in wazaCounts.entries) {
         updates['formationCounts/${_sanitizeDatabaseKey(entry.key)}'] =
             ServerValue.increment(max(0, entry.value));
       }
       await AppFirebaseDatabase.ref()
-          .child('dailyGlobalStats/$date')
+          .child('adminStats/dailyRawStats/$date')
           .update(updates);
     } catch (_) {
       // 全体統計の加算失敗でゲーム結果保存を止めない。
@@ -1737,27 +1739,7 @@ class PlayerDataManager {
       }
     }
 
-    var lookupSynced = false;
     var recordSynced = false;
-
-    await runSyncStep(() async {
-      if (nameChanged &&
-          previousName.trim().isNotEmpty &&
-          previousLookupKey != nextLookupKey) {
-        await database
-            .child('playerNameLookup/$previousLookupKey/$uid')
-            .remove();
-      }
-      await database.child('playerNameLookup/$nextLookupKey/$uid').set({
-        'uid': uid,
-        'publicId': _playerId,
-        'displayName': displayPlayerName,
-        'currentRating': _currentRating,
-        'totalMatches': _totalMatches,
-        'updatedAt': ServerValue.timestamp,
-      });
-      lookupSynced = true;
-    });
 
     await runSyncStep(() async {
       final recordPayload = await _recordSummaryPayloadForDatabase(
@@ -1771,12 +1753,22 @@ class PlayerDataManager {
         database
             .child('publicProfiles/$uid')
             .set(_publicProfilePayload(recordPayload)),
+        if (nameChanged &&
+            previousName.trim().isNotEmpty &&
+            previousLookupKey != nextLookupKey)
+          database.child('playerNameLookup/$previousLookupKey/$uid').remove(),
+        database.child('playerNameLookup/$nextLookupKey/$uid').set({
+          'uid': uid,
+          'publicId': _playerId,
+          'displayName': displayPlayerName,
+          'updatedAt': ServerValue.timestamp,
+        }),
       ]);
       await _syncGlobalDailyLogin(database: database, uid: uid);
       recordSynced = true;
     });
 
-    if (lookupSynced && recordSynced) {
+    if (recordSynced) {
       await prefs.setString(_recordSummaryLastHashKey, hash);
       await prefs.setInt(_recordSummaryLastSyncAtKey, now);
       await prefs.setString(_recordSummaryLastNameKey, displayPlayerName);
@@ -1785,10 +1777,6 @@ class PlayerDataManager {
         _recordSummarySchemaVersion,
       );
       return;
-    }
-
-    if (lookupSynced) {
-      await prefs.setString(_recordSummaryLastNameKey, displayPlayerName);
     }
 
     if (rethrowErrors && syncError != null) {
@@ -1804,6 +1792,14 @@ class PlayerDataManager {
 
   void _syncRecordSummaryInBackground({bool force = false}) {
     unawaited(_syncRecordSummarySafely(force: force));
+  }
+
+  String _nameLookupKey(String name) {
+    final normalized = name.trim().toLowerCase();
+    final key = normalized
+        .replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_');
+    return key.isEmpty ? 'player' : key;
   }
 
   Future<Map<String, Object?>> _recordSummaryPayloadForDatabase({
@@ -1846,12 +1842,10 @@ class PlayerDataManager {
     final endless =
         Map<String, Object?>.from((summary['endless'] as Map?) ?? const {});
     final payload = <String, Object?>{
-      'schemaVersion': summary['schemaVersion'],
       'uid': summary['uid'],
       'publicId': summary['publicId'],
       'displayName': summary['displayName'],
       'updatedAt': summary['updatedAt'],
-      'updatedAtText': summary['updatedAtText'],
       'overall': {
         'totalWins': overall['totalWins'],
         'totalClearedBalls': overall['totalClearedBalls'],
@@ -1869,6 +1863,7 @@ class PlayerDataManager {
       'ranked': {
         'currentRating': ranked['currentRating'],
         'highestRating': ranked['highestRating'],
+        'maxWinStreak': ranked['maxWinStreak'],
         'bestRankedRank': ranked['bestRankedRank'],
       },
       'endless': {
@@ -1899,7 +1894,7 @@ class PlayerDataManager {
     required String uid,
   }) async {
     final date = _todayStatsDate.isEmpty ? _todayKey() : _todayStatsDate;
-    await database.child('dailyGlobalStats/$date').update({
+    await database.child('adminStats/dailyRawStats/$date').update({
       'date': date,
       'updatedAt': ServerValue.timestamp,
       'activePlayers/$uid/uid': uid,
@@ -1933,7 +1928,7 @@ class PlayerDataManager {
         if (exp > 0) 'economy/expEarned': ServerValue.increment(exp),
       };
       await AppFirebaseDatabase.ref()
-          .child('dailyGlobalStats/$date')
+          .child('adminStats/dailyRawStats/$date')
           .update(updates);
     } catch (_) {
       // 日別経済統計の加算失敗でプレイヤーの報酬処理は止めない。
@@ -2403,14 +2398,11 @@ class PlayerDataManager {
         'exp': _exp,
         'currentLevelExp': currentLevelExp,
         'nextLevelRequiredExp': nextLevelRequiredExp,
-        'gachaTickets': _gachaTickets,
-        'cyberScrap': _cyberScrap,
         'adsRemoved': AppSettings.instance.adsRemoved.value,
       },
       'collection': {
         'ownedItemCount': ownedItems.length,
         'ownedItems': ownedItems,
-        'ownedItemIds': _ownedItems.map((item) => item.id).toList(),
         'ownedStampIds': _ownedItems
             .where((item) => item.type == ItemType.stamp)
             .map((item) => item.id)
@@ -2449,11 +2441,6 @@ class PlayerDataManager {
         'currentWinStreak': _rankedCurrentWinStreak,
         'maxWinStreak': _rankedMaxWinStreak,
         'bestRankedRank': _bestRankedRank,
-      },
-      'arena': {
-        'maxWins': _maxArenaWins,
-        'challengeCount': _arenaChallengeCount,
-        'perfectClearCount': _arenaPerfectClearCount,
       },
       'endless': {
         'playCount': _modePlayCounts['SOLO'] ?? 0,
@@ -2534,14 +2521,6 @@ class PlayerDataManager {
     return '${parsed.year.toString().padLeft(4, '0')}/'
         '${parsed.month.toString().padLeft(2, '0')}/'
         '${parsed.day.toString().padLeft(2, '0')}';
-  }
-
-  String _nameLookupKey(String name) {
-    final normalized = name.trim().toLowerCase();
-    final key = normalized
-        .replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_')
-        .replaceAll(RegExp(r'\s+'), '_');
-    return key.isEmpty ? 'player' : key;
   }
 
   Future<void> _storePendingLevelUpRewardLog({

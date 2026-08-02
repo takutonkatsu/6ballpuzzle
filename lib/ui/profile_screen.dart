@@ -67,13 +67,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     await _playerData.load();
-    RankingSummary? rankingSummary;
-    try {
-      rankingSummary = await _rankingManager.fetchMySummary(
-        forceRefresh: true,
-      );
-    } catch (_) {
-      rankingSummary = null;
+    var currentRankLabel =
+        _rankingManager.cachedMySummary()?.ratingRankLabel ?? '未取得';
+    if (_playerData.currentRating <= MultiplayerManager.initialRating) {
+      currentRankLabel = '圏外';
+    } else if (currentRankLabel == '未取得') {
+      try {
+        currentRankLabel = await _rankingManager.fetchRatingRankLabelForPlayer(
+          uid: _multiplayerManager.myUid ?? '',
+          publicId: _playerData.playerId,
+        );
+      } catch (_) {
+        currentRankLabel = '未取得';
+      }
     }
     if (!mounted) {
       return;
@@ -81,7 +87,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() {
       _profile = _ProfileViewData.fromLocal(
         _playerData,
-        currentRankLabel: rankingSummary?.ratingRankLabel ?? '未取得',
+        currentRankLabel: currentRankLabel,
       );
       _loading = false;
     });
@@ -137,10 +143,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       uid: uid,
       publicId: publicId,
     );
-    final liveUserData = await _fetchLiveUserData(uid);
     profile = profile.withCurrentProfileFields(
       rankingEntry: currentEntryFromRanking ?? currentEntry,
-      liveUserData: liveUserData,
     );
     final seasonBadges = await _fetchRemoteSeasonRankBadges(profile);
     if (seasonBadges.isNotEmpty) {
@@ -164,20 +168,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         uid: uid,
         publicId: publicId,
       );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<Map<dynamic, dynamic>?> _fetchLiveUserData(String uid) async {
-    if (uid.isEmpty) {
-      return null;
-    }
-    try {
-      final snapshot =
-          await AppFirebaseDatabase.ref().child('users/$uid').get();
-      final raw = snapshot.value;
-      return raw is Map ? Map<dynamic, dynamic>.from(raw) : null;
     } catch (_) {
       return null;
     }
@@ -887,8 +877,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _buildRecordGrid(
           [
             _MetricData(
-              label: 'バトル勝利数',
-              value: _formatNumber(profile.totalWins),
+              label: '最大連勝数',
+              value: _formatNumber(profile.maxWinStreak),
               color: Colors.white,
             ),
             _MetricData(
@@ -1487,6 +1477,7 @@ class _ProfileViewData {
     required this.currentRankLabel,
     required this.totalClearedBalls,
     required this.highestRating,
+    required this.maxWinStreak,
     required this.bestRankedRank,
     required this.highestEndlessScore,
     required this.wazaCounts,
@@ -1505,6 +1496,7 @@ class _ProfileViewData {
   final String currentRankLabel;
   final int totalClearedBalls;
   final int highestRating;
+  final int maxWinStreak;
   final int bestRankedRank;
   final int highestEndlessScore;
   final Map<String, int> wazaCounts;
@@ -1524,6 +1516,7 @@ class _ProfileViewData {
       currentRankLabel: currentRankLabel,
       totalClearedBalls: totalClearedBalls,
       highestRating: highestRating,
+      maxWinStreak: maxWinStreak,
       bestRankedRank: bestRankedRank,
       highestEndlessScore: highestEndlessScore,
       wazaCounts: wazaCounts,
@@ -1532,34 +1525,28 @@ class _ProfileViewData {
 
   _ProfileViewData withCurrentProfileFields({
     RankingEntry? rankingEntry,
-    Map<dynamic, dynamic>? liveUserData,
   }) {
-    final liveName = _stringValue(liveUserData?['name']);
     final rankingName = rankingEntry?.displayName.trim();
-    final livePublicId = _stringValue(liveUserData?['publicId']);
-    final liveIconId = _stringValue(liveUserData?['playerIconId']);
-    final liveFrameId = _stringValue(liveUserData?['playerIconFrameId']);
-    final liveBadgeIds = _stringListValue(liveUserData?['badgeIds']);
-    final liveRating = _intValue(liveUserData?['rating']);
     return _ProfileViewData(
-      displayName: liveName ??
+      displayName:
           (rankingName == null || rankingName.isEmpty ? null : rankingName) ??
-          displayName,
-      publicId: livePublicId ?? rankingEntry?.publicId ?? publicId,
-      playerIconId: liveIconId ?? playerIconId,
-      playerIconFrameId: liveFrameId ?? playerIconFrameId,
-      equippedBadgeIds: liveBadgeIds.isEmpty ? equippedBadgeIds : liveBadgeIds,
+              displayName,
+      publicId: rankingEntry?.publicId ?? publicId,
+      playerIconId: playerIconId,
+      playerIconFrameId: playerIconFrameId,
+      equippedBadgeIds: equippedBadgeIds,
       unlockedBadgeIds: unlockedBadgeIds,
       seasonRankBadges: seasonRankBadges,
       totalWins: totalWins,
       level: level,
-      currentRating: liveRating ?? rankingEntry?.rating ?? currentRating,
+      currentRating: rankingEntry?.rating ?? currentRating,
       currentRankLabel: currentRankLabel,
       totalClearedBalls: totalClearedBalls,
       highestRating: max(
         highestRating,
-        liveRating ?? rankingEntry?.rating ?? currentRating,
+        rankingEntry?.rating ?? currentRating,
       ),
+      maxWinStreak: maxWinStreak,
       bestRankedRank: bestRankedRank,
       highestEndlessScore: max(
         highestEndlessScore,
@@ -1587,6 +1574,7 @@ class _ProfileViewData {
       currentRankLabel: currentRankLabel,
       totalClearedBalls: playerData.totalClearedBalls,
       highestRating: playerData.highestRating,
+      maxWinStreak: playerData.rankedMaxWinStreak,
       bestRankedRank: playerData.bestRankedRank,
       highestEndlessScore: playerData.highestEndlessScore,
       wazaCounts: playerData.wazaCounts,
@@ -1626,6 +1614,7 @@ class _ProfileViewData {
         _intValue(ranked['highestRating']) ?? MultiplayerManager.initialRating,
         fallbackEntry?.rating ?? MultiplayerManager.initialRating,
       ),
+      maxWinStreak: _intValue(ranked['maxWinStreak']) ?? 0,
       bestRankedRank: _intValue(ranked['bestRankedRank']) ?? 0,
       highestEndlessScore: max(
         _intValue(endless['highestScore']) ?? 0,
@@ -1653,6 +1642,7 @@ class _ProfileViewData {
       currentRankLabel: currentRankLabel,
       totalClearedBalls: 0,
       highestRating: entry?.rating ?? MultiplayerManager.initialRating,
+      maxWinStreak: 0,
       bestRankedRank: 0,
       highestEndlessScore: entry?.highestEndlessScore ?? 0,
       wazaCounts: const {},

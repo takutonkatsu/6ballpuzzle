@@ -10,65 +10,94 @@
     },
     "matchmaking": {
       ".read": "auth != null",
-      ".indexOn": ["rating", "timestamp", "joinedAt"],
+      ".indexOn": ["rating", "timestamp", "assignedAt", "joinedAt", "createdAt"],
       "$uid": {
-        ".write": "auth != null && (auth.uid === $uid || (data.exists() && (data.child('status').val() === 'waiting' || data.child('hostUid').val() === auth.uid) && (newData.child('hostUid').val() === auth.uid || !newData.child('hostUid').exists())))"
+        ".write": "auth != null && !((root.child('appConfig/maintenance/modes/ranked/enabled').val() === true || root.child('appConfig/maintenance/modes/ranked/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/ranked/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/ranked/startsAt').val())) && (auth.uid === $uid || (data.exists() && (data.child('status').val() === 'waiting' || data.child('hostUid').val() === auth.uid) && (newData.child('hostUid').val() === auth.uid || !newData.child('hostUid').exists())))"
       }
     },
     "arena_matchmaking": {
       ".read": "auth != null",
-      ".indexOn": ["wins", "timestamp", "joinedAt"],
+      ".indexOn": ["wins", "timestamp", "assignedAt", "joinedAt", "createdAt"],
       "$uid": {
-        ".write": "auth != null && (auth.uid === $uid || (data.exists() && (data.child('status').val() === 'waiting' || data.child('hostUid').val() === auth.uid) && (newData.child('hostUid').val() === auth.uid || !newData.child('hostUid').exists())))"
+        ".write": "auth != null && !((root.child('appConfig/maintenance/modes/arena/enabled').val() === true || root.child('appConfig/maintenance/modes/arena/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/arena/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/arena/startsAt').val())) && (auth.uid === $uid || (data.exists() && (data.child('status').val() === 'waiting' || data.child('hostUid').val() === auth.uid) && (newData.child('hostUid').val() === auth.uid || !newData.child('hostUid').exists())))"
       }
     },
     "rooms": {
       ".read": "auth != null",
+      ".indexOn": ["updatedAt", "resultKnownAt", "startedAt", "createdAt", "matchmaking/timestamp"],
       "$roomId": {
-        ".write": "auth != null && ((!data.exists() && (newData.child('matchmaking/hostUid').val() === auth.uid || newData.child('players/host/uid').val() === auth.uid)) || (data.exists() && (data.child('matchmaking/hostUid').val() === auth.uid || data.child('matchmaking/guestUid').val() === auth.uid || data.child('players/host/uid').val() === auth.uid || data.child('players/guest/uid').val() === auth.uid || (data.child('status').val() === 'waiting' && !data.child('players/guest').exists() && newData.child('players/guest/uid').val() === auth.uid))))"
+        ".write": "auth != null && ((!data.exists() && (newData.child('matchmaking/hostUid').val() === auth.uid || newData.child('players/host/uid').val() === auth.uid) && !(newData.child('mode').val() === 'ranked' && (root.child('appConfig/maintenance/modes/ranked/enabled').val() === true || root.child('appConfig/maintenance/modes/ranked/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/ranked/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/ranked/startsAt').val())) && !(newData.child('mode').val() === 'friend' && (root.child('appConfig/maintenance/modes/friend/enabled').val() === true || root.child('appConfig/maintenance/modes/friend/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/friend/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/friend/startsAt').val())) && !(newData.child('mode').val() === 'arena' && (root.child('appConfig/maintenance/modes/arena/enabled').val() === true || root.child('appConfig/maintenance/modes/arena/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/arena/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/arena/startsAt').val()))) || (data.exists() && (data.child('matchmaking/hostUid').val() === auth.uid || data.child('matchmaking/guestUid').val() === auth.uid || data.child('players/host/uid').val() === auth.uid || data.child('players/guest/uid').val() === auth.uid || (data.child('status').val() === 'waiting' && !data.child('players/guest').exists() && newData.child('players/guest/uid').val() === auth.uid)) && !(data.child('status').val() === 'waiting' && !data.child('players/guest').exists() && newData.child('players/guest/uid').val() === auth.uid && data.child('mode').val() === 'friend' && (root.child('appConfig/maintenance/modes/friend/enabled').val() === true || root.child('appConfig/maintenance/modes/friend/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/friend/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/friend/startsAt').val())) && !(data.child('status').val() === 'waiting' && !data.child('players/guest').exists() && newData.child('players/guest/uid').val() === auth.uid && data.child('mode').val() === 'ranked' && (root.child('appConfig/maintenance/modes/ranked/enabled').val() === true || root.child('appConfig/maintenance/modes/ranked/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/ranked/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/ranked/startsAt').val())) && !(data.child('status').val() === 'waiting' && !data.child('players/guest').exists() && newData.child('players/guest/uid').val() === auth.uid && data.child('mode').val() === 'arena' && (root.child('appConfig/maintenance/modes/arena/enabled').val() === true || root.child('appConfig/maintenance/modes/arena/matchmakingDisabled').val() === true) && (!root.child('appConfig/maintenance/modes/arena/startsAt').exists() || now >= root.child('appConfig/maintenance/modes/arena/startsAt').val()))))"
       }
     },
     "rankings": {
       "global": {
-        ".read": "auth != null",
-        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"],
+        ".read": false,
         "$uid": {
-          ".write": "auth != null && (auth.uid === $uid || (!newData.exists() && data.child('publicId').exists() && data.child('publicId').val() === root.child('rankings/global/' + auth.uid + '/publicId').val())) && (!root.child('adminRatingLocks/' + $uid + '/rating').exists() || !newData.child('rating').exists() || newData.child('rating').val() === root.child('adminRatingLocks/' + $uid + '/rating').val())"
+          ".write": "auth != null && auth.uid === $uid && (!root.child('adminRatingLocks/' + $uid + '/rating').exists() || !newData.child('rating').exists() || newData.child('rating').val() === root.child('adminRatingLocks/' + $uid + '/rating').val())"
+        }
+      }
+    },
+    "endlessAllTimeRankings": {
+      ".read": "auth != null",
+      ".indexOn": ["highestEndlessScore", "updatedAt"],
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "dailyWinRankings": {
+      "$date": {
+        ".read": "auth != null",
+        ".indexOn": ["dailyWins", "updatedAt"],
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid"
         }
       }
     },
     "rankedSeasons": {
       ".read": "auth != null",
       "currentSeasonId": {
-        ".write": "auth != null"
+        ".write": false
+      },
+      "archivedSeasonIds": {
+        ".write": false
       },
       "seasons": {
         "$seasonId": {
           "rankings": {
             ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"],
             "$uid": {
-              ".write": "auth != null && auth.uid === $uid && (!root.child('adminRatingLocks/' + $uid + '/rating').exists() || !newData.child('rating').exists() || newData.child('rating').val() === root.child('adminRatingLocks/' + $uid + '/rating').val())"
+              ".write": "auth != null && auth.uid === $uid && $seasonId === root.child('rankedSeasons/currentSeasonId').val() && (!root.child('adminRatingLocks/' + $uid + '/rating').exists() || !newData.child('rating').exists() || newData.child('rating').val() === root.child('adminRatingLocks/' + $uid + '/rating').val())"
             }
           },
           "finalTop100": {
-            ".write": "auth != null"
+            ".write": false
           },
           "finalTop100SchemaVersion": {
-            ".write": "auth != null"
+            ".write": false
           },
           "finalized": {
-            ".write": "auth != null"
+            ".write": false
           },
           "finalizedAt": {
-            ".write": "auth != null"
+            ".write": false
           }
         }
       }
     },
     "rankedSeasonBadges": {
-      ".read": "auth != null",
+      ".read": false,
+      ".write": false
+    },
+    "rankedSeasonRankBadges": {
       "$uid": {
-        ".write": "auth != null"
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "endlessSeasonRankBadges": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": false
       }
     },
     "endlessSeasons": {
@@ -100,6 +129,7 @@
       }
     },
     "serverTimePings": {
+      ".indexOn": ["current/timestamp"],
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid"
@@ -118,7 +148,12 @@
     },
     "adminStats": {
       ".read": false,
-      ".write": false
+      ".write": false,
+      "dailyRawStats": {
+        "$date": {
+          ".write": "auth != null"
+        }
+      }
     },
     "adminRatingLocks": {
       ".read": false,
@@ -132,9 +167,14 @@
         }
       }
     },
+    "adminGrantExpirations": {
+      ".read": false,
+      ".write": false,
+      ".indexOn": ["expiresAt"]
+    },
     "inviteCodes": {
       ".read": "auth != null",
-      ".indexOn": ["uid", "updatedAt"],
+      ".indexOn": ["uid", "updatedAt", "expiresAt"],
       "$code": {
         ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid && newData.child('status').val() === 'active') || (data.exists() && data.child('uid').val() === auth.uid && newData.child('uid').val() === auth.uid && newData.child('type').val() === data.child('type').val() && newData.child('status').val() === data.child('status').val() && newData.child('maxUses').val() === data.child('maxUses').val() && newData.child('usedCount').val() === data.child('usedCount').val() && newData.child('usedByUid').val() === data.child('usedByUid').val() && newData.child('expiresAt').val() === data.child('expiresAt').val() && newData.child('createdAt').val() === data.child('createdAt').val()) || (data.exists() && data.child('uid').val() !== auth.uid && data.child('status').val() === 'active' && (data.child('maxUses').val() <= 0 || data.child('usedCount').val() < data.child('maxUses').val()) && newData.child('uid').val() === data.child('uid').val() && newData.child('displayName').val() === data.child('displayName').val() && newData.child('publicId').val() === data.child('publicId').val() && newData.child('type').val() === data.child('type').val() && newData.child('maxUses').val() === data.child('maxUses').val() && newData.child('expiresAt').val() === data.child('expiresAt').val() && (newData.child('status').val() === 'active' || newData.child('status').val() === 'used') && newData.child('usedCount').val() === data.child('usedCount').val() + 1 && !data.child('usedUids').child(auth.uid).exists() && newData.child('usedUids').child(auth.uid).exists()))"
       }
@@ -172,10 +212,10 @@
       }
     },
     "playerNameLookup": {
-      ".read": "auth != null",
+      ".read": false,
       "$name": {
         "$uid": {
-          ".write": "auth != null && auth.uid === $uid"
+          ".write": "auth != null && auth.uid === $uid && newData.child('uid').val() === auth.uid && !newData.child('currentRating').exists() && !newData.child('totalMatches').exists()"
         }
       }
     },

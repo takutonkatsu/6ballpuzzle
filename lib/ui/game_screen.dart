@@ -146,7 +146,8 @@ class _GameScreenState extends State<GameScreen>
   static const Duration _resultBoardSettleDelay = Duration(milliseconds: 650);
   static const Duration _resultOpponentDisplayGrace =
       Duration(milliseconds: 450);
-  static const Duration _rankedOfflineForfeitGrace = Duration(seconds: 8);
+  static const Duration _rankedOfflineForfeitGrace = Duration(seconds: 10);
+  static const Duration _opponentDisconnectForfeitGrace = Duration(seconds: 2);
   static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
   static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
   static const String _readySfx = 'メニューを開く3_ READY02.mp3';
@@ -167,10 +168,10 @@ class _GameScreenState extends State<GameScreen>
   String? _onlineResultMessage;
   bool _onlineResultWasForfeit = false;
   bool _onlineResultWasOfflineForfeit = false;
+  bool _activeResultWasForfeit = false;
   bool _isWaitingForRematch = false;
   bool _opponentRequestedRematch = false;
   bool _opponentUnavailableForRematch = false;
-  bool _isDisconnectDialogVisible = false;
   bool _isReturningToHome = false;
   bool _isCheckingHomeReturnConnection = false;
   bool? _cpuBattlePlayerWon;
@@ -226,7 +227,10 @@ class _GameScreenState extends State<GameScreen>
   StreamSubscription<bool>? _realtimeConnectionSubscription;
   bool _realtimeConnected = true;
   bool _rankedOfflineForfeitStarted = false;
+  bool _pendingOfflineForfeitCommit = false;
   Timer? _rankedOfflineForfeitTimer;
+  Timer? _opponentDisconnectForfeitTimer;
+  bool _opponentRealtimeDisconnected = false;
   DateTime? _rankedOfflineSince;
   DateTime? _lastRealtimeOfflineMessageAt;
   _TutorialPhase? _tutorialPhase;
@@ -238,6 +242,8 @@ class _GameScreenState extends State<GameScreen>
   bool _tutorialOpponentAttackQueued = false;
   bool _tutorialOpponentDefeatQueued = false;
   DateTime? _ignoreEmptyOpponentBoardUntil;
+  final Set<int> _processedOpponentTerminalPieceIds = <int>{};
+  final Map<int, int> _lastOpponentEventSeqByPieceId = <int, int>{};
   bool _resultAudioStarted = false;
   DateTime? _resultAudioStartedAt;
   final List<Timer> _pendingAttackTimers = [];
@@ -461,7 +467,8 @@ class _GameScreenState extends State<GameScreen>
       _multiplayerManager.onOpponentStampReceived =
           _handleOpponentStampReceived;
       _multiplayerManager.onOpponentOjamaSpawned = _handleOpponentOjamaSpawned;
-      _multiplayerManager.onOpponentGameOver = _handleOpponentGameOver;
+      _multiplayerManager.onOpponentGameOver =
+          _handleOpponentGameOverWithFinalBoard;
       _multiplayerManager.onOpponentDisconnected = _handleOpponentDisconnected;
       _multiplayerManager.onRematchStarted = _handleRematchStarted;
       _startRealtimeConnectionWatch();
@@ -514,12 +521,23 @@ class _GameScreenState extends State<GameScreen>
       if (_isOnlineMode && _onlineGameStarted) {
         _sendServerAction(
           () => _multiplayerManager.sendBoardState(boardData),
-          forfeitRankedOnOffline: widget.isRankedMode,
+          forfeitRankedOnOffline: widget.isRankedMode || _isOnlineMode,
         );
       }
     };
-    _playerGame.onActivePieceChanged =
-        (action, x, y, rotation, colors, dropSeed, lockedCells) {
+    _cpuGame?.onRemoteBoardCorrectionApplied = (reason) {
+      if (_isOnlineMode && _onlineGameStarted) {
+        _multiplayerManager.reportRealtimeMetric(
+          'opponent_board_correction',
+          payload: {
+            'reason': reason,
+            'mode': widget.isRankedMode ? 'ranked' : 'friend',
+          },
+        );
+      }
+    };
+    _playerGame.onActivePieceChanged = (action, x, y, rotation, colors,
+        dropSeed, pieceId, eventSeq, lockedCells) {
       if (_isOnlineMode && _onlineGameStarted) {
         _sendServerAction(
           () => _multiplayerManager.sendActivePiece(
@@ -529,6 +547,8 @@ class _GameScreenState extends State<GameScreen>
             colors,
             action,
             dropSeed,
+            pieceId,
+            eventSeq,
             _playerGame.nextPieceColors.value
                 .map((color) => color.index)
                 .toList(),
@@ -540,7 +560,7 @@ class _GameScreenState extends State<GameScreen>
             _playerGame.ballSkinId,
             lockedCells,
           ),
-          forfeitRankedOnOffline: widget.isRankedMode,
+          forfeitRankedOnOffline: widget.isRankedMode || _isOnlineMode,
         );
       }
     };
@@ -548,7 +568,7 @@ class _GameScreenState extends State<GameScreen>
       if (_isOnlineMode && _onlineGameStarted) {
         _sendServerAction(
           () => _multiplayerManager.sendOjamaSpawn(ojamaData, dropSeed),
-          forfeitRankedOnOffline: widget.isRankedMode,
+          forfeitRankedOnOffline: widget.isRankedMode || _isOnlineMode,
         );
       }
     };
@@ -567,8 +587,10 @@ class _GameScreenState extends State<GameScreen>
           () {
             _markRankedResultKnownIfNeeded(isWin: false);
             _sendServerAction(
-              _multiplayerManager.declareGameOver,
-              forfeitRankedOnOffline: widget.isRankedMode,
+              () => _multiplayerManager.declareGameOver(
+                finalBoard: _playerGame.exportBoardState(),
+              ),
+              forfeitRankedOnOffline: widget.isRankedMode || _isOnlineMode,
             );
             return _presentBattleResult(
               playerWon: false,
@@ -869,6 +891,7 @@ class _GameScreenState extends State<GameScreen>
     _tutorialTimer?.cancel();
     _realtimeConnectionSubscription?.cancel();
     _rankedOfflineForfeitTimer?.cancel();
+    _opponentDisconnectForfeitTimer?.cancel();
     _resultTriplePromptController.dispose();
     _shutdownBattleGames();
     unawaited(SfxPlayer.resetTransientAudio());
@@ -4794,6 +4817,10 @@ class _GameScreenState extends State<GameScreen>
       }
       final opponentStatus =
           room.players[_multiplayerManager.opponentRoleId]?.status;
+      if (opponentStatus != 'left' && !_opponentRealtimeDisconnected) {
+        _opponentDisconnectForfeitTimer?.cancel();
+        _opponentDisconnectForfeitTimer = null;
+      }
       final myStatus = room.players[_multiplayerManager.myRoleId]?.status;
       _opponentRequestedRematch = _onlineResultMessage != null &&
           opponentStatus == 'rematch_ready' &&
@@ -4807,6 +4834,7 @@ class _GameScreenState extends State<GameScreen>
     });
 
     if (_onlineGameStarted) {
+      _handleRoomGameOverResultIfNeeded(room);
       return;
     }
 
@@ -4826,6 +4854,52 @@ class _GameScreenState extends State<GameScreen>
       _scheduleOnlineAutoStart(room);
       return;
     }
+  }
+
+  void _handleRoomGameOverResultIfNeeded(MultiplayerRoom room) {
+    if (room.status != 'game_over' ||
+        _battleResultStarted ||
+        _resultRevealPending ||
+        _onlineResultMessage != null) {
+      return;
+    }
+
+    final myRoleId = _multiplayerManager.myRoleId;
+    if (myRoleId == null) {
+      return;
+    }
+    final opponentRoleId = _multiplayerManager.opponentRoleId;
+    final myStatus = room.players[myRoleId]?.status;
+    final opponentStatus = room.players[opponentRoleId]?.status;
+    bool? inferredWin;
+    if (myStatus == 'forfeit_win') {
+      inferredWin = true;
+    } else if (myStatus == 'dead' && opponentStatus == 'forfeit_win') {
+      inferredWin = false;
+    }
+
+    unawaited(() async {
+      final roomResult = await _multiplayerManager.loadCurrentRoomResult();
+      if (!mounted ||
+          _battleResultStarted ||
+          _resultRevealPending ||
+          _onlineResultMessage != null) {
+        return;
+      }
+      final isWin = roomResult?.isWin ?? inferredWin;
+      if (isWin == null) {
+        return;
+      }
+      final resultWasForfeit = roomResult?.isForfeit ??
+          myStatus == 'forfeit_win' || opponentStatus == 'forfeit_win';
+      await _presentRankedSafeBattleResult(
+        playerWon: isWin,
+        opponentCrossedDeathLine: isWin,
+        resultWasForfeit: resultWasForfeit,
+        resultWasOfflineForfeit:
+            !isWin && (roomResult?.reason == 'offline_forfeit'),
+      );
+    }());
   }
 
   void _scheduleOnlineAutoStart(MultiplayerRoom room) {
@@ -4888,6 +4962,21 @@ class _GameScreenState extends State<GameScreen>
         _rankedOfflineSince = null;
         _rankedOfflineForfeitTimer?.cancel();
         _rankedOfflineForfeitTimer = null;
+        if (_isOnlineMode && _onlineGameStarted && !_battleResultStarted) {
+          unawaited(
+            _multiplayerManager.markCurrentPlayerPlayingIfNeeded().catchError(
+              (_) {
+                // 復帰通知に失敗しても、次の同期送信やルーム更新で再評価される。
+              },
+            ),
+          );
+        }
+        if (_isOnlineMode && _onlineGameStarted) {
+          unawaited(_consumeQueuedIncomingOjamaAfterReconnect());
+        }
+        if (_pendingOfflineForfeitCommit) {
+          unawaited(_commitPendingOfflineForfeitAfterReconnect());
+        }
         return;
       }
       _showRealtimeOfflineMessage();
@@ -4915,11 +5004,14 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  bool get _isRankedBattleCurrentlyPlaying {
-    if (!widget.isRankedMode || widget.isArenaMode) {
+  bool get _isOfflineForfeitBattleCurrentlyPlaying {
+    if (widget.isArenaMode) {
       return false;
     }
     if (_resultRevealPending || _onlineResultMessage != null) {
+      return false;
+    }
+    if (!_isOnlineMode && !_isRankedBotMode) {
       return false;
     }
     if (widget.isCpuMode && !_isRankedBotMode) {
@@ -4932,7 +5024,8 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _forfeitRankedMatchForOfflineIfNeeded() {
-    if (_rankedOfflineForfeitStarted || !_isRankedBattleCurrentlyPlaying) {
+    if (_rankedOfflineForfeitStarted ||
+        !_isOfflineForfeitBattleCurrentlyPlaying) {
       return;
     }
     _rankedOfflineForfeitTimer?.cancel();
@@ -4940,22 +5033,71 @@ class _GameScreenState extends State<GameScreen>
     _rankedOfflineForfeitStarted = true;
     unawaited(
       () async {
+        final connected = await RealtimeConnectionGuard.currentConnected(
+              timeout: const Duration(milliseconds: 500),
+            ) ??
+            false;
+        if (!mounted) {
+          return;
+        }
+        _realtimeConnected = connected;
+        if (!connected) {
+          _pendingOfflineForfeitCommit = true;
+          _showRealtimeOfflineMessage();
+          unawaited(
+            _multiplayerManager.saveActiveSession(
+              isArenaMode: widget.isArenaMode,
+              snapshot: const {
+                'abandonReason': 'offline',
+                'resultKnown': true,
+                'isWin': false,
+              },
+            ),
+          );
+          await _presentRankedSafeBattleResult(
+            playerWon: false,
+            opponentCrossedDeathLine: false,
+            resultWasForfeit: true,
+            resultWasOfflineForfeit: true,
+          );
+          return;
+        }
+
+        final recorded = await _multiplayerManager.recordOfflineForfeitLoss();
+        if (!mounted) {
+          return;
+        }
+        if (!recorded) {
+          _rankedOfflineForfeitStarted = false;
+          _rankedOfflineSince = DateTime.now();
+          _showRealtimeOfflineMessage();
+          _scheduleRankedOfflineForfeitIfNeeded();
+          return;
+        }
+
         await _multiplayerManager.saveActiveSession(
           isArenaMode: widget.isArenaMode,
-          snapshot: const {'abandonReason': 'offline'},
+          snapshot: const {
+            'abandonReason': 'offline',
+            'resultKnown': true,
+            'isWin': false,
+          },
         );
-        await _presentRankedSafeBattleResult(
-          playerWon: false,
-          opponentCrossedDeathLine: false,
-          resultWasForfeit: true,
-          resultWasOfflineForfeit: true,
-        );
+        if (mounted) {
+          await _presentRankedSafeBattleResult(
+            playerWon: false,
+            opponentCrossedDeathLine: false,
+            resultWasForfeit: true,
+            resultWasOfflineForfeit: true,
+          );
+        }
       }(),
     );
   }
 
   void _scheduleRankedOfflineForfeitIfNeeded() {
-    if (_rankedOfflineForfeitStarted || !_isRankedBattleCurrentlyPlaying) {
+    if (_rankedOfflineForfeitStarted ||
+        !_isOfflineForfeitBattleCurrentlyPlaying) {
       return;
     }
     final offlineSince = _rankedOfflineSince ?? DateTime.now();
@@ -5925,6 +6067,32 @@ class _GameScreenState extends State<GameScreen>
     }
 
     final action = pieceData['action'] as String? ?? 'move';
+    final pieceId = _intValue(pieceData['pieceId']);
+    final eventSeq = _intValue(pieceData['eventSeq']);
+    final isTerminalAction = action == 'hard_drop' || action == 'lock';
+    if (pieceId != null &&
+        action == 'spawn' &&
+        _processedOpponentTerminalPieceIds.contains(pieceId)) {
+      return;
+    }
+    if (pieceId != null && eventSeq != null && action == 'spawn') {
+      final lastSeq = _lastOpponentEventSeqByPieceId[pieceId];
+      if (lastSeq != null && eventSeq <= lastSeq) {
+        return;
+      }
+    }
+    if (pieceId != null &&
+        isTerminalAction &&
+        _processedOpponentTerminalPieceIds.contains(pieceId)) {
+      return;
+    }
+    if (pieceId != null && eventSeq != null && action != 'spawn') {
+      final lastSeq = _lastOpponentEventSeqByPieceId[pieceId] ?? 0;
+      if (eventSeq <= lastSeq) {
+        return;
+      }
+      _lastOpponentEventSeqByPieceId[pieceId] = eventSeq;
+    }
     final rawX = (pieceData['x'] as num?)?.toDouble();
     final rawY = (pieceData['y'] as num?)?.toDouble();
     final relativeX = (pieceData['relativeX'] as num?)?.toDouble();
@@ -5994,8 +6162,15 @@ class _GameScreenState extends State<GameScreen>
 
     switch (action) {
       case 'spawn':
+        if (pieceId != null) {
+          _processedOpponentTerminalPieceIds.remove(pieceId);
+          _lastOpponentEventSeqByPieceId[pieceId] = eventSeq ?? 0;
+        }
         if (colors.length == 3) {
-          opponentGame.spawnRemotePiece(colors);
+          opponentGame.spawnRemotePieceWithId(
+            colors: colors,
+            pieceId: pieceId,
+          );
         }
         if (x != null && y != null && rotation != null) {
           opponentGame.syncRemoteActivePieceTransform(
@@ -6008,20 +6183,45 @@ class _GameScreenState extends State<GameScreen>
         break;
       case 'rotate_left':
       case 'rotate_right':
-      case 'start_left':
-      case 'stop_left':
-      case 'start_right':
-      case 'stop_right':
         if (x != null && y != null && rotation != null) {
           opponentGame.syncRemoteActivePieceTransform(
             x: x,
             y: y,
             rotation: rotation,
-            duration: action.startsWith('rotate') ? 0.08 : 0.05,
+            duration: 0.08,
+          );
+        }
+        break;
+      case 'start_left':
+      case 'stop_left':
+      case 'start_right':
+      case 'stop_right':
+      case 'contact_slide':
+        if (x != null && y != null && rotation != null) {
+          opponentGame.syncRemoteActivePieceTransform(
+            x: x,
+            y: y,
+            rotation: rotation,
+            duration: action.startsWith('stop_') ? 0.035 : 0.05,
+          );
+        }
+        break;
+      case 'move':
+        if (x != null && y != null && rotation != null) {
+          opponentGame.syncRemoteActivePieceTransform(
+            x: x,
+            y: y,
+            rotation: rotation,
+            duration: 0.07,
           );
         }
         break;
       case 'hard_drop':
+        if (pieceId != null) {
+          _processedOpponentTerminalPieceIds.add(pieceId);
+          _ignoreEmptyOpponentBoardUntil =
+              DateTime.now().add(const Duration(seconds: 2));
+        }
         unawaited(
           opponentGame.applyRemoteHardDrop(
             x: x,
@@ -6033,6 +6233,11 @@ class _GameScreenState extends State<GameScreen>
         );
         break;
       case 'lock':
+        if (pieceId != null) {
+          _processedOpponentTerminalPieceIds.add(pieceId);
+          _ignoreEmptyOpponentBoardUntil =
+              DateTime.now().add(const Duration(seconds: 2));
+        }
         unawaited(
           opponentGame.applyRemoteHardDrop(
             x: x,
@@ -6133,16 +6338,38 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _handleOpponentGameOver() {
+    _handleOpponentGameOverWithFinalBoard();
+  }
+
+  void _handleOpponentGameOverWithFinalBoard({
+    Map<String, dynamic>? finalBoard,
+    String? reason,
+  }) {
     if (_resultRevealPending || _onlineResultMessage != null) {
       return;
     }
+    if (finalBoard != null && finalBoard.isNotEmpty) {
+      _ignoreEmptyOpponentBoardUntil =
+          DateTime.now().add(const Duration(seconds: 4));
+      _cpuGame?.applyRemoteBoardState(finalBoard);
+    }
     _opponentGameOverVerificationPending = false;
+    final resultWasForfeit =
+        reason == 'offline_forfeit' || reason == 'opponent_offline_forfeit';
     unawaited(
       _presentRankedSafeBattleResult(
         playerWon: true,
         opponentCrossedDeathLine: true,
+        resultWasForfeit: resultWasForfeit,
       ),
     );
+  }
+
+  int? _intValue(Object? value) {
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse('$value');
   }
 
   Future<void> _presentRankedSafeBattleResult({
@@ -6215,6 +6442,7 @@ class _GameScreenState extends State<GameScreen>
   Future<void> _applyRankedRatingResult({
     required bool isWin,
     bool applyOpponentResult = false,
+    String? reason,
   }) async {
     if (!widget.isRankedMode || _rankedRatingApplied) {
       return;
@@ -6235,6 +6463,7 @@ class _GameScreenState extends State<GameScreen>
       final change = await _multiplayerManager.applyRankedResult(
         isWin: isWin,
         applyOpponentResult: applyOpponentResult,
+        reason: reason,
       );
       if (!mounted || change == null) {
         return;
@@ -6370,9 +6599,13 @@ class _GameScreenState extends State<GameScreen>
     _arenaMatchResult = null;
     _onlineResultWasForfeit = false;
     _onlineResultWasOfflineForfeit = false;
+    _activeResultWasForfeit = false;
     _opponentUnavailableForRematch = false;
     _autoReadyRequested = false;
     _rankedOfflineForfeitStarted = false;
+    _pendingOfflineForfeitCommit = false;
+    _opponentDisconnectForfeitTimer?.cancel();
+    _opponentDisconnectForfeitTimer = null;
     _opponentGameOverVerificationPending = false;
     _tutorialOpponentDefeatQueued = false;
     _resultRevealPending = false;
@@ -6737,12 +6970,14 @@ class _GameScreenState extends State<GameScreen>
     final opponentPlayer = _room?.players[_multiplayerManager.opponentRoleId] ??
         _multiplayerManager
             .currentRoom?.players[_multiplayerManager.opponentRoleId];
+    final opponentUid = widget.isCpuMode ? '' : opponentPlayer?.uid ?? '';
     await _playerDataManager.recordMatchResult(
       isWin: isWin,
       mode: mode,
       opponentName: opponentName,
-      opponentUid: widget.isCpuMode ? '' : opponentPlayer?.uid ?? '',
+      opponentUid: opponentUid,
       opponentPublicId: widget.isCpuMode ? '' : opponentPlayer?.publicId ?? '',
+      isPvp: opponentUid.trim().isNotEmpty,
       wazaCounts: {
         'straight': _playerWazaCounts[WazaType.straight] ?? 0,
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
@@ -6751,7 +6986,7 @@ class _GameScreenState extends State<GameScreen>
       clearedBalls: _playerGame.scoreManager.state.value.totalClearedBalls,
       normalClearedBalls: _playerNormalClearedBalls,
       maxChain: _playerGame.scoreManager.maxChainThisRun,
-      isForfeitWin: isForfeitWin && isWin,
+      isForfeitWin: isWin && (isForfeitWin || _activeResultWasForfeit),
       ratingAfter: _rankedRatingChange?.newRating,
       ratingDelta: _rankedRatingChange?.delta,
     );
@@ -6828,7 +7063,16 @@ class _GameScreenState extends State<GameScreen>
     if (_isReturningToHome || _isCheckingHomeReturnConnection) {
       return;
     }
-    if (_isOnlineMode && widget.isRankedMode && !widget.isArenaMode) {
+    final isOfflineForfeitResult =
+        _pendingOfflineForfeitCommit || _onlineResultWasOfflineForfeit;
+    if (isOfflineForfeitResult) {
+      await _returnHomeAfterOfflineForfeit();
+      return;
+    }
+    if (_isOnlineMode &&
+        widget.isRankedMode &&
+        !widget.isArenaMode &&
+        !isOfflineForfeitResult) {
       _isCheckingHomeReturnConnection = true;
       try {
         var connected = _realtimeConnected;
@@ -6863,7 +7107,16 @@ class _GameScreenState extends State<GameScreen>
     _stampCooldownTimer?.cancel();
     await _stopBattleBgm();
     if (_isOnlineMode) {
-      await _multiplayerManager.leaveRoom();
+      try {
+        await _multiplayerManager.leaveRoom().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () async {
+            await _multiplayerManager.suspendActiveSession();
+          },
+        );
+      } catch (_) {
+        await _multiplayerManager.suspendActiveSession();
+      }
       await _multiplayerManager.clearSavedSession();
     }
     await SfxPlayer.resetTransientAudio();
@@ -6885,6 +7138,49 @@ class _GameScreenState extends State<GameScreen>
       MaterialPageRoute(
         builder: (_) => HomeScreen(bootstrapData: bootstrapData),
       ),
+    );
+  }
+
+  Future<void> _returnHomeAfterOfflineForfeit() async {
+    if (!mounted || _isReturningToHome) {
+      return;
+    }
+    _isReturningToHome = true;
+    try {
+      await GameActivityPresence.instance.exit().timeout(
+            const Duration(milliseconds: 600),
+            onTimeout: () {},
+          );
+    } catch (_) {}
+    _shutdownBattleGames();
+    _myStampTimer?.cancel();
+    _opponentStampTimer?.cancel();
+    _stampCooldownTimer?.cancel();
+    try {
+      await _stopBattleBgm().timeout(
+        const Duration(milliseconds: 800),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+    if (_isOnlineMode) {
+      try {
+        await _multiplayerManager.suspendActiveSession().timeout(
+              const Duration(seconds: 1),
+              onTimeout: () {},
+            );
+      } catch (_) {}
+    }
+    try {
+      await SfxPlayer.resetTransientAudio().timeout(
+        const Duration(milliseconds: 500),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
     );
   }
 
@@ -6941,19 +7237,50 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
 
-    if (!mounted || _isDisconnectDialogVisible) {
+    if (!mounted || _opponentDisconnectForfeitTimer != null) {
       return;
     }
 
-    _isDisconnectDialogVisible = true;
-    unawaited(
-      _presentRankedSafeBattleResult(
-        playerWon: true,
-        opponentCrossedDeathLine: false,
-        resultWasForfeit: true,
-      ).whenComplete(() {
-        _isDisconnectDialogVisible = false;
-      }),
+    _opponentRealtimeDisconnected = true;
+    _opponentDisconnectForfeitTimer =
+        Timer(_opponentDisconnectForfeitGrace, () {
+      _opponentDisconnectForfeitTimer = null;
+      unawaited(_resolveOpponentDisconnectForfeitIfNeeded());
+    });
+  }
+
+  Future<void> _resolveOpponentDisconnectForfeitIfNeeded() async {
+    if (!mounted ||
+        !_onlineGameStarted ||
+        _battleResultStarted ||
+        _resultRevealPending ||
+        _onlineResultMessage != null) {
+      return;
+    }
+
+    final room = _room ?? _multiplayerManager.currentRoom;
+    final opponentStatus =
+        room?.players[_multiplayerManager.opponentRoleId]?.status;
+    if (opponentStatus != 'left' && !_opponentRealtimeDisconnected) {
+      return;
+    }
+
+    try {
+      await _multiplayerManager.forceOpponentGameOver();
+    } catch (_) {
+      return;
+    }
+    if (!mounted ||
+        _battleResultStarted ||
+        _resultRevealPending ||
+        _onlineResultMessage != null) {
+      return;
+    }
+
+    await _presentRankedSafeBattleResult(
+      playerWon: true,
+      opponentCrossedDeathLine: false,
+      resultWasForfeit: true,
     );
   }
 
@@ -6979,6 +7306,7 @@ class _GameScreenState extends State<GameScreen>
       _onlineResultWasForfeit = false;
       _onlineResultWasOfflineForfeit = false;
       _opponentUnavailableForRematch = false;
+      _opponentRealtimeDisconnected = false;
       _isWaitingForRematch = false;
       _opponentRequestedRematch = false;
     });
@@ -7714,7 +8042,7 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _applyAttackToOpponent(OjamaTask task) async {
     final connected = await _ensureServerConnection(
-      forfeitRankedOnOffline: widget.isRankedMode,
+      forfeitRankedOnOffline: widget.isRankedMode || _isOnlineMode,
     );
     if (!connected) {
       return;
@@ -7732,6 +8060,38 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  Future<void> _consumeQueuedIncomingOjamaAfterReconnect() async {
+    try {
+      final tasks = await _multiplayerManager.consumeQueuedIncomingOjama();
+      if (!mounted || tasks.isEmpty) {
+        return;
+      }
+      for (final task in tasks) {
+        _handleAttackReceived(task);
+      }
+    } catch (_) {
+      // 復帰時の補助取得なので、対戦進行自体は止めない。
+    }
+  }
+
+  Future<void> _commitPendingOfflineForfeitAfterReconnect() async {
+    if (!_pendingOfflineForfeitCommit) {
+      return;
+    }
+    final recorded = await _multiplayerManager.recordOfflineForfeitLoss();
+    if (recorded && mounted) {
+      _pendingOfflineForfeitCommit = false;
+      await _multiplayerManager.saveActiveSession(
+        isArenaMode: widget.isArenaMode,
+        snapshot: const {
+          'abandonReason': 'offline',
+          'resultKnown': true,
+          'isWin': false,
+        },
+      );
+    }
+  }
+
   Future<void> _presentBattleResult({
     required bool playerWon,
     required bool opponentCrossedDeathLine,
@@ -7744,6 +8104,7 @@ class _GameScreenState extends State<GameScreen>
 
     _battleResultStarted = true;
     _resultRevealPending = true;
+    _activeResultWasForfeit = resultWasForfeit;
     if (widget.isRankedMode && !widget.isArenaMode) {
       _markRankedResultKnownIfNeeded(isWin: playerWon);
     }
@@ -7782,6 +8143,7 @@ class _GameScreenState extends State<GameScreen>
       setState(() {
         _resultCoinBaseEarned = 0;
         _matchExpEarned = 0;
+        _activeResultWasForfeit = false;
         _resultRevealPending = false;
       });
       return;
@@ -7824,6 +8186,7 @@ class _GameScreenState extends State<GameScreen>
       );
       unawaited(_applyRankedBotRatingResult(isWin: playerWon));
       setState(() {
+        _activeResultWasForfeit = false;
         _resultRevealPending = false;
       });
       return;
@@ -7858,6 +8221,11 @@ class _GameScreenState extends State<GameScreen>
         _applyRankedRatingResult(
           isWin: playerWon,
           applyOpponentResult: resultWasForfeit,
+          reason: resultWasForfeit && playerWon
+              ? 'opponent_offline_forfeit'
+              : resultWasOfflineForfeit
+                  ? 'offline_forfeit'
+                  : null,
         ),
       );
       unawaited(_recordArenaResult(isWin: playerWon));
@@ -7885,6 +8253,7 @@ class _GameScreenState extends State<GameScreen>
     unawaited(_applySoloExpReward());
     unawaited(_recordSoloStats());
     setState(() {
+      _activeResultWasForfeit = false;
       _resultRevealPending = false;
     });
   }

@@ -15,7 +15,7 @@ class RankedInterstitialDebtManager {
   static final RankedInterstitialDebtManager instance =
       RankedInterstitialDebtManager._internal();
 
-  static const int forcedAdInterval = 3;
+  static const int forcedAdInterval = 2;
 
   static const String _pendingKey = 'ranked_interstitial_pending';
   static const String _completedCountKey =

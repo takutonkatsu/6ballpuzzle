@@ -11,6 +11,7 @@ class OjamaBlockComponent extends PositionComponent
   final OjamaType ojamaType;
   final BallColor? startColor;
   final List<BallColor>? presetColors;
+  final List<Map<String, dynamic>>? lockedCells;
   final String ballSkinId;
   final String effectSkinId;
   final List<BallComponent> innerBalls = [];
@@ -24,6 +25,7 @@ class OjamaBlockComponent extends PositionComponent
     required Vector2 position,
     this.startColor,
     this.presetColors,
+    this.lockedCells,
     this.ballSkinId = 'default',
     String? effectSkinId,
   })  : effectSkinId = effectSkinId ?? ballSkinId,
@@ -298,12 +300,25 @@ class OjamaBlockComponent extends PositionComponent
 
   void _breakApart() {
     removeFromParent();
-    for (var ball in innerBalls) {
+    final cells = lockedCells;
+    for (var index = 0; index < innerBalls.length; index++) {
+      final ball = innerBalls[index];
       ball.removeFromParent();
 
       Vector2 wPos = position + ball.position;
-      var hex = game.grid.pixelToHex(wPos);
-      hex = game.grid.findNearestEmpty(hex);
+      final lockedCell = cells != null && index < cells.length
+          ? _lockedCellFromPayload(cells[index])
+          : null;
+      var hex = lockedCell?.$1 ?? game.grid.pixelToHex(wPos);
+      if (lockedCell == null) {
+        hex = game.grid.findNearestEmpty(hex);
+      }
+      final hitOffsetX =
+          lockedCell?.$2 ?? (wPos.x - game.grid.hexToPixel(hex).x);
+      if (lockedCell != null) {
+        final basePosition = game.grid.hexToPixel(hex);
+        wPos = Vector2(basePosition.x + hitOffsetX, basePosition.y);
+      }
 
       var newBall = BallComponent(
         position: wPos,
@@ -311,10 +326,41 @@ class OjamaBlockComponent extends PositionComponent
         ballColor: ball.ballColor,
         ballSkinId: ballSkinId,
       );
-      newBall.hitOffsetX = wPos.x - game.grid.hexToPixel(hex).x;
+      newBall.hitOffsetX = hitOffsetX;
+      final existingBall = game.grid.lockedBalls.remove(hex);
+      if (existingBall != null && existingBall.parent != null) {
+        existingBall.removeFromParent();
+      }
       game.add(newBall);
       game.grid.lockedBalls[hex] = newBall;
     }
     game.onOjamaBlockLanded(this);
+  }
+
+  (HexCoordinate, double)? _lockedCellFromPayload(Map<String, dynamic> raw) {
+    final row = _asInt(raw['row']);
+    final col = _asInt(raw['col']);
+    if (row == null || col == null) {
+      return null;
+    }
+    final hitOffsetX = _asDouble(raw['hitOffsetX']) ?? 0.0;
+    return (HexCoordinate(col, row), hitOffsetX);
+  }
+
+  int? _asInt(Object? value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse('$value');
+  }
+
+  double? _asDouble(Object? value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse('$value');
   }
 }

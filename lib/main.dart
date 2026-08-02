@@ -218,9 +218,13 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
 
   late final AnimationController _progressController;
+  late final AnimationController _startPromptController;
   MaintenanceNotice? _maintenanceNotice;
+  HomeBootstrapData? _readyBootstrapData;
   String _publicPlayerId = '';
   bool _isRetryingMaintenance = false;
+  bool _isReadyToStart = false;
+  bool _isStartingAfterTap = false;
 
   @override
   void initState() {
@@ -228,6 +232,10 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     _progressController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
+    );
+    _startPromptController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
     );
     _boot();
     unawaited(_loadPublicPlayerId());
@@ -321,10 +329,29 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     if (!mounted) {
       return;
     }
+    setState(() {
+      _readyBootstrapData = bootstrapData;
+      _isReadyToStart = true;
+    });
+    _startPromptController.repeat(reverse: true);
+  }
+
+  Future<void> _startAfterTap() async {
+    if (_isStartingAfterTap) {
+      return;
+    }
+    final initialBootstrapData = _readyBootstrapData;
+    if (!_isReadyToStart || initialBootstrapData == null) {
+      return;
+    }
+    setState(() {
+      _isStartingAfterTap = true;
+    });
+    _startPromptController.stop();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_initializePostLaunchServices());
     });
-
+    var bootstrapData = initialBootstrapData;
     if (!AppSettings.instance.onboardingSeen.value) {
       await Navigator.of(context).push(
         PageRouteBuilder<void>(
@@ -398,12 +425,12 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     try {
       await playerDataManager.load();
       return HomeBootstrapData(
-        playerName: playerDataManager.displayPlayerName,
+        playerName: playerDataManager.playerName,
         rating: playerDataManager.currentRating,
       );
     } catch (_) {
       return const HomeBootstrapData(
-        playerName: 'プレイヤー',
+        playerName: '',
         rating: 1000,
       );
     }
@@ -629,6 +656,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   @override
   void dispose() {
     _progressController.dispose();
+    _startPromptController.dispose();
     super.dispose();
   }
 
@@ -637,162 +665,200 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     final maintenanceNotice = _maintenanceNotice;
     return Scaffold(
       backgroundColor: GameThemeColors.background,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF08111C),
-              Color(0xFF05070D),
-            ],
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _isReadyToStart ? () => unawaited(_startAfterTap()) : null,
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF08111C),
+                Color(0xFF05070D),
+              ],
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-                child: Column(
-                  children: [
-                    const Spacer(flex: 8),
-                    Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AnimatedBuilder(
-                            animation: _progressController,
+          child: SafeArea(
+            child: Stack(
+              children: [
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+                  child: Column(
+                    children: [
+                      const Spacer(flex: 8),
+                      Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AnimatedBuilder(
+                              animation: _progressController,
+                              builder: (context, child) {
+                                final pulse = 0.985 +
+                                    math.sin(
+                                          _progressController.value *
+                                              math.pi *
+                                              2,
+                                        ) *
+                                        0.015;
+                                return Transform.scale(
+                                  scale: pulse,
+                                  child: child,
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.035),
+                                  borderRadius: BorderRadius.circular(40),
+                                  border: Border.all(
+                                    color: GameThemeColors.cyanBorder,
+                                    width: 1.4,
+                                  ),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(30),
+                                  child: Image.asset(
+                                    'assets/images/Hexagon_icon02_1024x1024.png',
+                                    width: 168,
+                                    height: 168,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            const Text(
+                              'ヘキサゴン',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 34,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(flex: 7),
+                      if (!_isReadyToStart || maintenanceNotice != null)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            color: GameThemeColors.surfaceDeep.withValues(
+                              alpha: 0.92,
+                            ),
+                            border: Border.all(
+                              color: GameThemeColors.cyanBorder,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: GameThemeColors.cyan,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    maintenanceNotice == null
+                                        ? 'ロード中'
+                                        : 'メンテナンス中',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.0,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              if (maintenanceNotice == null)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(999),
+                                  child: AnimatedBuilder(
+                                    animation: _progressController,
+                                    builder: (context, child) {
+                                      return LinearProgressIndicator(
+                                        value: _progressController.value,
+                                        minHeight: 10,
+                                        backgroundColor: Colors.white10,
+                                        valueColor:
+                                            const AlwaysStoppedAnimation(
+                                          GameThemeColors.cyan,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                )
+                              else
+                                _buildMaintenanceContent(maintenanceNotice),
+                            ],
+                          ),
+                        )
+                      else
+                        SizedBox(
+                          width: double.infinity,
+                          child: AnimatedBuilder(
+                            animation: _startPromptController,
                             builder: (context, child) {
-                              final pulse = 0.985 +
-                                  math.sin(
-                                        _progressController.value * math.pi * 2,
+                              final opacity = 0.38 +
+                                  Curves.easeInOut.transform(
+                                        _startPromptController.value,
                                       ) *
-                                      0.015;
-                              return Transform.scale(
-                                scale: pulse,
+                                      0.42;
+                              return Opacity(
+                                opacity: opacity,
                                 child: child,
                               );
                             },
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.035),
-                                borderRadius: BorderRadius.circular(40),
-                                border: Border.all(
-                                  color: GameThemeColors.cyanBorder,
-                                  width: 1.4,
-                                ),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(30),
-                                child: Image.asset(
-                                  'assets/images/Hexagon_icon02_1024x1024.png',
-                                  width: 168,
-                                  height: 168,
-                                  fit: BoxFit.cover,
-                                ),
+                            child: Text(
+                              _isStartingAfterTap ? '開始中...' : 'タップでスタート',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: GameThemeColors.cyan,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2.2,
                               ),
                             ),
                           ),
-                          const SizedBox(height: 24),
-                          const Text(
-                            'ヘキサゴン',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 34,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 2.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Spacer(flex: 7),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        color: GameThemeColors.surfaceDeep.withValues(
-                          alpha: 0.92,
                         ),
-                        border: Border.all(
-                          color: GameThemeColors.cyanBorder,
+                      const SizedBox(height: 18),
+                      const Text(
+                        '©︎2026 Takutonkatsu',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 1.0,
                         ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: const BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: GameThemeColors.cyan,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                maintenanceNotice == null ? 'ロード中' : 'メンテナンス中',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 1.0,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          if (maintenanceNotice == null)
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(999),
-                              child: AnimatedBuilder(
-                                animation: _progressController,
-                                builder: (context, child) {
-                                  return LinearProgressIndicator(
-                                    value: _progressController.value,
-                                    minHeight: 10,
-                                    backgroundColor: Colors.white10,
-                                    valueColor: const AlwaysStoppedAnimation(
-                                      GameThemeColors.cyan,
-                                    ),
-                                  );
-                                },
-                              ),
-                            )
-                          else
-                            _buildMaintenanceContent(maintenanceNotice),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    const Text(
-                      '©︎2026 Takutonkatsu',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              Positioned(
-                right: 18,
-                bottom: 12,
-                child: _StartupVersionLabel(
-                  publicPlayerId: _publicPlayerId,
+                Positioned(
+                  right: 18,
+                  bottom: 12,
+                  child: _StartupVersionLabel(
+                    publicPlayerId: _publicPlayerId,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

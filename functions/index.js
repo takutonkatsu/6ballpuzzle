@@ -9,7 +9,9 @@ const PLAYER_COUNTS_PATH = 'adminStats/playerCounts';
 const PLAYER_SUMMARY_SOURCE_PATH = 'playerRecordSummaries';
 const DAILY_WIN_FINALIZATION_PATH = 'adminStats/dailyWinRankFinalizations';
 const DAILY_STATS_PATH = 'adminStats/dailyStats';
-const DAILY_GLOBAL_STATS_SOURCE_PATH = 'dailyGlobalStats';
+const DAILY_RAW_STATS_PATH = 'adminStats/dailyRawStats';
+const LEGACY_DAILY_GLOBAL_STATS_SOURCE_PATH = 'dailyGlobalStats';
+const ADMIN_GRANT_EXPIRATIONS_PATH = 'adminGrantExpirations';
 const RANKED_BASE_SEASON_ID = '2026-05';
 const RANKED_SEASON_END_HOUR_JST = 21;
 const RANKED_INITIAL_RATING = 1000;
@@ -26,8 +28,13 @@ const DAILY_WIN_REWARD_LIMIT = 10;
 const ROOM_CLEANUP_FINISHED_MAX_AGE_MS = 30 * 60 * 1000;
 const ROOM_CLEANUP_WAITING_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ROOM_CLEANUP_PLAYING_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const MATCHMAKING_CLEANUP_MAX_AGE_MS = 3 * 60 * 1000;
+const GAME_ACTIVITY_CLEANUP_MAX_AGE_MS = 60 * 60 * 1000;
+const SERVER_TIME_PING_CLEANUP_DAYS = 2;
 const INVITE_REWARD_COINS = 50000;
 const INVITE_ELIGIBLE_AUTH_CREATED_AFTER_MS = Date.parse('2026-06-22T15:00:00.000Z');
+const INVITE_CODE_CLEANUP_GRACE_MS = 2 * 24 * 60 * 60 * 1000;
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 exports.updatePlayerCountsOnSummaryCreate = onValueCreated(
   {
@@ -63,6 +70,31 @@ exports.updatePlayerCountsOnSummaryCreate = onValueCreated(
         updatedAtTextJst: jstDateTimeText(now),
       };
     });
+    await admin
+      .database()
+      .ref(`${DAILY_RAW_STATS_PATH}/${createdKeyJst}`)
+      .update({
+        date: createdKeyJst,
+        updatedAt: admin.database.ServerValue.TIMESTAMP,
+        [`registeredPlayers/${uid}/uid`]: uid,
+        [`registeredPlayers/${uid}/publicId`]:
+          typeof summary?.profile?.publicId === 'string' ? summary.profile.publicId : '',
+        [`registeredPlayers/${uid}/displayName`]:
+          typeof summary?.profile?.displayName === 'string' &&
+          summary.profile.displayName.trim()
+            ? summary.profile.displayName.trim()
+            : typeof summary?.displayName === 'string' && summary.displayName.trim()
+              ? summary.displayName.trim()
+              : 'Player',
+        [`registeredPlayers/${uid}/createdAt`]: admin.database.ServerValue.TIMESTAMP,
+      })
+      .catch((error) => {
+        logger.warn('Failed to append registered player daily stats.', {
+          uid,
+          createdKeyJst,
+          error,
+        });
+      });
 
     logger.info('Player count stats updated.', {
       uid,
@@ -130,17 +162,25 @@ exports.finalizeDailyWinRankPlacements = onSchedule(
       if (displayRank <= DAILY_WIN_REWARD_LIMIT) {
         const coins = dailyWinRankingRewardCoins(displayRank);
         if (coins > 0) {
-          updates[`adminGrants/${entry.uid}/daily_win_${dateKey}`] =
-            rankingRewardGrant({
+          Object.assign(
+            updates,
+            adminGrantWriteUpdates(
+              entry.uid,
+              `daily_win_${dateKey}`,
+              rankingRewardGrant({
               type: 'daily_win_ranking_reward',
               title: '今日の勝利数ランキング報酬',
               message:
-                `${dateKey} の今日の勝利数ランキング ${displayRank}位報酬として ` +
+                `今日の勝利数ランキング ${japaneseDateLabel(dateKey)} ` +
+                `${displayRank}位報酬として ` +
                 `${coins.toLocaleString('ja-JP')} コインを受け取れます。`,
               coins,
               rank: displayRank,
               seasonId: dateKey,
-            });
+              expiresAt: dailyWinRewardExpiresAt(dateKey),
+              }),
+            ),
+          );
         }
       }
     }
@@ -169,28 +209,249 @@ exports.aggregateDailyPlayerStats = onSchedule(
   async () => {
     const targetDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const dateKey = jstDateKey(targetDate);
-    const [summariesSnapshot, globalStatsSnapshot] = await Promise.all([
-      admin.database().ref(PLAYER_SUMMARY_SOURCE_PATH).get(),
-      admin.database().ref(`${DAILY_GLOBAL_STATS_SOURCE_PATH}/${dateKey}`).get(),
+    const [playerCountsSnapshot, rawStatsSnapshot, legacyStatsSnapshot] =
+      await Promise.all([
+      admin.database().ref(PLAYER_COUNTS_PATH).get(),
+      admin.database().ref(`${DAILY_RAW_STATS_PATH}/${dateKey}`).get(),
+      admin
+        .database()
+        .ref(`${LEGACY_DAILY_GLOBAL_STATS_SOURCE_PATH}/${dateKey}`)
+        .get(),
     ]);
-    const summaries = isObject(summariesSnapshot.val())
-      ? summariesSnapshot.val()
+    const playerCounts = isObject(playerCountsSnapshot.val())
+      ? playerCountsSnapshot.val()
       : {};
-    const globalStats = isObject(globalStatsSnapshot.val())
-      ? globalStatsSnapshot.val()
+    const rawStats = isObject(rawStatsSnapshot.val()) ? rawStatsSnapshot.val() : {};
+    const legacyStats = isObject(legacyStatsSnapshot.val())
+      ? legacyStatsSnapshot.val()
       : {};
-    const stats = buildDailyStats(dateKey, summaries, globalStats);
+    const stats = buildDailyStats(
+      dateKey,
+      mergeDailyRawStats(rawStats, legacyStats),
+      playerCounts,
+    );
 
     await admin.database().ref(`${DAILY_STATS_PATH}/${dateKey}`).set({
       ...stats,
       generatedAt: admin.database.ServerValue.TIMESTAMP,
       generatedAtTextJst: jstDateTimeText(new Date()),
-      sourcePath: DAILY_GLOBAL_STATS_SOURCE_PATH,
+      sourcePath: DAILY_RAW_STATS_PATH,
+      legacySourcePath: LEGACY_DAILY_GLOBAL_STATS_SOURCE_PATH,
     });
     logger.info('Daily player stats aggregated.', {
       dateKey,
       activePlayers: stats.loginPlayers.count,
       registeredPlayers: stats.registeredPlayers.count,
+      skippedFullPlayerSummaryScan: true,
+    });
+  },
+);
+
+exports.cleanupExpiredAdminGrants = onSchedule(
+  {
+    schedule: '17 3 * * *',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-southeast1',
+  },
+  async () => {
+    const now = Date.now();
+    const snapshot = await admin
+      .database()
+      .ref(ADMIN_GRANT_EXPIRATIONS_PATH)
+      .orderByChild('expiresAt')
+      .endAt(now)
+      .limitToFirst(1000)
+      .get();
+    const indexedGrants = isObject(snapshot.val()) ? snapshot.val() : {};
+    const updates = {};
+    let expiredCount = 0;
+    let checkedCount = 0;
+    for (const [indexKey, indexEntry] of Object.entries(indexedGrants)) {
+      checkedCount++;
+      if (!isObject(indexEntry)) {
+        updates[`${ADMIN_GRANT_EXPIRATIONS_PATH}/${indexKey}`] = null;
+        continue;
+      }
+      const uid = typeof indexEntry.uid === 'string' ? indexEntry.uid : '';
+      const grantId =
+        typeof indexEntry.grantId === 'string' ? indexEntry.grantId : '';
+      const indexedExpiresAt = numberValue(indexEntry.expiresAt);
+      if (!uid || !grantId || indexedExpiresAt <= 0) {
+        updates[`${ADMIN_GRANT_EXPIRATIONS_PATH}/${indexKey}`] = null;
+        continue;
+      }
+      const grantSnapshot = await admin
+        .database()
+        .ref(`adminGrants/${uid}/${grantId}`)
+        .get();
+      const grant = grantSnapshot.val();
+      const expiresAt = isObject(grant)
+        ? numberValue(grant.expiresAt)
+        : indexedExpiresAt;
+      if (!isObject(grant) || (expiresAt > 0 && expiresAt <= now)) {
+        updates[`adminGrants/${uid}/${grantId}`] = null;
+        updates[`${ADMIN_GRANT_EXPIRATIONS_PATH}/${indexKey}`] = null;
+        expiredCount++;
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      await admin.database().ref().update(updates);
+    }
+    logger.info('Expired admin grants cleanup complete.', {
+      checkedCount,
+      expiredCount,
+    });
+  },
+);
+
+exports.cleanupDailyRawStats = onSchedule(
+  {
+    schedule: '37 3 * * *',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-southeast1',
+  },
+  async () => {
+    const cutoffKey = jstDateKey(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000));
+    const updates = {};
+    let removedCount = 0;
+    for (const rootPath of [DAILY_RAW_STATS_PATH, LEGACY_DAILY_GLOBAL_STATS_SOURCE_PATH]) {
+      const snapshot = await admin
+        .database()
+        .ref(rootPath)
+        .orderByKey()
+        .endAt(cutoffKey)
+        .limitToFirst(500)
+        .get();
+      const days = isObject(snapshot.val()) ? snapshot.val() : {};
+      for (const dateKey of Object.keys(days)) {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey) && dateKey <= cutoffKey) {
+          updates[`${rootPath}/${dateKey}`] = null;
+          removedCount++;
+        }
+      }
+    }
+    if (removedCount > 0) {
+      await admin.database().ref().update(updates);
+    }
+    logger.info('Daily raw stats cleanup complete.', {cutoffKey, removedCount});
+  },
+);
+
+exports.cleanupExpiredInviteCodes = onSchedule(
+  {
+    schedule: '47 3 * * *',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-southeast1',
+  },
+  async () => {
+    const now = Date.now();
+    const cutoff = now - INVITE_CODE_CLEANUP_GRACE_MS;
+    const inviteCodesRef = admin.database().ref('inviteCodes');
+    let removedCount = 0;
+    let checkedCount = 0;
+
+    for (let page = 0; page < 20; page++) {
+      const snapshot = await inviteCodesRef
+        .orderByChild('expiresAt')
+        .endAt(cutoff)
+        .limitToFirst(500)
+        .get();
+      const codes = isObject(snapshot.val()) ? snapshot.val() : {};
+      const updates = {};
+      for (const [code, value] of Object.entries(codes)) {
+        checkedCount++;
+        if (!isObject(value)) continue;
+        const expiresAt = numberValue(value.expiresAt);
+        const fallbackUpdatedAt =
+          numberValue(value.updatedAt) || numberValue(value.createdAt);
+        const isExpired = expiresAt > 0 && expiresAt <= cutoff;
+        const isLegacyExpired =
+          expiresAt <= 0 && (fallbackUpdatedAt <= 0 || fallbackUpdatedAt <= cutoff);
+        if (isExpired || isLegacyExpired) {
+          updates[code] = null;
+          removedCount++;
+        }
+      }
+      if (Object.keys(updates).length === 0) {
+        break;
+      }
+      await inviteCodesRef.update(updates);
+      if (Object.keys(codes).length < 500) {
+        break;
+      }
+    }
+
+    logger.info('Expired invite codes cleanup complete.', {
+      checkedCount,
+      removedCount,
+      cutoff,
+    });
+  },
+);
+
+exports.cleanupPresenceAndServerTimePings = onSchedule(
+  {
+    schedule: '57 3 * * *',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-southeast1',
+  },
+  async () => {
+    const now = Date.now();
+    const staleActivityCutoff = now - GAME_ACTIVITY_CLEANUP_MAX_AGE_MS;
+    const stalePingCutoff =
+      jstStartOfDayMillis(now) -
+      (SERVER_TIME_PING_CLEANUP_DAYS - 1) * 24 * 60 * 60 * 1000;
+    const [activitySnapshot, pingsSnapshot] = await Promise.all([
+      admin
+        .database()
+        .ref('realtimeGameActivity')
+        .orderByChild('enteredAt')
+        .endAt(staleActivityCutoff)
+        .limitToFirst(1000)
+        .get(),
+      admin
+        .database()
+        .ref('serverTimePings')
+        .orderByChild('current/timestamp')
+        .endAt(stalePingCutoff - 1)
+        .limitToFirst(1000)
+        .get(),
+    ]);
+    const activities = isObject(activitySnapshot.val())
+      ? activitySnapshot.val()
+      : {};
+    const pings = isObject(pingsSnapshot.val()) ? pingsSnapshot.val() : {};
+    const updates = {};
+    let removedActivityCount = 0;
+    let removedPingCount = 0;
+
+    for (const [uid, activity] of Object.entries(activities)) {
+      if (!isObject(activity)) continue;
+      const enteredAt = numberValue(activity.enteredAt);
+      if (enteredAt > 0 && enteredAt <= staleActivityCutoff) {
+        updates[`realtimeGameActivity/${uid}`] = null;
+        removedActivityCount++;
+      }
+    }
+
+    for (const [uid, ping] of Object.entries(pings)) {
+      if (!isObject(ping)) continue;
+      const current = isObject(ping.current) ? ping.current : {};
+      const timestamp = numberValue(current.timestamp);
+      if (timestamp > 0 && timestamp < stalePingCutoff) {
+        updates[`serverTimePings/${uid}`] = null;
+        removedPingCount++;
+      }
+    }
+
+    if (removedActivityCount > 0 || removedPingCount > 0) {
+      await admin.database().ref().update(updates);
+    }
+    logger.info('Presence and server time pings cleanup complete.', {
+      staleActivityCutoff,
+      stalePingCutoff,
+      removedActivityCount,
+      removedPingCount,
     });
   },
 );
@@ -303,8 +564,14 @@ exports.cleanupStaleRooms = onSchedule(
   },
   async () => {
     const now = Date.now();
-    const snapshot = await admin.database().ref('rooms').get();
-    const rooms = isObject(snapshot.val()) ? snapshot.val() : {};
+    const candidateCutoff = now - ROOM_CLEANUP_FINISHED_MAX_AGE_MS;
+    const rooms = await fetchCandidateChildrenByCutoffs('rooms', [
+      ['updatedAt', candidateCutoff],
+      ['resultKnownAt', candidateCutoff],
+      ['startedAt', candidateCutoff],
+      ['createdAt', candidateCutoff],
+      ['matchmaking/timestamp', candidateCutoff],
+    ]);
     const updates = {};
     let removedCount = 0;
 
@@ -331,7 +598,55 @@ exports.cleanupStaleRooms = onSchedule(
     if (removedCount > 0) {
       await admin.database().ref().update(updates);
     }
-    logger.info('Stale rooms cleanup complete.', {removedCount});
+    logger.info('Stale rooms cleanup complete.', {
+      candidateCount: Object.keys(rooms).length,
+      removedCount,
+    });
+  },
+);
+
+exports.cleanupStaleMatchmakingEntries = onSchedule(
+  {
+    schedule: '*/5 * * * *',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-southeast1',
+  },
+  async () => {
+    const now = Date.now();
+    const updates = {};
+    let removedCount = 0;
+
+    for (const path of ['matchmaking', 'arena_matchmaking']) {
+      const cutoff = now - MATCHMAKING_CLEANUP_MAX_AGE_MS;
+      const entries = await fetchCandidateChildrenByCutoffs(path, [
+        ['timestamp', cutoff],
+        ['assignedAt', cutoff],
+        ['joinedAt', cutoff],
+        ['createdAt', cutoff],
+      ]);
+      for (const [uid, entry] of Object.entries(entries)) {
+        if (!isObject(entry)) {
+          updates[`${path}/${uid}`] = null;
+          removedCount++;
+          continue;
+        }
+        const timestamp = matchmakingTimestamp(entry);
+        const status = typeof entry.status === 'string' ? entry.status : '';
+        const shouldRemove =
+          timestamp <= 0 ||
+          now - timestamp >= MATCHMAKING_CLEANUP_MAX_AGE_MS ||
+          !['waiting', 'matching', 'assigned', 'matched'].includes(status);
+        if (shouldRemove) {
+          updates[`${path}/${uid}`] = null;
+          removedCount++;
+        }
+      }
+    }
+
+    if (removedCount > 0) {
+      await admin.database().ref().update(updates);
+    }
+    logger.info('Stale matchmaking entries cleanup complete.', {removedCount});
   },
 );
 
@@ -416,7 +731,7 @@ exports.processInviteCompletion = onValueWritten(
     const grantId = `invite_${invitedUid}`;
     const updates = {};
 
-    updates[`adminGrants/${invitedUid}/${grantId}`] = {
+    Object.assign(updates, adminGrantWriteUpdates(invitedUid, grantId, {
       type: 'invite_reward',
       role: 'invitee',
       coins: INVITE_REWARD_COINS,
@@ -425,8 +740,8 @@ exports.processInviteCompletion = onValueWritten(
       title: '招待コード特典',
       message: `${inviterName}さんの招待コード特典として ${INVITE_REWARD_COINS.toLocaleString('ja-JP')} コインを受け取りました。`,
       createdAt: admin.database.ServerValue.TIMESTAMP,
-    };
-    updates[`adminGrants/${inviterUid}/${grantId}`] = {
+    }));
+    Object.assign(updates, adminGrantWriteUpdates(inviterUid, grantId, {
       type: 'invite_reward',
       role: 'inviter',
       coins: INVITE_REWARD_COINS,
@@ -435,7 +750,7 @@ exports.processInviteCompletion = onValueWritten(
       title: '招待コード特典',
       message: `${inviteeName}さんが招待コードを使ってプレイしました。${INVITE_REWARD_COINS.toLocaleString('ja-JP')} コインを受け取りました。`,
       createdAt: admin.database.ServerValue.TIMESTAMP,
-    };
+    }));
     updates[`inviteStats/${inviterUid}/inviteCode`] = inviteCode;
     updates[`inviteStats/${inviterUid}/completedInvites`] =
       admin.database.ServerValue.increment(1);
@@ -465,40 +780,58 @@ exports.processInviteCompletion = onValueWritten(
 );
 
 async function dailyWinEntriesForDate(dateKey) {
+  const dailySnapshot = await admin
+    .database()
+    .ref(`dailyWinRankings/${dateKey}`)
+    .orderByChild('dailyWins')
+    .limitToLast(100)
+    .get();
+  const dailyEntries = dailyWinRankingEntriesFromMap(dailySnapshot.val(), dateKey);
+  const dailyMerged = mergeDailyEntries(dailyEntries, {
+    combineDuplicateWins: false,
+  });
+  const targetDate = new Date(`${dateKey}T12:00:00+09:00`);
+  const currentSeasonId = rankedCurrentSeasonId(targetDate);
+  const seasonIds = [
+    currentSeasonId,
+    rankedPreviousSeasonId(currentSeasonId),
+  ].filter((seasonId, index, list) => {
+    return seasonId && list.indexOf(seasonId) === index;
+  });
   const snapshots = await Promise.all([
-    admin.database().ref('rankedSeasons/seasons').get(),
-    admin.database().ref('rankings/global').get(),
+    ...seasonIds.map((seasonId) =>
+      admin.database().ref(`rankedSeasons/seasons/${seasonId}/rankings`).get(),
+    ),
   ]);
-  const seasonRoot = isObject(snapshots[0].val()) ? snapshots[0].val() : {};
-  const legacyRoot = isObject(snapshots[1].val()) ? snapshots[1].val() : {};
   const seasonEntries = [];
 
-  for (const [seasonId, seasonData] of Object.entries(seasonRoot)) {
-    const rankings = isObject(seasonData?.rankings)
-      ? seasonData.rankings
+  seasonIds.forEach((seasonId, index) => {
+    const rankings = isObject(snapshots[index].val())
+      ? snapshots[index].val()
       : {};
     for (const [uid, raw] of Object.entries(rankings)) {
       appendDailyEntry(seasonEntries, uid, raw, dateKey);
     }
-  }
+  });
 
   const seasonMerged = mergeDailyEntries(seasonEntries, {
     combineDuplicateWins: false,
   });
-  const legacyEntries = [];
-  for (const [uid, raw] of Object.entries(legacyRoot)) {
-    appendDailyEntry(legacyEntries, uid, raw, dateKey);
-  }
-  const legacyMerged = mergeDailyEntries(legacyEntries, {
-    combineDuplicateWins: false,
-  });
-  const merged = new Map(seasonMerged);
-  for (const [key, entry] of legacyMerged.entries()) {
-    if (!merged.has(key)) {
+  const merged = new Map(dailyMerged);
+  for (const [key, entry] of seasonMerged.entries()) {
+    const previous = merged.get(key);
+    if (!previous || entry.dailyWins > previous.dailyWins) {
       merged.set(key, entry);
     }
   }
   return [...merged.values()];
+}
+
+function dailyWinRankingEntriesFromMap(raw, dateKey) {
+  if (!isObject(raw)) return [];
+  return Object.entries(raw)
+    .filter(([, value]) => isObject(value) && numberValue(value.dailyWins) > 0)
+    .map(([uid, value]) => normalizedRankingEntry(uid, value, value.dailyWins, dateKey));
 }
 
 async function finalizeRankedSeason(seasonId) {
@@ -515,13 +848,6 @@ async function finalizeRankedSeason(seasonId) {
 
   const rankings = isObject(season.rankings) ? season.rankings : {};
   let entries = rankingEntriesFromMap(rankings);
-  if (seasonId === RANKED_BASE_SEASON_ID) {
-    const legacySnapshot = await admin.database().ref('rankings/global').get();
-    entries = mergeRankingEntries(
-      entries,
-      rankingEntriesFromMap(legacySnapshot.val()),
-    );
-  }
   entries = entries
     .filter((entry) => entry.rating >= RANKED_MIN_LISTED_RATING)
     .sort((a, b) => {
@@ -555,17 +881,34 @@ async function finalizeRankedSeason(seasonId) {
     seasonId,
     label: 'ランク戦',
   });
+  const badgeUpdates = rankedRankBadgeUpdates({entries, seasonId});
 
   await admin.database().ref().update({
     ...rewardUpdates,
+    ...badgeUpdates,
     [`rankedSeasons/seasons/${seasonId}/finalTop100`]: finalTop100,
     [`rankedSeasons/seasons/${seasonId}/finalTop100SchemaVersion`]:
       RANKED_FINAL_TOP_SCHEMA_VERSION,
     [`rankedSeasons/seasons/${seasonId}/finalized`]: true,
     [`rankedSeasons/seasons/${seasonId}/finalizedAt`]:
       admin.database.ServerValue.TIMESTAMP,
+    [`rankedSeasons/archivedSeasonIds/${seasonId}`]: true,
   });
   return finalTop100;
+}
+
+function rankedRankBadgeUpdates({entries, seasonId}) {
+  const updates = {};
+  for (let i = 0; i < entries.length && i < RANKED_REWARD_LIMIT; i++) {
+    const entry = entries[i];
+    const rank = i + 1;
+    if (!entry.uid || rank <= 0) continue;
+    updates[`rankedSeasonRankBadges/${entry.uid}/${seasonId}`] = {
+      rank,
+      rating: numberValue(entry.rating),
+    };
+  }
+  return updates;
 }
 
 async function finalizeEndlessSeason(seasonId) {
@@ -615,9 +958,11 @@ async function finalizeEndlessSeason(seasonId) {
     seasonId,
     label: 'エンドレス',
   });
+  const badgeUpdates = endlessRankBadgeUpdates({entries, seasonId});
 
   await admin.database().ref().update({
     ...rewardUpdates,
+    ...badgeUpdates,
     [`endlessSeasons/seasons/${seasonId}/finalTop100`]: finalTop100,
     [`endlessSeasons/seasons/${seasonId}/finalTop100SchemaVersion`]:
       ENDLESS_FINAL_TOP_SCHEMA_VERSION,
@@ -629,33 +974,36 @@ async function finalizeEndlessSeason(seasonId) {
   return finalTop100;
 }
 
+function endlessRankBadgeUpdates({entries, seasonId}) {
+  const updates = {};
+  for (let i = 0; i < entries.length && i < ENDLESS_REWARD_LIMIT; i++) {
+    const entry = entries[i];
+    const rank = i + 1;
+    if (!entry.uid || rank <= 0) continue;
+    updates[`endlessSeasonRankBadges/${entry.uid}/${seasonId}`] = {
+      rank,
+      score: numberValue(entry.highestEndlessScore),
+    };
+  }
+  return updates;
+}
+
 async function resetRankedSeason(currentSeasonId) {
-  const [currentSeasonSnapshot, globalSnapshot, summariesSnapshot, lookupSnapshot] =
+  const [currentSeasonSnapshot, summariesSnapshot] =
     await Promise.all([
       admin
         .database()
         .ref(`rankedSeasons/seasons/${currentSeasonId}/rankings`)
         .get(),
-      admin.database().ref('rankings/global').get(),
       admin.database().ref(PLAYER_SUMMARY_SOURCE_PATH).get(),
-      admin.database().ref('playerNameLookup').get(),
     ]);
   const currentSeasonRankings = isObject(currentSeasonSnapshot.val())
     ? currentSeasonSnapshot.val()
     : {};
-  const globalRankings = isObject(globalSnapshot.val())
-    ? globalSnapshot.val()
-    : {};
   const summaries = isObject(summariesSnapshot.val())
     ? summariesSnapshot.val()
     : {};
-  const lookup = isObject(lookupSnapshot.val()) ? lookupSnapshot.val() : {};
   const updates = {};
-  const resetUids = new Set([
-    ...Object.keys(currentSeasonRankings),
-    ...Object.keys(globalRankings),
-    ...Object.keys(summaries),
-  ]);
 
   for (const uid of Object.keys(currentSeasonRankings)) {
     updates[
@@ -671,13 +1019,6 @@ async function resetRankedSeason(currentSeasonId) {
       `rankedSeasons/seasons/${currentSeasonId}/rankings/${uid}/updatedAt`
     ] = admin.database.ServerValue.TIMESTAMP;
   }
-  for (const uid of Object.keys(globalRankings)) {
-    updates[`rankings/global/${uid}/rating`] = RANKED_INITIAL_RATING;
-    updates[`rankings/global/${uid}/seasonWins`] = 0;
-    updates[`rankings/global/${uid}/seasonLosses`] = 0;
-    updates[`rankings/global/${uid}/updatedAt`] =
-      admin.database.ServerValue.TIMESTAMP;
-  }
   for (const uid of Object.keys(summaries)) {
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/ranked/currentRating`] =
       RANKED_INITIAL_RATING;
@@ -689,22 +1030,11 @@ async function resetRankedSeason(currentSeasonId) {
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/updatedAt`] =
       admin.database.ServerValue.TIMESTAMP;
   }
-  for (const [lookupKey, players] of Object.entries(lookup)) {
-    if (!isObject(players)) continue;
-    for (const uid of Object.keys(players)) {
-      if (!resetUids.has(uid)) continue;
-      updates[`playerNameLookup/${lookupKey}/${uid}/currentRating`] =
-        RANKED_INITIAL_RATING;
-      updates[`playerNameLookup/${lookupKey}/${uid}/updatedAt`] =
-        admin.database.ServerValue.TIMESTAMP;
-    }
-  }
 
   updates['rankedSeasons/currentSeasonId'] = currentSeasonId;
   await admin.database().ref().update(updates);
   return {
     resetCurrentSeasonEntries: Object.keys(currentSeasonRankings).length,
-    resetGlobalEntries: Object.keys(globalRankings).length,
     resetSummaryEntries: Object.keys(summaries).length,
   };
 }
@@ -740,8 +1070,6 @@ async function sanitizeImpossibleCurrentSeasonRatings(currentSeasonId) {
     return {sanitizedEntries: 0};
   }
 
-  const lookupSnapshot = await admin.database().ref('playerNameLookup').get();
-  const lookup = isObject(lookupSnapshot.val()) ? lookupSnapshot.val() : {};
   const updates = {};
   for (const uid of staleUids) {
     updates[
@@ -756,11 +1084,6 @@ async function sanitizeImpossibleCurrentSeasonRatings(currentSeasonId) {
     updates[
       `rankedSeasons/seasons/${currentSeasonId}/rankings/${uid}/updatedAt`
     ] = admin.database.ServerValue.TIMESTAMP;
-    updates[`rankings/global/${uid}/rating`] = RANKED_INITIAL_RATING;
-    updates[`rankings/global/${uid}/seasonWins`] = 0;
-    updates[`rankings/global/${uid}/seasonLosses`] = 0;
-    updates[`rankings/global/${uid}/updatedAt`] =
-      admin.database.ServerValue.TIMESTAMP;
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/ranked/currentRating`] =
       RANKED_INITIAL_RATING;
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/ranked/seasonId`] =
@@ -770,16 +1093,6 @@ async function sanitizeImpossibleCurrentSeasonRatings(currentSeasonId) {
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/ranked/seasonMatches`] = 0;
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/updatedAt`] =
       admin.database.ServerValue.TIMESTAMP;
-  }
-  for (const [lookupKey, players] of Object.entries(lookup)) {
-    if (!isObject(players)) continue;
-    for (const uid of staleUids) {
-      if (!isObject(players[uid])) continue;
-      updates[`playerNameLookup/${lookupKey}/${uid}/currentRating`] =
-        RANKED_INITIAL_RATING;
-      updates[`playerNameLookup/${lookupKey}/${uid}/updatedAt`] =
-        admin.database.ServerValue.TIMESTAMP;
-    }
   }
   await admin.database().ref().update(updates);
   return {sanitizedEntries: staleUids.length};
@@ -841,17 +1154,6 @@ function normalizedEndlessRankingEntry(uid, raw) {
   };
 }
 
-function mergeRankingEntries(primary, fallback) {
-  const merged = new Map();
-  for (const entry of [...primary, ...fallback]) {
-    const key = entry.publicId ? `public:${entry.publicId}` : entry.uid;
-    if (!merged.has(key)) {
-      merged.set(key, entry);
-    }
-  }
-  return [...merged.values()];
-}
-
 function rankedRankingRewardCoins(rank) {
   if (rank === 1) return 300000;
   if (rank <= 3) return 150000;
@@ -893,19 +1195,56 @@ function rankingRewardUpdates({
     const rank = i + 1;
     const coins = rewardFn(rank);
     if (!entry.uid || coins <= 0) continue;
-    updates[`adminGrants/${entry.uid}/${grantPrefix}_rank_${rank}`] =
-      rankingRewardGrant({
+    Object.assign(
+      updates,
+      adminGrantWriteUpdates(
+        entry.uid,
+        `${grantPrefix}_rank_${rank}`,
+        rankingRewardGrant({
         type,
         title,
         message:
-          `${label} ${seasonId} ${rank}位報酬として ` +
+          `${label} ${rewardSeasonLabel({type, seasonId})} ${rank}位報酬として ` +
           `${coins.toLocaleString('ja-JP')} コインを受け取れます。`,
         coins,
         rank,
         seasonId,
-      });
+        expiresAt: rewardExpiresAt({type, seasonId}),
+        }),
+      ),
+    );
   }
   return updates;
+}
+
+function adminGrantWriteUpdates(uid, grantId, grant) {
+  const expiresAt = numberValue(grant?.expiresAt);
+  if (expiresAt <= 0) {
+    return {
+      [`adminGrants/${uid}/${grantId}`]: grant,
+    };
+  }
+  const expirationIndexKey = adminGrantExpirationKey(expiresAt, uid, grantId);
+  return {
+    [`adminGrants/${uid}/${grantId}`]: {
+      ...grant,
+      expirationIndexKey,
+    },
+    [`${ADMIN_GRANT_EXPIRATIONS_PATH}/${expirationIndexKey}`]: {
+      uid,
+      grantId,
+      expiresAt,
+    },
+  };
+}
+
+function adminGrantExpirationKey(expiresAt, uid, grantId) {
+  const paddedExpiresAt = String(Math.trunc(expiresAt)).padStart(13, '0');
+  return `${paddedExpiresAt}_${rtdbKeySafe(uid)}_${rtdbKeySafe(grantId)}`;
+}
+
+function rtdbKeySafe(value) {
+  return `${value}`.replace(/[.#$\[\]\/]/g, '_');
 }
 
 function rankingRewardGrant({
@@ -915,6 +1254,7 @@ function rankingRewardGrant({
   coins,
   rank,
   seasonId,
+  expiresAt,
 }) {
   return {
     type,
@@ -924,7 +1264,68 @@ function rankingRewardGrant({
     rank,
     seasonId,
     createdAt: admin.database.ServerValue.TIMESTAMP,
+    ...(expiresAt > 0 ? {expiresAt} : {}),
   };
+}
+
+function rewardExpiresAt({type, seasonId}) {
+  if (type === 'ranked_season_ranking_reward') {
+    return rankedRewardExpiresAt(seasonId);
+  }
+  if (type === 'endless_weekly_ranking_reward') {
+    return endlessRewardExpiresAt(seasonId);
+  }
+  if (type === 'daily_win_ranking_reward') {
+    return dailyWinRewardExpiresAt(seasonId);
+  }
+  return 0;
+}
+
+function rewardSeasonLabel({type, seasonId}) {
+  if (type === 'ranked_season_ranking_reward') {
+    return rankedSeasonLabel(seasonId);
+  }
+  if (type === 'endless_weekly_ranking_reward') {
+    return endlessSeasonLabel(seasonId);
+  }
+  return seasonId;
+}
+
+function japaneseDateLabel(dateKey) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return dateKey;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return dateKey;
+  }
+  return `${year}年${month}月${day}日`;
+}
+
+function rankedSeasonLabel(seasonId) {
+  const number = rankedSeasonNumber(seasonId);
+  return `シーズン${number}`;
+}
+
+function rankedSeasonNumber(seasonId) {
+  const base = /^(\d{4})-(\d{2})$/.exec(RANKED_BASE_SEASON_ID);
+  const current = /^(\d{4})-(\d{2})$/.exec(seasonId);
+  if (!base || !current) return 0;
+  const baseYear = Number.parseInt(base[1], 10);
+  const baseMonth = Number.parseInt(base[2], 10);
+  const year = Number.parseInt(current[1], 10);
+  const month = Number.parseInt(current[2], 10);
+  return (year - baseYear) * 12 + (month - baseMonth);
+}
+
+function endlessSeasonLabel(seasonId) {
+  const match = /^(\d{4})-W(\d{2})$/.exec(seasonId);
+  if (!match) return seasonId;
+  const year = Number.parseInt(match[1], 10);
+  const week = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(week)) return seasonId;
+  return `${year}年第${week}週`;
 }
 
 function appendDailyEntry(entries, uid, raw, dateKey) {
@@ -992,16 +1393,16 @@ function accountCreatedDateKey(summary) {
   return jstDateKey(parsed);
 }
 
-function buildDailyStats(dateKey, summaries, globalStats = {}) {
-  const registeredPlayers = [];
+function buildDailyStats(dateKey, globalStats = {}, playerCounts = {}) {
+  const registeredPlayers = isObject(globalStats.registeredPlayers)
+    ? Object.values(globalStats.registeredPlayers).filter(isObject)
+    : [];
   const activePlayers = isObject(globalStats.activePlayers)
     ? Object.values(globalStats.activePlayers).filter(isObject)
     : [];
   const totals = isObject(globalStats.totals) ? globalStats.totals : {};
-  const chains = isObject(globalStats.chains) ? globalStats.chains : {};
-  const endless = isObject(globalStats.endless) ? globalStats.endless : {};
   const ranked = isObject(globalStats.ranked) ? globalStats.ranked : {};
-  const modePlayCounts = intMap(globalStats.modePlayCounts);
+  const modePlayCounts = normalizedModePlayCounts(globalStats.modePlayCounts);
   const formationCounts = intMap(globalStats.formationCounts);
   const dailyEconomy = isObject(globalStats.economy)
     ? intMap(globalStats.economy)
@@ -1012,47 +1413,15 @@ function buildDailyStats(dateKey, summaries, globalStats = {}) {
     netCoins: numberValue(dailyEconomy.netCoins),
     expEarned: numberValue(dailyEconomy.expEarned),
   };
-  const holdings = {
-    totalCoinsHeld: 0,
-    totalExpHeld: 0,
-    adsRemovedPlayers: 0,
-  };
-
-  for (const [uid, summary] of Object.entries(summaries)) {
-    if (!isObject(summary)) continue;
-    const profile = isObject(summary.profile) ? summary.profile : {};
-    const overall = isObject(summary.overall) ? summary.overall : {};
-    const name =
-      typeof profile.displayName === 'string' && profile.displayName.trim()
-        ? profile.displayName.trim()
-        : typeof summary.displayName === 'string' && summary.displayName.trim()
-          ? summary.displayName.trim()
-          : 'Player';
-    const publicId =
-      typeof profile.publicId === 'string' ? profile.publicId : '';
-    const player = {uid, name, publicId};
-
-    if (accountCreatedDateKey(summary) === dateKey) {
-      registeredPlayers.push(player);
-    }
-
-    const eco = isObject(summary.economy) ? summary.economy : {};
-    holdings.totalCoinsHeld += numberValue(eco.coins);
-    holdings.totalExpHeld += numberValue(eco.exp);
-    if (eco.adsRemoved === true) {
-      holdings.adsRemovedPlayers++;
-    }
-  }
-
   return {
     date: dateKey,
+    totalPlayers: numberValue(playerCounts.totalPlayers),
     registeredPlayers: {
       count: registeredPlayers.length,
       players: registeredPlayers,
     },
     loginPlayers: {
       count: activePlayers.length,
-      players: activePlayers,
     },
     modePlayCounts,
     formationCounts,
@@ -1062,9 +1431,6 @@ function buildDailyStats(dateKey, summaries, globalStats = {}) {
       totalLosses: numberValue(totals.losses),
       totalClearedBalls: numberValue(totals.clearedBalls),
       totalNormalClearedBalls: numberValue(totals.normalClearedBalls),
-      totalMaxChain: numberValue(chains.totalMaxChain),
-      endlessPlayCount: numberValue(endless.playCount),
-      endlessScoreTotal: numberValue(endless.scoreTotal),
     },
     ranked: {
       matches: numberValue(ranked.matches),
@@ -1073,8 +1439,80 @@ function buildDailyStats(dateKey, summaries, globalStats = {}) {
       ratingDelta: numberValue(ranked.ratingDelta),
     },
     economy,
-    holdings,
   };
+}
+
+function mergeDailyRawStats(primary = {}, legacy = {}) {
+  if (!isObject(primary)) return isObject(legacy) ? legacy : {};
+  if (!isObject(legacy)) return primary;
+  return {
+    date: primary.date || legacy.date,
+    updatedAt: Math.max(numberValue(primary.updatedAt), numberValue(legacy.updatedAt)),
+    registeredPlayers: {
+      ...(isObject(legacy.registeredPlayers) ? legacy.registeredPlayers : {}),
+      ...(isObject(primary.registeredPlayers) ? primary.registeredPlayers : {}),
+    },
+    activePlayers: {
+      ...(isObject(legacy.activePlayers) ? legacy.activePlayers : {}),
+      ...(isObject(primary.activePlayers) ? primary.activePlayers : {}),
+    },
+    totals: sumObjectMaps(legacy.totals, primary.totals),
+    ranked: sumObjectMaps(legacy.ranked, primary.ranked),
+    modePlayCounts: sumObjectMaps(legacy.modePlayCounts, primary.modePlayCounts),
+    formationCounts: sumObjectMaps(legacy.formationCounts, primary.formationCounts),
+    economy: sumObjectMaps(legacy.economy, primary.economy),
+  };
+}
+
+function sumObjectMaps(...maps) {
+  const result = {};
+  for (const map of maps) {
+    if (!isObject(map)) continue;
+    for (const [key, value] of Object.entries(map)) {
+      result[key] = numberValue(result[key]) + numberValue(value);
+    }
+  }
+  return result;
+}
+
+function normalizedModePlayCounts(raw) {
+  const counts = intMap(raw);
+  const endless = numberValue(counts.ENDLESS) + numberValue(counts.SOLO);
+  const ranked = numberValue(counts.RANKED);
+  const rankedPvp = numberValue(counts.RANKED_PVP);
+  const friend = Math.max(
+    numberValue(counts.FRIEND),
+    numberValue(counts.FRIEND_PVP),
+  );
+  const result = {};
+  if (ranked > 0) result.RANKED = ranked;
+  if (rankedPvp > 0) result.RANKED_PVP = rankedPvp;
+  if (endless > 0) result.ENDLESS = endless;
+  if (numberValue(counts.CPU) > 0) result.CPU = numberValue(counts.CPU);
+  if (friend > 0) result.FRIEND = friend;
+  if (numberValue(counts.ARENA) > 0) result.ARENA = numberValue(counts.ARENA);
+  const versus = friend + rankedPvp;
+  if (versus > 0) result.VERSUS = versus;
+  for (const [key, value] of Object.entries(counts)) {
+    if (
+      [
+        'SOLO',
+        'ENDLESS',
+        'RANKED',
+        'RANKED_PVP',
+        'CPU',
+        'FRIEND',
+        'FRIEND_PVP',
+        'ARENA',
+        'ARENA_PVP',
+        'VERSUS',
+      ].includes(key)
+    ) {
+      continue;
+    }
+    if (value > 0) result[key] = value;
+  }
+  return result;
 }
 
 function intMap(value) {
@@ -1091,6 +1529,16 @@ function jstDateKey(date) {
     month: '2-digit',
     day: '2-digit',
   }).format(date);
+}
+
+function jstStartOfDayMillis(timestampMillis) {
+  const shifted = new Date(timestampMillis + JST_OFFSET_MS);
+  const startUtcMillis = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+  );
+  return startUtcMillis - JST_OFFSET_MS;
 }
 
 function jstDateTimeText(date) {
@@ -1134,6 +1582,33 @@ function rankedPreviousSeasonId(seasonId) {
   return month === 1 ? formatSeasonId(year - 1, 12) : formatSeasonId(year, month - 1);
 }
 
+function rankedNextSeasonId(seasonId) {
+  const match = /^(\d{4})-(\d{2})$/.exec(seasonId);
+  if (!match) return '';
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  return month === 12 ? formatSeasonId(year + 1, 1) : formatSeasonId(year, month + 1);
+}
+
+function rankedSeasonEndAtMillis(seasonId) {
+  const match = /^(\d{4})-(\d{2})$/.exec(seasonId);
+  if (!match) return 0;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month)) return 0;
+  return Date.UTC(
+    year,
+    month - 1,
+    lastDayOfMonth(year, month),
+    RANKED_SEASON_END_HOUR_JST,
+  ) - JST_OFFSET_MS;
+}
+
+function rankedRewardExpiresAt(seasonId) {
+  const nextSeasonId = rankedNextSeasonId(seasonId);
+  return nextSeasonId ? rankedSeasonEndAtMillis(nextSeasonId) : 0;
+}
+
 function endlessCurrentSeasonId(date) {
   const wall = jstWallClockDate(date);
   return formatEndlessWeekId(endlessWeekStartDate(wall));
@@ -1143,6 +1618,29 @@ function endlessPreviousSeasonId(seasonId) {
   const start = endlessWeekStartDateForId(seasonId);
   if (!start) return '';
   return formatEndlessWeekId(new Date(start.getTime() - 7 * 24 * 60 * 60 * 1000));
+}
+
+function endlessRewardExpiresAt(seasonId) {
+  const start = endlessWeekStartDateForId(seasonId);
+  if (!start) return 0;
+  return Date.UTC(
+    start.getUTCFullYear(),
+    start.getUTCMonth(),
+    start.getUTCDate() + 14,
+    ENDLESS_SEASON_SWITCH_HOUR_JST,
+  ) - JST_OFFSET_MS;
+}
+
+function dailyWinRewardExpiresAt(dateKey) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return 0;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return 0;
+  }
+  return Date.UTC(year, month - 1, day + 2, 0) - JST_OFFSET_MS;
 }
 
 function endlessWeekStartDate(wall) {
@@ -1223,6 +1721,23 @@ function numberValue(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+async function fetchCandidateChildrenByCutoffs(path, indexedCutoffs, limit = 1000) {
+  const merged = {};
+  const ref = admin.database().ref(path);
+  const snapshots = await Promise.all(
+    indexedCutoffs.map(([childPath, cutoff]) =>
+      ref.orderByChild(childPath).endAt(cutoff).limitToFirst(limit).get(),
+    ),
+  );
+  for (const snapshot of snapshots) {
+    const values = isObject(snapshot.val()) ? snapshot.val() : {};
+    for (const [key, value] of Object.entries(values)) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
 function roomTimestamp(room) {
   const candidates = [
     room.updatedAt,
@@ -1230,6 +1745,22 @@ function roomTimestamp(room) {
     room.startedAt,
     room.createdAt,
     room.matchmaking?.timestamp,
+  ];
+  for (const candidate of candidates) {
+    const value = numberValue(candidate);
+    if (value > 0) {
+      return value;
+    }
+  }
+  return 0;
+}
+
+function matchmakingTimestamp(entry) {
+  const candidates = [
+    entry.timestamp,
+    entry.assignedAt,
+    entry.joinedAt,
+    entry.createdAt,
   ];
   for (const candidate of candidates) {
     const value = numberValue(candidate);

@@ -14,6 +14,7 @@ import '../game/game_models.dart';
 import '../moderation/moderation_manager.dart';
 import 'ranked_season_manager.dart';
 import 'realtime_connection_guard.dart';
+import 'realtime_transport_client.dart';
 import 'server_time_manager.dart';
 
 typedef RoomUpdateCallback = void Function(MultiplayerRoom room);
@@ -28,7 +29,10 @@ typedef OpponentStampReceivedCallback = void Function(
   String stampId,
   int level,
 );
-typedef OpponentGameOverCallback = void Function();
+typedef OpponentGameOverCallback = void Function({
+  Map<String, dynamic>? finalBoard,
+  String? reason,
+});
 typedef OpponentDisconnectedCallback = void Function();
 typedef RematchStartedCallback = void Function(int newSeed);
 
@@ -247,6 +251,19 @@ class SavedSessionResolution {
   final bool wasOfflineDisconnect;
 }
 
+class RoomResultSnapshot {
+  const RoomResultSnapshot({
+    required this.isWin,
+    this.reason = '',
+  });
+
+  final bool isWin;
+  final String reason;
+
+  bool get isForfeit =>
+      reason == 'offline_forfeit' || reason == 'opponent_offline_forfeit';
+}
+
 class _MatchmakingCandidate {
   const _MatchmakingCandidate({
     required this.uid,
@@ -304,6 +321,8 @@ class MultiplayerManager {
   ];
 
   final Random _random = Random();
+  final RealtimeTransportClient _realtimeTransportClient =
+      RealtimeTransportClient();
 
   String? currentRoomId;
   String? myRoleId;
@@ -446,18 +465,10 @@ class MultiplayerManager {
       if (!hasProvidedName && !hasSavedName) {
         return currentRating;
       }
-      final badgeIds = await _currentEquippedBadgeIds();
-      final playerIconId = await _currentEquippedPlayerIconId();
-      final playerIconFrameId = await _currentEquippedIconFrameId();
-      final ballSkinId = await _currentEquippedBallSkinId();
       await userRef.update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
         'rating': syncedRating,
-        'badgeIds': badgeIds,
-        'playerIconId': playerIconId,
-        'playerIconFrameId': playerIconFrameId,
-        'ballSkinId': ballSkinId,
         'updatedAt': ServerValue.timestamp,
       }).timeout(matchmakingDatabaseOperationTimeout);
     } on TimeoutException {
@@ -474,7 +485,6 @@ class MultiplayerManager {
     final uid = myUid ?? await _loadAuthenticatedUid();
     myUid = uid;
 
-    final badgeIds = await _currentEquippedBadgeIds();
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
     final ballSkinId = await _currentEquippedBallSkinId();
@@ -482,10 +492,6 @@ class MultiplayerManager {
       'name': displayPlayerName,
       'publicId': PlayerDataManager.instance.playerId,
       'rating': currentRating,
-      'badgeIds': badgeIds,
-      'playerIconId': playerIconId,
-      'playerIconFrameId': playerIconFrameId,
-      'ballSkinId': ballSkinId,
       'updatedAt': ServerValue.timestamp,
     }).timeout(matchmakingDatabaseOperationTimeout);
     final roomId = currentRoomId;
@@ -495,7 +501,6 @@ class MultiplayerManager {
         await _db.child('rooms/$roomId/players/$roleId').update({
           'name': displayPlayerName,
           'publicId': PlayerDataManager.instance.playerId,
-          'badgeIds': badgeIds,
           'playerIconId': playerIconId,
           'playerIconFrameId': playerIconFrameId,
           'ballSkinId': ballSkinId,
@@ -518,6 +523,7 @@ class MultiplayerManager {
   Future<RankedRatingChange?> applyRankedResult({
     required bool isWin,
     bool applyOpponentResult = false,
+    String? reason,
   }) async {
     if (!isRankedMode) {
       return null;
@@ -538,18 +544,10 @@ class MultiplayerManager {
     currentRating = newRating;
 
     try {
-      final badgeIds = await _currentEquippedBadgeIds();
-      final playerIconId = await _currentEquippedPlayerIconId();
-      final playerIconFrameId = await _currentEquippedIconFrameId();
-      final ballSkinId = await _currentEquippedBallSkinId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
         'rating': newRating,
-        'badgeIds': badgeIds,
-        'playerIconId': playerIconId,
-        'playerIconFrameId': playerIconFrameId,
-        'ballSkinId': ballSkinId,
         'updatedAt': ServerValue.timestamp,
       });
 
@@ -562,6 +560,7 @@ class MultiplayerManager {
           'oldRating': oldRating,
           'newRating': newRating,
           'delta': delta,
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
           if (seasonExpired) 'seasonExpired': true,
           if (currentRoom?.seasonId != null) 'seasonId': currentRoom!.seasonId,
           'timestamp': ServerValue.timestamp,
@@ -573,6 +572,9 @@ class MultiplayerManager {
             myOldRating: oldRating,
             opponentWon: !isWin,
             seasonExpired: seasonExpired,
+            reason: reason == 'opponent_offline_forfeit'
+                ? 'offline_forfeit'
+                : reason,
           );
         }
         unawaited(
@@ -605,17 +607,9 @@ class MultiplayerManager {
     final delta = newRating - oldRating;
     currentRating = newRating;
 
-    final badgeIds = await _currentEquippedBadgeIds();
-    final playerIconId = await _currentEquippedPlayerIconId();
-    final playerIconFrameId = await _currentEquippedIconFrameId();
-    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('users/$uid').update({
       'name': displayPlayerName,
       'rating': newRating,
-      'badgeIds': badgeIds,
-      'playerIconId': playerIconId,
-      'playerIconFrameId': playerIconFrameId,
-      'ballSkinId': ballSkinId,
       'updatedAt': ServerValue.timestamp,
     });
 
@@ -631,6 +625,7 @@ class MultiplayerManager {
     required int myOldRating,
     required bool opponentWon,
     required bool seasonExpired,
+    String? reason,
   }) async {
     final opponent = currentRoom?.players[opponentRoleId];
     final opponentUid = opponent?.uid;
@@ -659,6 +654,7 @@ class MultiplayerManager {
       'oldRating': opponentOldRating,
       'newRating': opponentNewRating,
       'delta': opponentDelta,
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
       if (seasonExpired) 'seasonExpired': true,
       if (currentRoom?.seasonId != null) 'seasonId': currentRoom!.seasonId,
       'resolvedBy': myUid,
@@ -736,6 +732,7 @@ class MultiplayerManager {
         await _syncPresenceMode();
         _listenRoom();
         _listenGameplayChannels();
+        unawaited(_connectRealtimeTransportIfEnabled());
         return roomId;
       }
 
@@ -791,6 +788,7 @@ class MultiplayerManager {
       await _syncPresenceMode();
       _listenRoom();
       _listenGameplayChannels();
+      unawaited(_connectRealtimeTransportIfEnabled());
       return true;
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('ルーム参加', error));
@@ -855,7 +853,7 @@ class MultiplayerManager {
 
       unawaited(_tryRandomMatch(myRating));
       _matchmakingPollTimer = Timer.periodic(
-        const Duration(seconds: 2),
+        const Duration(seconds: 1),
         (_) => unawaited(_tryRandomMatch(myRating)),
       );
       rankedBotTimer = Timer(
@@ -1011,16 +1009,18 @@ class MultiplayerManager {
         return;
       }
 
-      final snapshot = await _db.child('matchmaking').get();
-      final rawPlayers = snapshot.value;
-      if (rawPlayers is! Map) {
+      final range = _currentMatchmakingRange();
+      final rawPlayers = await _fetchRankedMatchmakingEntriesInRange(
+        myRating: myRating,
+        range: range,
+      );
+      if (rawPlayers.isEmpty) {
         return;
       }
 
-      final range = _currentMatchmakingRange();
       final now = DateTime.now().millisecondsSinceEpoch;
       final candidates = <_MatchmakingCandidate>[];
-      for (final entry in rawPlayers.entries) {
+      for (final entry in rawPlayers) {
         final opponentUid = entry.key.toString();
         if (opponentUid == uid) {
           continue;
@@ -1171,6 +1171,38 @@ class MultiplayerManager {
     } catch (error, stackTrace) {
       _completeMatchmakingError(error, stackTrace);
     }
+  }
+
+  Future<List<MapEntry<String, Object?>>>
+      _fetchRankedMatchmakingEntriesInRange({
+    required int myRating,
+    required int range,
+  }) async {
+    final lowerBound = myRating - range;
+    final upperBound = myRating + range;
+    final lowerQuery = _db
+        .child('matchmaking')
+        .orderByChild('rating')
+        .startAt(lowerBound)
+        .endAt(myRating)
+        .limitToLast(25);
+    final upperQuery = _db
+        .child('matchmaking')
+        .orderByChild('rating')
+        .startAt(myRating)
+        .endAt(upperBound)
+        .limitToFirst(25);
+    final snapshots = await Future.wait([lowerQuery.get(), upperQuery.get()]);
+    final entriesByUid = <String, Object?>{};
+    for (final snapshot in snapshots) {
+      final raw = snapshot.value;
+      if (raw is Map) {
+        for (final entry in raw.entries) {
+          entriesByUid['${entry.key}'] = entry.value;
+        }
+      }
+    }
+    return entriesByUid.entries.toList();
   }
 
   Future<void> _completeRankedBotMatch(int myRating) async {
@@ -1501,18 +1533,9 @@ class MultiplayerManager {
   }
 
   Future<void> _writeWaitingMatchmakingEntry(String uid, int myRating) async {
-    final playerIconId = await _currentEquippedPlayerIconId();
-    final playerIconFrameId = await _currentEquippedIconFrameId();
-    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
-      'roomId': null,
-      'role': null,
-      'name': displayPlayerName,
-      'playerIconId': playerIconId,
-      'playerIconFrameId': playerIconFrameId,
-      'ballSkinId': ballSkinId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1544,15 +1567,8 @@ class MultiplayerManager {
     int myRating,
   ) async {
     try {
-      final playerIconId = await _currentEquippedPlayerIconId();
-      final playerIconFrameId = await _currentEquippedIconFrameId();
-      final ballSkinId = await _currentEquippedBallSkinId();
       await _db.child('matchmaking/$uid').update({
         'rating': myRating,
-        'name': displayPlayerName,
-        'playerIconId': playerIconId,
-        'playerIconFrameId': playerIconFrameId,
-        'ballSkinId': ballSkinId,
         'timestamp': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -1766,18 +1782,9 @@ class MultiplayerManager {
       return;
     }
 
-    final playerIconId = await _currentEquippedPlayerIconId();
-    final playerIconFrameId = await _currentEquippedIconFrameId();
-    final ballSkinId = await _currentEquippedBallSkinId();
     await _db.child('matchmaking/$uid').set({
       'status': 'waiting',
       'rating': myRating,
-      'roomId': null,
-      'role': null,
-      'name': displayPlayerName,
-      'playerIconId': playerIconId,
-      'playerIconFrameId': playerIconFrameId,
-      'ballSkinId': ballSkinId,
       'joinedAt': ServerValue.timestamp,
       'timestamp': ServerValue.timestamp,
     });
@@ -1866,6 +1873,7 @@ class MultiplayerManager {
     await _syncPresenceMode();
     _listenRoom();
     _listenGameplayChannels();
+    unawaited(_connectRealtimeTransportIfEnabled());
   }
 
   Future<void> _createArenaRoom({
@@ -1919,6 +1927,7 @@ class MultiplayerManager {
     await _syncPresenceMode();
     _listenRoom();
     _listenGameplayChannels();
+    unawaited(_connectRealtimeTransportIfEnabled());
   }
 
   Future<bool> _waitForRankedGuest(String roomId) async {
@@ -2001,6 +2010,7 @@ class MultiplayerManager {
     _isLaunchingRematch = false;
     _opponentDisconnectNotified = false;
     _presencePreserveMode = null;
+    await _realtimeTransportClient.disconnect();
   }
 
   Future<void> _clearGuestInvite(String opponentUid, String roomId) async {
@@ -2444,18 +2454,10 @@ class MultiplayerManager {
     currentRating = newRating;
 
     try {
-      final badgeIds = await _currentEquippedBadgeIds();
-      final playerIconId = await _currentEquippedPlayerIconId();
-      final playerIconFrameId = await _currentEquippedIconFrameId();
-      final ballSkinId = await _currentEquippedBallSkinId();
       await _db.child('users/$uid').update({
         'name': displayPlayerName,
         'publicId': PlayerDataManager.instance.playerId,
         'rating': newRating,
-        'badgeIds': badgeIds,
-        'playerIconId': playerIconId,
-        'playerIconFrameId': playerIconFrameId,
-        'ballSkinId': ballSkinId,
         'updatedAt': ServerValue.timestamp,
       });
     } on FirebaseException {
@@ -2480,6 +2482,7 @@ class MultiplayerManager {
     required String myRoleId,
     required bool isWin,
     Map<dynamic, dynamic>? existingOpponentResult,
+    String? reason,
   }) async {
     final roomId = room.roomId;
     final opponentRoleId = myRoleId == 'host' ? 'guest' : 'host';
@@ -2509,6 +2512,7 @@ class MultiplayerManager {
       'oldRating': myOldRating,
       'newRating': myNewRating,
       'delta': myDelta,
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
       if (seasonExpired) 'seasonExpired': true,
       if (room.seasonId != null) 'seasonId': room.seasonId,
       'resolvedBy': myUidValue,
@@ -2541,6 +2545,9 @@ class MultiplayerManager {
         'oldRating': opponentPlayer.rating,
         'newRating': opponentNewRating,
         'delta': opponentDelta,
+        if (reason != null && reason.isNotEmpty)
+          'reason':
+              reason == 'opponent_offline_forfeit' ? 'offline_forfeit' : reason,
         if (seasonExpired) 'seasonExpired': true,
         if (room.seasonId != null) 'seasonId': room.seasonId,
         'resolvedBy': myUidValue,
@@ -2597,6 +2604,7 @@ class MultiplayerManager {
     await _syncPresenceMode();
     _listenRoom();
     _listenGameplayChannels();
+    unawaited(_connectRealtimeTransportIfEnabled());
   }
 
   Future<void> setReady() async {
@@ -2632,6 +2640,56 @@ class MultiplayerManager {
     }
   }
 
+  Future<void> markCurrentPlayerPlayingIfNeeded() async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      return;
+    }
+    try {
+      final snapshots = await Future.wait([
+        _db.child('rooms/$roomId/status').get(),
+        _db.child('rooms/$roomId/players/$roleId/status').get(),
+      ]);
+      final roomStatus = snapshots[0].value?.toString();
+      final playerStatus = snapshots[1].value?.toString();
+      if (roomStatus == 'game_over' ||
+          playerStatus == 'dead' ||
+          playerStatus == 'forfeit_win') {
+        return;
+      }
+      await _db.child('rooms/$roomId/players/$roleId').update({
+        'status': 'playing',
+        'reconnectedAt': ServerValue.timestamp,
+      });
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('接続復帰通知', error));
+    }
+  }
+
+  Future<List<OjamaTask>> consumeQueuedIncomingOjama() async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      return const [];
+    }
+    try {
+      final queueRef =
+          _db.child('rooms/$roomId/players/$roleId/proxyIncomingOjama');
+      final snapshot = await queueRef.get();
+      final tasks = _dynamicList(snapshot.value)
+          .map(_ojamaTaskFromMap)
+          .whereType<OjamaTask>()
+          .toList(growable: false);
+      if (tasks.isNotEmpty) {
+        await queueRef.remove();
+      }
+      return tasks;
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('復帰時妨害取得', error));
+    }
+  }
+
   Future<void> sendBoardState(Map<String, dynamic> boardData) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
@@ -2639,8 +2697,14 @@ class MultiplayerManager {
       throw StateError('参加中のルームがありません。');
     }
 
+    final payload = Map<String, dynamic>.from(boardData);
+    if (await _sendRealtimeGameplayPrimary('board', payload)) {
+      return;
+    }
+
     try {
       await _db.child('rooms/$roomId/players/$roleId/board').set(boardData);
+      _sendRealtimeGameplayShadow('board', payload);
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('盤面送信', error));
     }
@@ -2747,6 +2811,8 @@ class MultiplayerManager {
     List<BallColor> colors,
     String action,
     int dropSeed,
+    int pieceId,
+    int eventSeq,
     List<int> nextColors,
     bool movingLeft,
     bool movingRight,
@@ -2762,25 +2828,61 @@ class MultiplayerManager {
       throw StateError('参加中のルームがありません。');
     }
 
+    final includesTransform = switch (action) {
+      'spawn' ||
+      'rotate_left' ||
+      'rotate_right' ||
+      'set_x' ||
+      'start_left' ||
+      'stop_left' ||
+      'start_right' ||
+      'stop_right' ||
+      'contact_slide' ||
+      'move' ||
+      'hard_drop' ||
+      'lock' =>
+        true,
+      _ => false,
+    };
+    final payload = includesTransform
+        ? <String, dynamic>{
+            'action': action,
+            'rotation': rotation,
+            'colors': colors.map((color) => color.index).toList(),
+            'dropSeed': dropSeed,
+            'pieceId': pieceId,
+            'eventSeq': eventSeq,
+            'nextColors': nextColors,
+            'movingLeft': movingLeft,
+            'movingRight': movingRight,
+            'contactSlideDirection': contactSlideDirection,
+            'ballSkinId': ballSkinId,
+            'x': x,
+            'y': y,
+            'relativeX': relativeX,
+            'relativeY': relativeY,
+            if (lockedCells != null && lockedCells.isNotEmpty)
+              'lockedCells': lockedCells,
+          }
+        : <String, dynamic>{
+            'action': action,
+            'pieceId': pieceId,
+            'eventSeq': eventSeq,
+            'movingLeft': movingLeft,
+            'movingRight': movingRight,
+            if (contactSlideDirection != 0)
+              'contactSlideDirection': contactSlideDirection,
+          };
+    if (await _sendRealtimeGameplayPrimary('activePiece', payload)) {
+      return;
+    }
+
     try {
       await _db.child('rooms/$roomId/players/$roleId/activePiece').set({
-        'action': action,
-        'x': x,
-        'y': y,
-        'relativeX': relativeX,
-        'relativeY': relativeY,
-        'rotation': rotation,
-        'colors': colors.map((color) => color.index).toList(),
-        'dropSeed': dropSeed,
-        'nextColors': nextColors,
-        'movingLeft': movingLeft,
-        'movingRight': movingRight,
-        'contactSlideDirection': contactSlideDirection,
-        'ballSkinId': ballSkinId,
-        if (lockedCells != null && lockedCells.isNotEmpty)
-          'lockedCells': lockedCells,
+        ...payload,
         'timestamp': ServerValue.timestamp,
       });
+      _sendRealtimeGameplayShadow('activePiece', payload);
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('ピース同期送信', error));
     }
@@ -2794,16 +2896,21 @@ class MultiplayerManager {
 
     final attackRef =
         _db.child('rooms/$roomId/players/$opponentRoleId/attacks').push();
-    final payload = {
+    final realtimePayload = <String, dynamic>{
       'type': task.type.name,
       'startColor': task.startColor?.index,
       'presetColors': task.presetColors?.map((color) => color.index).toList(),
       'ballSkinId': task.ballSkinId,
       'effectSkinId': task.effectSkinId,
+    };
+
+    final payload = {
+      ...realtimePayload,
       'timestamp': ServerValue.timestamp,
     };
     try {
       await attackRef.set(payload);
+      _sendRealtimeGameplayShadow('attack', realtimePayload);
     } on FirebaseException catch (error) {
       final reconnected = await RealtimeConnectionGuard.waitForConnected(
         timeout: const Duration(milliseconds: 500),
@@ -2813,6 +2920,7 @@ class MultiplayerManager {
       }
       try {
         await attackRef.set(payload);
+        _sendRealtimeGameplayShadow('attack', realtimePayload);
       } on FirebaseException catch (retryError) {
         throw StateError(_firebaseErrorMessage('攻撃送信', retryError));
       }
@@ -2839,10 +2947,37 @@ class MultiplayerManager {
     }
   }
 
+  Future<bool> queueOpponentAttackIfDisconnected(OjamaTask task) async {
+    final roomId = currentRoomId;
+    if (roomId == null || myRoleId == null) {
+      return false;
+    }
+    try {
+      final opponentRole = opponentRoleId;
+      final statusSnapshot =
+          await _db.child('rooms/$roomId/players/$opponentRole/status').get();
+      if (statusSnapshot.value?.toString() == 'left') {
+        await queueDisconnectedOpponentAttack(task);
+        return true;
+      }
+    } on FirebaseException {
+      // 待避キューは切断復帰用の補助なので、通常の攻撃送信は止めない。
+    }
+    return false;
+  }
+
   Future<void> sendStamp(String stampId, {int level = 1}) async {
     final roomId = currentRoomId;
     if (roomId == null || myRoleId == null) {
       throw StateError('参加中のルームがありません。');
+    }
+
+    final payload = <String, dynamic>{
+      'id': stampId,
+      'level': level.clamp(1, 4),
+    };
+    if (await _sendRealtimeGameplayPrimary('stamp', payload)) {
+      return;
     }
 
     try {
@@ -2854,6 +2989,7 @@ class MultiplayerManager {
         'level': level.clamp(1, 4),
         'timestamp': ServerValue.timestamp,
       });
+      _sendRealtimeGameplayShadow('stamp', payload);
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('スタンプ送信', error));
     }
@@ -2866,18 +3002,29 @@ class MultiplayerManager {
       throw StateError('参加中のルームがありません。');
     }
 
+    final payload = <String, dynamic>{
+      'items': ojamaData,
+      'dropSeed': dropSeed,
+    };
+    if (await _sendRealtimeGameplayPrimary('ojamaSpawn', payload)) {
+      return;
+    }
+
     try {
       await _db.child('rooms/$roomId/players/$roleId/ojamaSpawns').push().set({
         'items': ojamaData,
         'dropSeed': dropSeed,
         'timestamp': ServerValue.timestamp,
       });
+      _sendRealtimeGameplayShadow('ojamaSpawn', payload);
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('妨害同期送信', error));
     }
   }
 
-  Future<void> declareGameOver() async {
+  Future<void> declareGameOver({
+    Map<String, dynamic>? finalBoard,
+  }) async {
     final roomId = currentRoomId;
     final roleId = myRoleId;
     if (roomId == null || roleId == null) {
@@ -2887,12 +3034,17 @@ class MultiplayerManager {
     try {
       await _db.child('rooms/$roomId/players/$roleId').update({
         'status': 'dead',
+        if (finalBoard != null) 'finalBoard': finalBoard,
       });
       await _db.child('rooms/$roomId').update({
         'status': 'game_over',
         'endedAt': ServerValue.timestamp,
         'updatedAt': ServerValue.timestamp,
       });
+      unawaited(_realtimeTransportClient.sendRelay('gameOver', {
+        'roleId': roleId,
+        if (finalBoard != null) 'finalBoard': finalBoard,
+      }));
       if (isRankedMode || (currentRoom?.isRanked ?? false)) {
         unawaited(
           _removeRoomIfFinishedAfterDelay(
@@ -2907,22 +3059,55 @@ class MultiplayerManager {
   }
 
   Future<void> forceOpponentGameOver() async {
+    final room = currentRoom;
     final roomId = currentRoomId;
+    final roleId = myRoleId;
     final opponentRole = myRoleId == 'host' ? 'guest' : 'host';
-    if (roomId == null || myRoleId == null) {
+    if (room == null || roomId == null || roleId == null) {
       throw StateError('参加中のルームがありません。');
     }
 
     try {
+      if (isRankedMode || room.isRanked) {
+        await _ensureRankedResultRecorded(
+          room: room,
+          myRoleId: roleId,
+          isWin: true,
+          reason: 'opponent_offline_forfeit',
+        );
+      } else {
+        await _db.child('rooms/$roomId/results/$roleId').set({
+          'uid': myUid,
+          'isWin': true,
+          'reason': 'opponent_offline_forfeit',
+          'resolvedBy': myUid,
+          'timestamp': ServerValue.timestamp,
+        });
+        await _db.child('rooms/$roomId/results/$opponentRole').set({
+          'isWin': false,
+          'reason': 'offline_forfeit',
+          'resolvedBy': myUid,
+          'timestamp': ServerValue.timestamp,
+        });
+      }
+      await _db.child('rooms/$roomId/players/$roleId').update({
+        'status': 'forfeit_win',
+        'finishReason': 'opponent_offline_forfeit',
+        'resolvedAt': ServerValue.timestamp,
+      });
       await _db.child('rooms/$roomId/players/$opponentRole').update({
         'status': 'dead',
         'resolvedBy': myUid,
+        'finishReason': 'offline_forfeit',
         'resolvedAt': ServerValue.timestamp,
       });
       await _db.child('rooms/$roomId').update({
         'status': 'game_over',
         'endedAt': ServerValue.timestamp,
         'updatedAt': ServerValue.timestamp,
+        'finishReason': 'offline_forfeit',
+        'forfeitLoserRole': opponentRole,
+        'forfeitWinnerRole': roleId,
       });
       if (isRankedMode || (currentRoom?.isRanked ?? false)) {
         unawaited(
@@ -2935,6 +3120,96 @@ class MultiplayerManager {
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('相手側ゲーム終了確定', error));
     }
+  }
+
+  Future<bool> recordOfflineForfeitLoss() async {
+    final room = currentRoom;
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (room == null || roomId == null || roleId == null) {
+      return false;
+    }
+
+    final opponentRole = roleId == 'host' ? 'guest' : 'host';
+    try {
+      if (isRankedMode || room.isRanked) {
+        await _ensureRankedResultRecorded(
+          room: room,
+          myRoleId: roleId,
+          isWin: false,
+          reason: 'offline_forfeit',
+        );
+      } else {
+        await _db.child('rooms/$roomId/results/$roleId').set({
+          'uid': myUid,
+          'isWin': false,
+          'reason': 'offline_forfeit',
+          'resolvedBy': myUid,
+          'timestamp': ServerValue.timestamp,
+        });
+        await _db.child('rooms/$roomId/results/$opponentRole').set({
+          'isWin': true,
+          'reason': 'opponent_offline_forfeit',
+          'resolvedBy': myUid,
+          'timestamp': ServerValue.timestamp,
+        });
+      }
+
+      await _db.child('rooms/$roomId').update({
+        'status': 'game_over',
+        'endedAt': ServerValue.timestamp,
+        'updatedAt': ServerValue.timestamp,
+        'finishReason': 'offline_forfeit',
+        'forfeitLoserRole': roleId,
+        'forfeitWinnerRole': opponentRole,
+      });
+      await _db.child('rooms/$roomId/players/$roleId').update({
+        'status': 'dead',
+        'finishReason': 'offline_forfeit',
+        'resolvedAt': ServerValue.timestamp,
+      });
+      await _db.child('rooms/$roomId/players/$opponentRole').update({
+        'status': 'forfeit_win',
+        'finishReason': 'opponent_offline_forfeit',
+        'resolvedAt': ServerValue.timestamp,
+      });
+      unawaited(_realtimeTransportClient.sendRelay('gameOver', {
+        'roleId': roleId,
+        'reason': 'offline_forfeit',
+      }));
+      unawaited(
+        _removeRoomIfFinishedAfterDelay(roomId, const Duration(seconds: 8)),
+      );
+      return true;
+    } on FirebaseException {
+      return false;
+    }
+  }
+
+  Future<bool?> loadCurrentRoomResultIsWin() async {
+    final result = await loadCurrentRoomResult();
+    return result?.isWin;
+  }
+
+  Future<RoomResultSnapshot?> loadCurrentRoomResult() async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      return null;
+    }
+    try {
+      final snapshot = await _db.child('rooms/$roomId/results/$roleId').get();
+      final value = snapshot.value;
+      if (value is Map) {
+        return RoomResultSnapshot(
+          isWin: value['isWin'] == true,
+          reason: value['reason']?.toString() ?? '',
+        );
+      }
+    } on FirebaseException {
+      return null;
+    }
+    return null;
   }
 
   Future<void> removeCurrentRoomIfFinished({
@@ -3053,6 +3328,9 @@ class MultiplayerManager {
       await _db.child('rooms/$roomId/players/$roleId').update({
         'status': 'rematch_ready',
       });
+      unawaited(_realtimeTransportClient.sendRelay('rematchRequest', {
+        'roleId': roleId,
+      }));
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('再戦準備', error));
     }
@@ -3313,8 +3591,15 @@ class MultiplayerManager {
     _opponentBoardSubscription?.cancel();
     _opponentPieceSubscription?.cancel();
     _attackSubscription?.cancel();
+    _stampSubscription?.cancel();
     _opponentOjamaSpawnSubscription?.cancel();
     _opponentStatusSubscription?.cancel();
+    _opponentBoardSubscription = null;
+    _opponentPieceSubscription = null;
+    _attackSubscription = null;
+    _stampSubscription = null;
+    _opponentOjamaSpawnSubscription = null;
+    _opponentStatusSubscription = null;
 
     final roomId = currentRoomId;
     final roleId = myRoleId;
@@ -3322,110 +3607,75 @@ class MultiplayerManager {
       return;
     }
 
-    _opponentBoardSubscription = _db
-        .child('rooms/$roomId/players/$opponentRoleId/board')
-        .onValue
-        .listen((event) {
-      final value = event.snapshot.value;
-      if (value is Map<dynamic, dynamic>) {
-        onOpponentBoardUpdated?.call(_stringDynamicMap(value));
-      }
-    });
+    if (!_realtimeTransportClient.useAsPrimaryGameplayTransport) {
+      _opponentBoardSubscription = _db
+          .child('rooms/$roomId/players/$opponentRoleId/board')
+          .onValue
+          .listen((event) {
+        final value = event.snapshot.value;
+        if (value is Map<dynamic, dynamic>) {
+          onOpponentBoardUpdated?.call(_stringDynamicMap(value));
+        }
+      });
 
-    _opponentPieceSubscription = _db
-        .child('rooms/$roomId/players/$opponentRoleId/activePiece')
-        .onValue
-        .listen((event) {
-      final value = event.snapshot.value;
-      if (value is Map<dynamic, dynamic>) {
-        onOpponentPieceUpdated?.call(_stringDynamicMap(value));
-      }
-    });
+      _opponentPieceSubscription = _db
+          .child('rooms/$roomId/players/$opponentRoleId/activePiece')
+          .onValue
+          .listen((event) {
+        final value = event.snapshot.value;
+        if (value is Map<dynamic, dynamic>) {
+          onOpponentPieceUpdated?.call(_stringDynamicMap(value));
+        }
+      });
+
+      _stampSubscription = _db
+          .child('rooms/$roomId/players/$roleId/stamps')
+          .onChildAdded
+          .listen((event) async {
+        final value = event.snapshot.value;
+        if (value is Map<dynamic, dynamic>) {
+          final stampId = value['id'] as String?;
+          if (stampId != null) {
+            onOpponentStampReceived?.call(
+              stampId,
+              (_intValue(value['level']) ?? 1).clamp(1, 4),
+            );
+          }
+        }
+        if (event.snapshot.key != null) {
+          await event.snapshot.ref.remove();
+        }
+      });
+
+      _opponentOjamaSpawnSubscription = _db
+          .child('rooms/$roomId/players/$opponentRoleId/ojamaSpawns')
+          .onChildAdded
+          .listen((event) async {
+        final value = event.snapshot.value;
+        if (value is Map<dynamic, dynamic>) {
+          final items = _dynamicList(value['items']);
+          final dropSeed = (value['dropSeed'] as num?)?.toInt();
+          if (items.isNotEmpty) {
+            onOpponentOjamaSpawned?.call(
+              items,
+              dropSeed ?? DateTime.now().microsecondsSinceEpoch,
+            );
+          }
+        }
+
+        if (event.snapshot.key != null) {
+          await event.snapshot.ref.remove();
+        }
+      });
+    }
 
     _attackSubscription = _db
         .child('rooms/$roomId/players/$roleId/attacks')
         .onChildAdded
         .listen((event) async {
-      final value = event.snapshot.value;
-      OjamaTask? task;
-      if (value is Map<dynamic, dynamic>) {
-        final typeName = value['type'] as String?;
-        OjamaType? type;
-        for (final candidate in OjamaType.values) {
-          if (candidate.name == typeName) {
-            type = candidate;
-            break;
-          }
-        }
-        if (type != null) {
-          final startColorIndex = (value['startColor'] as num?)?.toInt();
-          final rawPresetColors = value['presetColors'];
-          final presetColors = rawPresetColors is List
-              ? rawPresetColors
-                  .map((item) =>
-                      item is num ? item.toInt() : int.tryParse('$item'))
-                  .whereType<int>()
-                  .where(
-                      (index) => index >= 0 && index < BallColor.values.length)
-                  .map((index) => BallColor.values[index])
-                  .toList()
-              : null;
-          task = OjamaTask(
-            type,
-            startColor: startColorIndex != null &&
-                    startColorIndex >= 0 &&
-                    startColorIndex < BallColor.values.length
-                ? BallColor.values[startColorIndex]
-                : null,
-            presetColors: presetColors,
-            ballSkinId: value['ballSkinId']?.toString() ?? 'default',
-            effectSkinId: value['effectSkinId']?.toString(),
-          );
-        }
-      }
-
+      final task = _ojamaTaskFromMap(event.snapshot.value);
       if (task != null) {
         onAttackReceived?.call(task);
-      }
-
-      if (event.snapshot.key != null) {
-        await event.snapshot.ref.remove();
-      }
-    });
-
-    _stampSubscription = _db
-        .child('rooms/$roomId/players/$roleId/stamps')
-        .onChildAdded
-        .listen((event) async {
-      final value = event.snapshot.value;
-      if (value is Map<dynamic, dynamic>) {
-        final stampId = value['id'] as String?;
-        if (stampId != null) {
-          onOpponentStampReceived?.call(
-            stampId,
-            (_intValue(value['level']) ?? 1).clamp(1, 4),
-          );
-        }
-      }
-      if (event.snapshot.key != null) {
-        await event.snapshot.ref.remove();
-      }
-    });
-
-    _opponentOjamaSpawnSubscription = _db
-        .child('rooms/$roomId/players/$opponentRoleId/ojamaSpawns')
-        .onChildAdded
-        .listen((event) async {
-      final value = event.snapshot.value;
-      if (value is Map<dynamic, dynamic>) {
-        final items = _dynamicList(value['items']);
-        final dropSeed = (value['dropSeed'] as num?)?.toInt();
-        if (items.isNotEmpty) {
-          onOpponentOjamaSpawned?.call(
-            items,
-            dropSeed ?? DateTime.now().microsecondsSinceEpoch,
-          );
-        }
       }
 
       if (event.snapshot.key != null) {
@@ -3436,17 +3686,130 @@ class MultiplayerManager {
     _opponentStatusSubscription = _db
         .child('rooms/$roomId/players/$opponentRoleId/status')
         .onValue
-        .listen((event) {
+        .listen((event) async {
       final status = event.snapshot.value as String?;
       if (status != null && status.isNotEmpty) {
         _applyPlayerStatusUpdate(opponentRoleId, status);
       }
       if (status == 'dead') {
-        onOpponentGameOver?.call();
+        Map<String, dynamic>? finalBoard;
+        String? finishReason;
+        try {
+          final playerSnapshot =
+              await _db.child('rooms/$roomId/players/$opponentRoleId').get();
+          final playerValue = playerSnapshot.value;
+          if (playerValue is Map) {
+            finishReason = playerValue['finishReason']?.toString();
+          }
+          final finalBoardSnapshot = playerValue is Map
+              ? playerValue['finalBoard']
+              : (await _db
+                      .child('rooms/$roomId/players/$opponentRoleId/finalBoard')
+                      .get())
+                  .value;
+          if (finalBoardSnapshot is Map) {
+            finalBoard = _stringDynamicMap(
+              finalBoardSnapshot,
+            );
+          }
+        } on FirebaseException {
+          // finalBoardは補助情報なので、取得失敗時も従来通り処理する。
+        }
+        onOpponentGameOver?.call(
+          finalBoard: finalBoard,
+          reason: finishReason ?? status,
+        );
       } else if (status == 'left') {
         _notifyOpponentDisconnected();
       }
     });
+  }
+
+  Future<bool> _sendRealtimeGameplayPrimary(
+    String type,
+    Map<String, dynamic> payload,
+  ) async {
+    if (!_realtimeTransportClient.useAsPrimaryGameplayTransport) {
+      return false;
+    }
+    return _realtimeTransportClient.sendRelay(type, payload);
+  }
+
+  void reportRealtimeMetric(
+    String name, {
+    num value = 1,
+    Map<String, dynamic>? payload,
+  }) {
+    unawaited(
+      _realtimeTransportClient.sendMetric(
+        name,
+        value: value,
+        payload: payload,
+      ),
+    );
+  }
+
+  void _sendRealtimeGameplayShadow(
+    String type,
+    Map<String, dynamic> payload,
+  ) {
+    if (_realtimeTransportClient.useAsPrimaryGameplayTransport) {
+      return;
+    }
+    unawaited(_realtimeTransportClient.sendRelay(type, payload));
+  }
+
+  void _handleRealtimeRelay(
+    String messageType,
+    Map<String, dynamic> payload,
+  ) {
+    switch (messageType) {
+      case 'board':
+        onOpponentBoardUpdated?.call(payload);
+        break;
+      case 'activePiece':
+        onOpponentPieceUpdated?.call(payload);
+        break;
+      case 'attack':
+        final task = _ojamaTaskFromMap(payload);
+        if (task != null) {
+          onAttackReceived?.call(task);
+        }
+        break;
+      case 'stamp':
+        final stampId = payload['id']?.toString();
+        if (stampId != null && stampId.isNotEmpty) {
+          onOpponentStampReceived?.call(
+            stampId,
+            (_intValue(payload['level']) ?? 1).clamp(1, 4),
+          );
+        }
+        break;
+      case 'ojamaSpawn':
+        final items = _dynamicList(payload['items']);
+        if (items.isNotEmpty) {
+          onOpponentOjamaSpawned?.call(
+            items,
+            _intValue(payload['dropSeed']) ??
+                DateTime.now().microsecondsSinceEpoch,
+          );
+        }
+        break;
+      case 'gameOver':
+        final finalBoard = payload['finalBoard'];
+        onOpponentGameOver?.call(
+          finalBoard:
+              finalBoard is Map ? Map<String, dynamic>.from(finalBoard) : null,
+          reason: payload['reason']?.toString(),
+        );
+        break;
+      case 'rematchRequest':
+      case 'rematchReady':
+      case 'snapshotRequest':
+      case 'snapshot':
+      case 'resultCommit':
+        break;
+    }
   }
 
   void _notifyOpponentDisconnected() {
@@ -3478,6 +3841,11 @@ class MultiplayerManager {
     _stampSubscription = null;
     _opponentOjamaSpawnSubscription = null;
     _opponentStatusSubscription = null;
+    _realtimeTransportClient.onRelay = null;
+    _realtimeTransportClient.onPresence = null;
+    _realtimeTransportClient.onReady = null;
+    _realtimeTransportClient.onDisconnected = null;
+    await _realtimeTransportClient.disconnect();
     onRoomUpdated = null;
     onOpponentBoardUpdated = null;
     onOpponentPieceUpdated = null;
@@ -3512,6 +3880,11 @@ class MultiplayerManager {
     _stampSubscription = null;
     _opponentOjamaSpawnSubscription = null;
     _opponentStatusSubscription = null;
+    _realtimeTransportClient.onRelay = null;
+    _realtimeTransportClient.onPresence = null;
+    _realtimeTransportClient.onReady = null;
+    _realtimeTransportClient.onDisconnected = null;
+    await _realtimeTransportClient.disconnect();
 
     try {
       if (roomId != null && roleId != null) {
@@ -3561,6 +3934,59 @@ class MultiplayerManager {
     onOpponentGameOver = null;
     onOpponentDisconnected = null;
     onRematchStarted = null;
+  }
+
+  Future<void> _connectRealtimeTransportIfEnabled() async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null || roomId == rankedBotRoomId) {
+      _realtimeTransportClient.onRelay = null;
+      _realtimeTransportClient.onPresence = null;
+      _realtimeTransportClient.onReady = null;
+      _realtimeTransportClient.onDisconnected = null;
+      await _realtimeTransportClient.disconnect();
+      return;
+    }
+    _realtimeTransportClient.onRelay = _handleRealtimeRelay;
+    _realtimeTransportClient.onPresence = _handleRealtimePresence;
+    _realtimeTransportClient.onReady = _listenGameplayChannels;
+    _realtimeTransportClient.onDisconnected = _listenGameplayChannels;
+    await _realtimeTransportClient.connectIfEnabled(
+      roomId: roomId,
+      roleId: roleId,
+      mode: _currentTransportMode,
+      displayName: displayPlayerName,
+    );
+  }
+
+  String get _currentTransportMode {
+    final room = currentRoom;
+    if (room?.isRanked == true || isRankedMode) {
+      return 'ranked';
+    }
+    return 'friend';
+  }
+
+  void _handleRealtimePresence(List<Map<String, dynamic>> players) {
+    final roleId = myRoleId;
+    final room = currentRoom;
+    if (roleId == null) {
+      return;
+    }
+    final opponentRole = opponentRoleId;
+    final opponentPresent = players.any(
+      (player) => player['role']?.toString() == opponentRole,
+    );
+    final roomIsPlaying =
+        room?.status == 'playing' || _lastRoomStatus == 'playing';
+    if (roomIsPlaying && !opponentPresent) {
+      _notifyOpponentDisconnected();
+      return;
+    }
+    if (opponentPresent) {
+      _hadOpponentPresent = true;
+      _opponentDisconnectNotified = false;
+    }
   }
 
   Future<int> _loadLatestUserRating() async {

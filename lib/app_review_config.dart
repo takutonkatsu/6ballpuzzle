@@ -27,7 +27,7 @@ class AppReviewConfig {
 
   static const String privacyPolicyUrl = String.fromEnvironment(
     'PRIVACY_POLICY_URL',
-    defaultValue: 'https://takutonkatsu.github.io/Hexagon/privacy.html',
+    defaultValue: 'https://takutonkatsu.com/hexagon/privacy.html',
   );
   static const String supportEmail = String.fromEnvironment(
     'SUPPORT_EMAIL',

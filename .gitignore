@@ -33,6 +33,10 @@ migrate_working_dir/
 /build/
 /coverage/
 functions/node_modules/
+realtime_server/node_modules/
+realtime_server/dist/
+realtime_server/.env
+realtime_server/firebase-service-account*.json
 
 # Symbolication related
 app.*.symbols

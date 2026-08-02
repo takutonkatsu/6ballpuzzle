@@ -9,38 +9,71 @@
     "matchmaking": {
       ".read": true,
       ".write": true,
-      ".indexOn": ["rating", "timestamp", "joinedAt"]
+      ".indexOn": ["rating", "timestamp", "assignedAt", "joinedAt", "createdAt"]
     },
     "arena_matchmaking": {
       ".read": true,
       ".write": true,
-      ".indexOn": ["wins", "timestamp", "joinedAt"]
+      ".indexOn": ["wins", "timestamp", "assignedAt", "joinedAt", "createdAt"]
     },
     "rooms": {
       ".read": true,
-      ".write": true
+      ".write": true,
+      ".indexOn": ["updatedAt", "resultKnownAt", "startedAt", "createdAt", "matchmaking/timestamp"]
     },
     "rankings": {
       "global": {
-        ".read": true,
-        ".write": true,
-        ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"]
+        ".read": false,
+        ".write": true
       }
+    },
+    "endlessAllTimeRankings": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["highestEndlessScore", "updatedAt"]
     },
     "rankedSeasons": {
       ".read": true,
-      ".write": true,
+      "currentSeasonId": {
+        ".write": false
+      },
+      "archivedSeasonIds": {
+        ".write": false
+      },
       "seasons": {
         "$seasonId": {
           "rankings": {
-            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"]
+            ".indexOn": ["rating", "updatedAt", "dailyWins", "dailyWinDate", "previousDailyWinDate", "highestEndlessScore"],
+            "$uid": {
+              ".write": true
+            }
+          },
+          "finalTop100": {
+            ".write": false
+          },
+          "finalTop100SchemaVersion": {
+            ".write": false
+          },
+          "finalized": {
+            ".write": false
+          },
+          "finalizedAt": {
+            ".write": false
           }
         }
       }
     },
     "rankedSeasonBadges": {
+      ".read": false,
+      ".write": false
+    },
+    "rankedSeasonRankBadges": {
       ".read": true,
-      ".write": true
+      ".write": false
+    },
+    "endlessSeasonRankBadges": {
+      ".read": true,
+      ".write": false
     },
     "endlessSeasons": {
       ".read": true,
@@ -55,7 +88,8 @@
     },
     "serverTimePings": {
       ".read": true,
-      ".write": true
+      ".write": true,
+      ".indexOn": ["current/timestamp"]
     },
     "realtimeGameActivity": {
       ".read": true,
@@ -73,6 +107,11 @@
     "adminGrants": {
       ".read": true,
       ".write": true
+    },
+    "adminGrantExpirations": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["expiresAt"]
     },
     "inviteCodes": {
       ".read": true,

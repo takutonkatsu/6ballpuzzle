@@ -11,7 +11,6 @@ import '../audio/sfx.dart';
 import '../auth/auth_manager.dart';
 import '../data/models/badge_item.dart';
 import '../data/player_data_manager.dart';
-import '../firebase_database_provider.dart';
 import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
 import '../network/server_time_manager.dart';
@@ -1389,28 +1388,6 @@ class _RecordScreenState extends State<RecordScreen> {
         // ランキング側から現在プロフィールを解決できない場合は保存済みIDで続行する。
       }
 
-      if (uid.isEmpty) {
-        try {
-          final key = _nameLookupKey(displayName);
-          final snapshot = await AppFirebaseDatabase.ref()
-              .child('playerNameLookup/$key')
-              .get();
-          final raw = snapshot.value;
-          if (raw is Map && raw.isNotEmpty) {
-            final first = raw.entries.first;
-            final data = first.value is Map
-                ? Map<dynamic, dynamic>.from(first.value as Map)
-                : <dynamic, dynamic>{};
-            uid = data['uid']?.toString() ?? first.key.toString();
-            publicId = data['publicId']?.toString() ?? publicId;
-            displayName = data['displayName']?.toString() ?? displayName;
-            rating = _intValue(data['currentRating']) ?? rating;
-          }
-        } catch (_) {
-          uid = '';
-        }
-      }
-
       if (!mounted) {
         return;
       }
@@ -1440,21 +1417,6 @@ class _RecordScreenState extends State<RecordScreen> {
     } finally {
       _openingOpponentProfile = false;
     }
-  }
-
-  int? _intValue(Object? value) {
-    if (value is num) {
-      return value.toInt();
-    }
-    return int.tryParse('$value');
-  }
-
-  String _nameLookupKey(String name) {
-    final normalized = name.trim().toLowerCase();
-    final key = normalized
-        .replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_')
-        .replaceAll(RegExp(r'\s+'), '_');
-    return key.isEmpty ? 'player' : key;
   }
 
   Widget _scoreSummary(int score) {

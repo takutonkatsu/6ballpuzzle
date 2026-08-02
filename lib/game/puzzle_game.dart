@@ -132,6 +132,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Function(int ballsDestroyed)? onBallsCleared;
   Function(int ballsDestroyed, WazaType highestWaza)? onMatchCleared;
   Function(Map<String, dynamic>)? onBoardUpdated;
+  Function(String reason)? onRemoteBoardCorrectionApplied;
   Function()? onGameOverTriggered;
   Function()? onDeathLineCrossed;
   Function(
@@ -141,6 +142,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     int rotation,
     List<BallColor> colors,
     int dropSeed,
+    int pieceId,
+    int eventSeq,
     List<Map<String, dynamic>>? lockedCells,
   )? onActivePieceChanged;
   Function(List<dynamic>, int)? onOjamaSpawned;
@@ -177,11 +180,18 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   int _remotePreviewRespawnVersion = 0;
   bool isReadyGoText = false;
   double _activePieceSyncCooldown = 0.0;
+  int _nextPieceSyncId = 0;
+  int _currentPieceSyncId = 0;
+  int _activePieceEventSeq = 0;
   bool _suppressNextLandingSfx = false;
   bool _forceLockNextActivePieceContact = false;
   bool _activePieceWasSupportedByContact = false;
   double _activePieceContactSlideDirection = 0.0;
   double? _remoteTopContactSlideDirection;
+  Vector2? _remoteTransformStartPosition;
+  Vector2? _remoteTransformTargetPosition;
+  double _remoteTransformBlendDuration = 0.0;
+  double _remoteTransformBlendElapsed = 0.0;
   double _wallBlockedSlideTime = 0.0;
   bool _ghostPositionDirty = true;
   int _boardVersion = 0;
@@ -191,6 +201,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   bool _hasRemoteOjamaInFlight = false;
   DateTime? _remoteOjamaSpawnedAt;
   bool _isApplyingRemoteHardDrop = false;
+  bool _remotePieceAwaitingTerminalLock = false;
   Map<HexCoordinate, _RemoteBoardCell>? _pendingSpectatorBoardState;
   async.Timer? _deferredRemoteBoardTimer;
   Map<String, dynamic>? _deferredRemoteBoardState;
@@ -358,6 +369,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _activePieceWasSupportedByContact = false;
     _activePieceContactSlideDirection = 0.0;
     _remoteTopContactSlideDirection = null;
+    _remotePieceAwaitingTerminalLock = false;
+    _clearRemoteTransformBlend();
     _wallBlockedSlideTime = 0.0;
     _markGhostPositionDirty();
 
@@ -547,6 +560,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     activePiece = null;
     ghostPiece = null;
+    _remotePieceAwaitingTerminalLock = false;
 
     for (final block in List<OjamaBlockComponent>.from(activeOjamaBlocks)) {
       if (block.parent != null) {
@@ -581,6 +595,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     onBallsCleared = null;
     onMatchCleared = null;
     onBoardUpdated = null;
+    onRemoteBoardCorrectionApplied = null;
     onGameOverTriggered = null;
     onDeathLineCrossed = null;
     onActivePieceChanged = null;
@@ -750,6 +765,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (!isRemotePlayerMode) {
       currentDropSeed = _rng.nextInt(999999);
       syncDropRng = Random(currentDropSeed);
+      _currentPieceSyncId = ++_nextPieceSyncId;
+      _activePieceEventSeq = 0;
     }
 
     activePiece = ActivePieceComponent(
@@ -1090,9 +1107,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       _enforceBounds();
       if ((activePiece!.position.x - beforeX).abs() > 0.01) {
         _markGhostPositionDirty();
+        if (!isRemotePlayerMode) {
+          _notifyActivePieceState(action: 'move');
+        }
       }
     }
 
+    _applyRemoteTransformBlend(dt);
     _updateGhostPosition();
     _checkActivePieceCollision(dt);
   }
@@ -1247,6 +1268,18 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     if (shouldLock) {
+      if (isRemotePlayerMode && !_isApplyingRemoteHardDrop) {
+        activePiece?.isLocked = true;
+        ghostPiece?.isLocked = true;
+        _remotePieceAwaitingTerminalLock = true;
+        isMovingLeft = false;
+        isMovingRight = false;
+        _activePieceWasSupportedByContact = false;
+        _activePieceContactSlideDirection = 0.0;
+        _remoteTopContactSlideDirection = null;
+        _wallBlockedSlideTime = 0.0;
+        return;
+      }
       final oldActive = activePiece!;
       final oldGhost = ghostPiece;
 
@@ -1260,6 +1293,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
       activePiece = null;
       ghostPiece = null;
+      _clearRemoteTransformBlend();
       _forceLockNextActivePieceContact = false;
       _activePieceWasSupportedByContact = false;
       _activePieceContactSlideDirection = 0.0;
@@ -1846,6 +1880,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void _replaceRemoteBoardState(
     Map<HexCoordinate, _RemoteBoardCell> boardData,
   ) {
+    final changed = !_remoteBoardEquals(boardData);
     final preserveAutonomousPreviewPiece =
         isRemotePlayerMode && _autonomousRemotePreviewEnabled;
     final preserveRemoteActivePiece = isRemotePlayerMode &&
@@ -1872,9 +1907,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _markBoardChanged();
 
     _updateHints();
+    if (changed) {
+      onRemoteBoardCorrectionApplied?.call('replace');
+    }
   }
 
   void _mergeRemoteBoardState(Map<HexCoordinate, _RemoteBoardCell> boardData) {
+    final changed = !_remoteBoardEquals(boardData);
     _clearHints();
     _clearActiveOjamaBlocks();
     if (_remoteBoardIncludesActivePiece(boardData)) {
@@ -1912,6 +1951,24 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     _updateHints();
+    if (changed) {
+      onRemoteBoardCorrectionApplied?.call('merge');
+    }
+  }
+
+  bool _remoteBoardEquals(Map<HexCoordinate, _RemoteBoardCell> boardData) {
+    if (grid.lockedBalls.length != boardData.length) {
+      return false;
+    }
+    for (final entry in boardData.entries) {
+      final ball = grid.lockedBalls[entry.key];
+      if (ball == null ||
+          ball.ballColor != entry.value.color ||
+          (ball.hitOffsetX - entry.value.hitOffsetX).abs() > 0.01) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Map<String, dynamic> exportBoardState() {
@@ -1975,6 +2032,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           'rotation': activePieceRotation,
           'colors': piece.colors.map((color) => color.index).toList(),
           'dropSeed': currentDropSeed,
+          'pieceId': _currentPieceSyncId,
           'movingLeft': isMovingLeft,
           'movingRight': isMovingRight,
           'contactSlideDirection': _activePieceContactSlideDirection,
@@ -2141,6 +2199,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     grid.lockedBalls.clear();
     activePiece = null;
     ghostPiece = null;
+    _remotePieceAwaitingTerminalLock = false;
+    _clearRemoteTransformBlend();
     activeOjamaBlocks.clear();
     _hintComponents.clear();
     _markBoardChanged();
@@ -2181,6 +2241,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       remove(ghostPiece!);
     }
     ghostPiece = null;
+    _remotePieceAwaitingTerminalLock = false;
+    _clearRemoteTransformBlend();
     _markGhostPositionDirty();
   }
 
@@ -2211,15 +2273,31 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   }
 
   void spawnRemotePiece(List<BallColor> colors) {
+    spawnRemotePieceWithId(colors: colors);
+  }
+
+  void spawnRemotePieceWithId({
+    required List<BallColor> colors,
+    int? pieceId,
+  }) {
     if (!isRemotePlayerMode) {
       return;
     }
 
     clearRemoteActivePiece();
+    if (pieceId != null && pieceId > 0) {
+      _currentPieceSyncId = pieceId;
+      _nextPieceSyncId = max(_nextPieceSyncId, pieceId);
+    } else {
+      _currentPieceSyncId = ++_nextPieceSyncId;
+    }
+    _activePieceEventSeq = 0;
     isMovingLeft = false;
     isMovingRight = false;
     _activePieceContactSlideDirection = 0.0;
     _remoteTopContactSlideDirection = null;
+    _remotePieceAwaitingTerminalLock = false;
+    _clearRemoteTransformBlend();
 
     activePiece = ActivePieceComponent(
       position: _pieceSpawnPosition,
@@ -2262,6 +2340,13 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
     _remoteTopContactSlideDirection = contactSlideDirection.sign.toDouble();
     _activePieceContactSlideDirection = _remoteTopContactSlideDirection!;
+  }
+
+  void _clearRemoteTransformBlend() {
+    _remoteTransformStartPosition = null;
+    _remoteTransformTargetPosition = null;
+    _remoteTransformBlendDuration = 0.0;
+    _remoteTransformBlendElapsed = 0.0;
   }
 
   void prepareSyncedOjamaDrop(int dropSeed) {
@@ -2344,6 +2429,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                 ? BallColor.values[startColorIndex]
                 : null,
             presetColors: colors,
+            lockedCells: _parseLockedCellPayload(item['landingCells']),
             ballSkinId: itemBallSkinId,
             effectSkinId: itemEffectSkinId,
           );
@@ -2376,20 +2462,50 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     for (final effect in piece.children.whereType<MoveEffect>().toList()) {
       effect.removeFromParent();
     }
-    if (duration <= 0.01) {
-      piece.position = Vector2(x, y);
+    final target = Vector2(x, y);
+    if (duration <= 0.01 ||
+        (piece.position.x - target.x).abs() > _gridUnit * 2) {
+      _clearRemoteTransformBlend();
+      piece.position = target;
     } else {
-      piece.add(
-        MoveEffect.to(
-          Vector2(x, y),
-          EffectController(duration: duration, curve: Curves.easeOut),
-        ),
-      );
+      _remoteTransformStartPosition = piece.position.clone();
+      _remoteTransformTargetPosition = target;
+      _remoteTransformBlendDuration = duration;
+      _remoteTransformBlendElapsed = 0.0;
     }
     _markGhostPositionDirty();
     if (ghostPiece != null) {
-      ghostPiece!.setRotationIndex(rotation);
+      ghostPiece!.setRotationIndex(rotation, animate: duration > 0.01);
       ghostPiece!.angle = piece.angle;
+    }
+  }
+
+  void _applyRemoteTransformBlend(double dt) {
+    if (!isRemotePlayerMode ||
+        activePiece == null ||
+        activePiece!.isLocked ||
+        _remoteTransformTargetPosition == null ||
+        _remoteTransformStartPosition == null ||
+        _remoteTransformBlendDuration <= 0) {
+      return;
+    }
+
+    _remoteTransformBlendElapsed =
+        min(_remoteTransformBlendDuration, _remoteTransformBlendElapsed + dt);
+    final progress =
+        (_remoteTransformBlendElapsed / _remoteTransformBlendDuration)
+            .clamp(0.0, 1.0);
+    final eased = Curves.easeOutCubic.transform(progress);
+    final start = _remoteTransformStartPosition!;
+    final target = _remoteTransformTargetPosition!;
+    activePiece!.position.x = start.x + (target.x - start.x) * eased;
+    _enforceBounds();
+    _markGhostPositionDirty();
+    if (ghostPiece != null) {
+      ghostPiece!.position.x = activePiece!.position.x;
+    }
+    if (progress >= 1.0) {
+      _clearRemoteTransformBlend();
     }
   }
 
@@ -2418,6 +2534,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     _activePieceSyncCooldown = _activePieceSyncInterval;
+    final eventSeq = ++_activePieceEventSeq;
     final lockedCells = action == 'hard_drop' || action == 'lock'
         ? _resolvedDropCellsToPayload(
             _resolveDropCells(
@@ -2433,6 +2550,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       activePieceRotation,
       List<BallColor>.from(piece.colors),
       currentDropSeed,
+      _currentPieceSyncId,
+      eventSeq,
       lockedCells,
     );
   }
@@ -2496,6 +2615,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       return true;
     }
 
+    if (isRemotePlayerMode && activeOjamaBlocks.isNotEmpty) {
+      _deferRemoteBoardStateUntilOjamaComplete(boardData);
+      return true;
+    }
+
     if (!isRemotePlayerMode ||
         !_hasRemoteOjamaInFlight ||
         activeOjamaBlocks.isEmpty) {
@@ -2526,6 +2650,27 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     return true;
   }
 
+  void _deferRemoteBoardStateUntilOjamaComplete(
+    Map<String, dynamic> boardData,
+  ) {
+    _deferredRemoteBoardState = Map<String, dynamic>.from(boardData);
+    _deferredRemoteBoardTimer?.cancel();
+    _deferredRemoteBoardTimer =
+        async.Timer(const Duration(milliseconds: 80), () {
+      final deferred = _deferredRemoteBoardState;
+      _deferredRemoteBoardTimer = null;
+      if (deferred == null || gameStateWrapper.value != GameState.playing) {
+        return;
+      }
+      if (activeOjamaBlocks.isNotEmpty || _isProcessingGravity) {
+        _deferRemoteBoardStateUntilOjamaComplete(deferred);
+        return;
+      }
+      _deferredRemoteBoardState = null;
+      applyRemoteBoardState(deferred);
+    });
+  }
+
   void _dropOjamaTask(OjamaTask task) {
     if (isRemotePlayerMode) {
       incomingOjama.clear();
@@ -2545,6 +2690,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       (_) => _colorsForOjamaSet(task),
     );
     final dropSeeds = List<int>.generate(numSets, (_) => _rng.nextInt(999999));
+    final simulatedOccupied = <HexCoordinate, double>{
+      for (final entry in grid.lockedBalls.entries)
+        entry.key: entry.value.hitOffsetX,
+    };
     for (int i = 0; i < numSets; i++) {
       double spawnX;
       if (task.type == OjamaType.pyramidSet) {
@@ -2557,12 +2706,19 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         spawnX = grid.offset.x;
       }
 
+      final landingCells = _predictOjamaLandingCells(
+        task.type,
+        spawnX: spawnX,
+        colors: colorsPerSet[i],
+        simulatedOccupied: simulatedOccupied,
+      );
       final spawnData = <String, dynamic>{
         'type': task.type.name,
         'x': spawnX,
         'y': grid.offset.y - _ojamaSpawnYOffset,
         'colors': colorsPerSet[i].map((color) => color.index).toList(),
         'dropSeed': dropSeeds[i],
+        if (landingCells.isNotEmpty) 'landingCells': landingCells,
         if (ballSkinId != 'default') 'ballSkinId': ballSkinId,
         if (task.effectSkinId != ballSkinId) 'effectSkinId': task.effectSkinId,
       };
@@ -2593,6 +2749,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           startColor:
               task.type == OjamaType.straightSet ? task.startColor : null,
           presetColors: colors,
+          lockedCells: _parseLockedCellPayload(spawnData['landingCells']),
           ballSkinId: ballSkinId,
           effectSkinId: task.effectSkinId,
         );
@@ -2614,6 +2771,141 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         pendingOjamaSpawns--;
       });
     }
+  }
+
+  List<Map<String, dynamic>> _predictOjamaLandingCells(
+    OjamaType type, {
+    required double spawnX,
+    required List<BallColor> colors,
+    required Map<HexCoordinate, double> simulatedOccupied,
+  }) {
+    final offsets = _ojamaLocalOffsets(type);
+    if (offsets.isEmpty || colors.isEmpty) {
+      return const [];
+    }
+
+    final count = min(offsets.length, colors.length);
+    var collisionY = double.infinity;
+    const collisionDistance = 28.0;
+    for (var i = 0; i < count; i++) {
+      final offset = offsets[i];
+      collisionY = min(collisionY, grid.floorY - _ballRadius - offset.y);
+      final ballX = spawnX + offset.x;
+      for (final entry in simulatedOccupied.entries) {
+        final basePosition = grid.hexToPixel(entry.key);
+        final lockedX = basePosition.x + entry.value;
+        final dx = ballX - lockedX;
+        if (dx.abs() >= collisionDistance) {
+          continue;
+        }
+        final dy = sqrt(collisionDistance * collisionDistance - dx * dx);
+        collisionY = min(collisionY, basePosition.y - dy - offset.y);
+      }
+    }
+
+    if (!collisionY.isFinite) {
+      return const [];
+    }
+
+    final reserved = <HexCoordinate>{};
+    final cells = <Map<String, dynamic>>[];
+    for (var i = 0; i < count; i++) {
+      final offset = offsets[i];
+      final position = Vector2(spawnX + offset.x, collisionY + offset.y);
+      final hex = _findNearestEmptyForSimulatedOjama(
+        grid.pixelToHex(position),
+        simulatedOccupied.keys.toSet(),
+        reserved,
+      );
+      reserved.add(hex);
+      final hitOffsetX = position.x - grid.hexToPixel(hex).x;
+      simulatedOccupied[hex] = hitOffsetX;
+      cells.add({
+        'row': hex.row,
+        'col': hex.col,
+        'hitOffsetX': double.parse(hitOffsetX.toStringAsFixed(4)),
+      });
+    }
+    return cells;
+  }
+
+  List<Vector2> _ojamaLocalOffsets(OjamaType type) {
+    final rowHeight = _ballRadius * sqrt(3);
+    switch (type) {
+      case OjamaType.straightSet:
+        return [
+          for (var i = 0; i < 10; i++) Vector2(i * _gridUnit, 0),
+          for (var i = 0; i < 9; i++)
+            Vector2(i * _gridUnit + _ballRadius, -rowHeight),
+        ];
+      case OjamaType.pyramidSet:
+        return [
+          Vector2(_gridUnit, -2 * rowHeight),
+          Vector2(_ballRadius, -rowHeight),
+          Vector2(_gridUnit + _ballRadius, -rowHeight),
+          Vector2(0, 0),
+          Vector2(_gridUnit, 0),
+          Vector2(_gridUnit * 2, 0),
+        ];
+      case OjamaType.hexagonSet:
+        return [
+          Vector2(_ballRadius, -2 * rowHeight),
+          Vector2(_gridUnit + _ballRadius, -2 * rowHeight),
+          Vector2(0, -rowHeight),
+          Vector2(_gridUnit * 2, -rowHeight),
+          Vector2(_ballRadius, 0),
+          Vector2(_gridUnit + _ballRadius, 0),
+        ];
+    }
+  }
+
+  HexCoordinate _findNearestEmptyForSimulatedOjama(
+    HexCoordinate start,
+    Set<HexCoordinate> occupied,
+    Set<HexCoordinate> reserved,
+  ) {
+    bool blocked(HexCoordinate? hex) {
+      return grid.isOutOfBounds(hex) ||
+          (hex != null && (occupied.contains(hex) || reserved.contains(hex)));
+    }
+
+    if (!blocked(start)) {
+      return start;
+    }
+
+    final queue = [start];
+    final visited = {start};
+    while (queue.isNotEmpty) {
+      final current = queue.removeAt(0);
+      if (!blocked(current)) {
+        return current;
+      }
+      for (final dir in ['a', 'd', 'b', 'c', 'f', 'g']) {
+        final next = grid.getNeighbor(current, dir);
+        if (next != null && !grid.isOutOfBounds(next) && visited.add(next)) {
+          queue.add(next);
+        }
+      }
+    }
+    return start;
+  }
+
+  List<Map<String, dynamic>>? _parseLockedCellPayload(Object? raw) {
+    final items = raw is List
+        ? raw
+        : raw is Map
+            ? raw.values.toList()
+            : null;
+    if (items == null) {
+      return null;
+    }
+    final cells = <Map<String, dynamic>>[];
+    for (final item in items) {
+      if (item is Map) {
+        cells.add(Map<String, dynamic>.from(item));
+      }
+    }
+    return cells.isEmpty ? null : cells;
   }
 
   void forceDropOjamaTask(OjamaTask task) {
@@ -2900,6 +3192,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   void hardDrop() {
     if (activePiece == null || activePiece!.isLocked) return;
+    _markGhostPositionDirty();
+    _updateGhostPosition();
     if (ghostPiece != null) {
       final dropPositions = ghostPiece!.absoluteBallPositions;
       final pieceColors = activePiece!.colors;
@@ -2921,6 +3215,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       }
       _triggerHapticFeedback(HapticFeedback.heavyImpact);
       _notifyActivePieceState(force: true, action: 'hard_drop');
+      _checkActivePieceCollision(0);
     }
   }
 
@@ -2932,13 +3227,18 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     List<Map<String, dynamic>>? lockedCells,
     bool playHardDropEffects = true,
   }) async {
-    if (!isRemotePlayerMode || activePiece == null || activePiece!.isLocked) {
+    if (!isRemotePlayerMode ||
+        activePiece == null ||
+        (activePiece!.isLocked && !_remotePieceAwaitingTerminalLock)) {
       return;
     }
 
     _isApplyingRemoteHardDrop = true;
+    _remotePieceAwaitingTerminalLock = false;
     _pendingSpectatorBoardState = null;
     final piece = activePiece!;
+    piece.isLocked = false;
+    ghostPiece?.isLocked = false;
     try {
       if (rotation != null) {
         piece.setRotationIndex(rotation, animate: false);
@@ -2987,6 +3287,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       }
       activePiece = null;
       ghostPiece = null;
+      _remotePieceAwaitingTerminalLock = false;
+      _clearRemoteTransformBlend();
 
       await _executeLogicDrop(
         dropPositions,

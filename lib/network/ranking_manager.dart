@@ -129,6 +129,14 @@ class RankingManager {
     return AppFirebaseDatabase.ref();
   }
 
+  RankingSummary? cachedMySummary() {
+    if (_summaryCache == null ||
+        !_isCacheFresh(_summaryCacheAt, _summaryCacheTtl)) {
+      return null;
+    }
+    return _summaryCache;
+  }
+
   static String dailyRemainingLabel({DateTime? nowJstOverride}) {
     final now = nowJstOverride;
     if (now == null) {
@@ -211,11 +219,10 @@ class RankingManager {
     final seasonEntryRef = _seasonRankingRef(seasonId).child(resolvedUid);
     final endlessSeasonEntryRef =
         _endlessSeasonRankingRef(endlessSeasonId).child(resolvedUid);
-    final legacyEntryRef = _legacyRankingRef().child(resolvedUid);
+    final allTimeEndlessEntryRef = _allTimeEndlessRankingRef().child(resolvedUid);
     final prefs = await SharedPreferences.getInstance();
     final pushKey =
         '$_lastPushPrefix${seasonId}_${endlessSeasonId}_$resolvedUid';
-    final previousPushName = prefs.getString('${pushKey}_displayName') ?? '';
 
     if (!incrementDailyWin &&
         !incrementSeasonLoss &&
@@ -242,33 +249,44 @@ class RankingManager {
       incrementDailyWin: incrementDailyWin,
       incrementSeasonLoss: incrementSeasonLoss,
     );
-    final legacyPayload = _buildLegacyRankingUpdatePayload(
-      uid: resolvedUid,
-      publicId: publicId,
-      displayName: resolvedName,
-      rating: rating,
-      highestEndlessScore: highestEndlessScore,
-    );
     final endlessPayload = _buildEndlessRankingUpdatePayload(
       uid: resolvedUid,
       publicId: publicId,
       displayName: resolvedName,
       highestEndlessScore: seasonEndlessHighScore,
     );
+    final dailyWinRankingPayload = seasonPayload.remove('dailyWinRanking');
 
     final futures = <Future<void>>[
       seasonEntryRef.update(seasonPayload),
-      legacyEntryRef.update(legacyPayload),
       _syncProfileRatingFields(
         uid: resolvedUid,
         displayName: resolvedName,
         publicId: publicId,
         rating: rating,
-        previousDisplayName: previousPushName,
       ),
     ];
+    if (highestEndlessScore > 0) {
+      futures.add(
+        allTimeEndlessEntryRef.update(
+          _buildAllTimeEndlessRankingUpdatePayload(
+            uid: resolvedUid,
+            publicId: publicId,
+            displayName: resolvedName,
+            highestEndlessScore: highestEndlessScore,
+          ),
+        ),
+      );
+    }
     if (seasonEndlessHighScore > 0) {
       futures.add(endlessSeasonEntryRef.update(endlessPayload));
+    }
+    if (dailyWinRankingPayload is Map<String, Object?>) {
+      futures.add(
+        _dailyWinRankingRef(today)
+            .child(resolvedUid)
+            .set(dailyWinRankingPayload),
+      );
     }
     await Future.wait(futures);
     await _saveLastPush(
@@ -288,12 +306,8 @@ class RankingManager {
     required String displayName,
     required String publicId,
     required int rating,
-    String previousDisplayName = '',
   }) async {
     final lookupKey = _nameLookupKey(displayName);
-    final previousLookupKey = previousDisplayName.trim().isEmpty
-        ? ''
-        : _nameLookupKey(previousDisplayName);
     final syncedAtText = DateTime.now().toIso8601String();
     final payload = <String, Object?>{
       'playerRecordSummaries/$uid/displayName': displayName,
@@ -307,12 +321,8 @@ class RankingManager {
       'playerNameLookup/$lookupKey/$uid/uid': uid,
       'playerNameLookup/$lookupKey/$uid/publicId': publicId,
       'playerNameLookup/$lookupKey/$uid/displayName': displayName,
-      'playerNameLookup/$lookupKey/$uid/currentRating': rating,
       'playerNameLookup/$lookupKey/$uid/updatedAt': ServerValue.timestamp,
     };
-    if (previousLookupKey.isNotEmpty && previousLookupKey != lookupKey) {
-      payload['playerNameLookup/$previousLookupKey/$uid'] = null;
-    }
     await _db.update(payload);
   }
 
@@ -357,7 +367,7 @@ class RankingManager {
         .instance.seasonEndlessHighScore
         .clamp(0, PlayerDataManager.maxEndlessScore)
         .toInt();
-    final legacyPayload = _buildEndlessRankingUpdatePayload(
+    final allTimePayload = _buildAllTimeEndlessRankingUpdatePayload(
       uid: resolvedUid,
       publicId: publicId,
       displayName: resolvedName,
@@ -365,10 +375,7 @@ class RankingManager {
     );
     final futures = <Future<void>>[
       if (highestEndlessScore > 0)
-        _legacyRankingRef().child(resolvedUid).update({
-          ...legacyPayload,
-          'rating': PlayerDataManager.instance.currentRating,
-        }),
+        _allTimeEndlessRankingRef().child(resolvedUid).update(allTimePayload),
     ];
     if (seasonEndlessHighScore > 0) {
       final seasonPayload = _buildEndlessRankingUpdatePayload(
@@ -389,7 +396,6 @@ class RankingManager {
       displayName: resolvedName,
       publicId: publicId,
       rating: PlayerDataManager.instance.currentRating,
-      previousDisplayName: savedPlayerName,
     );
     _topEndlessCache = null;
     _topEndlessCacheAt = null;
@@ -408,12 +414,7 @@ class RankingManager {
       uid: uid,
       publicId: publicId,
     );
-    final legacyEntry = await _fetchEntryByUidOrPublicId(
-      _legacyRankingRef(),
-      uid: uid,
-      publicId: publicId,
-    );
-    return _newerEntry(seasonEntry, legacyEntry);
+    return seasonEntry;
   }
 
   Future<RankingEntry?> fetchCurrentSeasonEntryForPlayer({
@@ -623,7 +624,7 @@ class RankingManager {
       return List<RankingEntry>.from(_topAllTimeEndlessCache!);
     }
     await AuthManager.instance.ensureSignedIn();
-    final snapshot = await _legacyRankingRef()
+    final snapshot = await _allTimeEndlessRankingRef()
         .orderByChild('highestEndlessScore')
         .limitToLast(_rankingLimit)
         .get();
@@ -647,32 +648,51 @@ class RankingManager {
     if (_isCacheFresh(_archivedSeasonIdsCacheAt, const Duration(minutes: 5))) {
       return List<String>.from(_archivedSeasonIdsCache!);
     }
-    final snapshot = await _db.child('rankedSeasons/seasons').get();
-    final raw = snapshot.value;
-    if (raw is! Map) {
-      _archivedSeasonIdsCache = const [];
-      _archivedSeasonIdsCacheAt = DateTime.now();
-      return const [];
-    }
     final clock = await _rankingClock();
     final current = clock.currentSeasonId;
-    final seasonIds = raw.entries
-        .where((entry) {
-          final seasonId = '${entry.key}';
-          final data = entry.value is Map
-              ? entry.value as Map<dynamic, dynamic>
-              : const <dynamic, dynamic>{};
-          return seasonId != current &&
-              RankedSeasonManager.seasonNumber(seasonId) >=
-                  RankedSeasonManager.baseSeasonNumber &&
-              data['finalized'] == true;
-        })
-        .map((entry) => '${entry.key}')
-        .toList();
-    final sorted = seasonIds.toList()..sort((a, b) => b.compareTo(a));
+    final archivedSnapshot =
+        await _db.child('rankedSeasons/archivedSeasonIds').get();
+    final rawArchived = archivedSnapshot.value;
+    if (rawArchived is Map) {
+      final sorted = rawArchived.entries
+          .where((entry) => entry.value == true && '${entry.key}' != current)
+          .map((entry) => '${entry.key}')
+          .where((seasonId) {
+        return RankedSeasonManager.seasonNumber(seasonId) >=
+            RankedSeasonManager.baseSeasonNumber;
+      }).toList()
+        ..sort((a, b) => b.compareTo(a));
+      _archivedSeasonIdsCache = sorted;
+      _archivedSeasonIdsCacheAt = DateTime.now();
+      return List<String>.from(sorted);
+    }
+    final candidates = _rankedArchivedSeasonCandidates(current);
+    final checks = await Future.wait(
+      candidates.map((seasonId) async {
+        final snapshot =
+            await _db.child('rankedSeasons/seasons/$seasonId/finalized').get();
+        return snapshot.value == true ? seasonId : null;
+      }),
+    );
+    final sorted = checks.whereType<String>().toList()
+      ..sort((a, b) => b.compareTo(a));
     _archivedSeasonIdsCache = sorted;
     _archivedSeasonIdsCacheAt = DateTime.now();
     return List<String>.from(sorted);
+  }
+
+  List<String> _rankedArchivedSeasonCandidates(String currentSeasonId) {
+    final candidates = <String>[];
+    var cursor = RankedSeasonManager.previousSeasonId(currentSeasonId);
+    while (RankedSeasonManager.seasonNumber(cursor) >=
+        RankedSeasonManager.baseSeasonNumber) {
+      candidates.add(cursor);
+      if (cursor == RankedSeasonManager.baseSeasonId) {
+        break;
+      }
+      cursor = RankedSeasonManager.previousSeasonId(cursor);
+    }
+    return candidates;
   }
 
   Future<List<String>> fetchArchivedEndlessSeasonIds() async {
@@ -874,31 +894,31 @@ class RankingManager {
     required String uid,
     required String publicId,
   }) async {
-    final idsSnapshot =
-        await _db.child('endlessSeasons/archivedSeasonIds').get();
-    final raw = idsSnapshot.value;
+    final cacheKey = 'endless|$uid|$publicId';
+    if (_isCacheFresh(
+      _seasonRankBadgesCacheAt[cacheKey],
+      const Duration(minutes: 5),
+    )) {
+      return List<SeasonRankBadge>.from(_seasonRankBadgesCache[cacheKey]!);
+    }
+    if (uid.trim().isEmpty) {
+      return const [];
+    }
+    final snapshot = await _db.child('endlessSeasonRankBadges/$uid').get();
+    final raw = snapshot.value;
     if (raw is! Map) {
+      _seasonRankBadgesCache[cacheKey] = const [];
+      _seasonRankBadgesCacheAt[cacheKey] = DateTime.now();
       return const [];
     }
     final badges = <SeasonRankBadge>[];
-    final seasonIds = raw.keys.map((key) => '$key').toList()
-      ..sort((a, b) => b.compareTo(a));
-    for (final seasonId in seasonIds.take(24)) {
-      final finalTopSnapshot =
-          await _db.child('endlessSeasons/seasons/$seasonId/finalTop100').get();
-      final rawFinalTop = finalTopSnapshot.value;
-      if (rawFinalTop == null) {
+    for (final entry in raw.entries) {
+      final seasonId = '${entry.key}';
+      final value = entry.value;
+      if (value is! Map) {
         continue;
       }
-      final entry = _findFinalTopEntryForPlayer(
-        rawFinalTop,
-        uid: uid,
-        publicId: publicId,
-      );
-      if (entry == null) {
-        continue;
-      }
-      final rank = RankingEntry._intValue(entry['rank']);
+      final rank = RankingEntry._intValue(value['rank']);
       if (rank == null || rank <= 0 || rank > 50) {
         continue;
       }
@@ -907,7 +927,7 @@ class RankingManager {
           kind: SeasonRankBadgeKind.endless,
           seasonId: seasonId,
           rank: rank,
-          score: RankingEntry._intValue(entry['highestEndlessScore']),
+          score: RankingEntry._intValue(value['score']),
         ),
       );
     }
@@ -918,39 +938,43 @@ class RankingManager {
       }
       return a.rank.compareTo(b.rank);
     });
-    return badges;
+    _seasonRankBadgesCache[cacheKey] = badges;
+    _seasonRankBadgesCacheAt[cacheKey] = DateTime.now();
+    return List<SeasonRankBadge>.from(badges);
   }
 
   Future<List<SeasonRankBadge>> fetchSeasonRankBadgesForPlayer({
     required String uid,
     required String publicId,
   }) async {
-    final cacheKey = '$uid|$publicId';
+    final cacheKey = 'ranked|$uid|$publicId';
     if (_isCacheFresh(
       _seasonRankBadgesCacheAt[cacheKey],
       const Duration(minutes: 5),
     )) {
       return List<SeasonRankBadge>.from(_seasonRankBadgesCache[cacheKey]!);
     }
+    if (uid.trim().isEmpty) {
+      return const [];
+    }
+    final snapshot = await _db.child('rankedSeasonRankBadges/$uid').get();
+    final raw = snapshot.value;
+    if (raw is! Map) {
+      _seasonRankBadgesCache[cacheKey] = const [];
+      _seasonRankBadgesCacheAt[cacheKey] = DateTime.now();
+      return const [];
+    }
     final badges = <SeasonRankBadge>[];
-    final seasonIds = await fetchArchivedSeasonIds();
-    for (final seasonId in seasonIds) {
-      final entries = await fetchSeasonRankings(seasonId);
-      RankingEntry? entry;
-      for (final candidate in entries) {
-        if (_matchesCurrentPlayer(
-          entry: candidate,
-          uid: uid,
-          publicId: publicId,
-        )) {
-          entry = candidate;
-          break;
-        }
-      }
-      if (entry == null || entry.finalRank == null) {
+    for (final entry in raw.entries) {
+      final seasonId = '${entry.key}';
+      final value = entry.value;
+      if (value is! Map) {
         continue;
       }
-      final rank = entry.finalRank!;
+      final rank = RankingEntry._intValue(value['rank']);
+      if (rank == null) {
+        continue;
+      }
       if (rank <= 0 || rank > _rankingLimit) {
         continue;
       }
@@ -958,7 +982,7 @@ class RankingManager {
         SeasonRankBadge(
           seasonId: seasonId,
           rank: rank,
-          rating: entry.rating,
+          rating: RankingEntry._intValue(value['rating']),
         ),
       );
     }
@@ -980,45 +1004,24 @@ class RankingManager {
       return;
     }
     final seasonRef = _db.child('rankedSeasons/seasons/$seasonId');
-    final finalizedSnapshot = await seasonRef.child('finalized').get();
-    if (finalizedSnapshot.value == true) {
-      final snapshot = await seasonRef.get();
-      final rawSeason = snapshot.value is Map
-          ? snapshot.value as Map<dynamic, dynamic>
-          : null;
-      final rawFinalTop = rawSeason?['finalTop100'];
-      final schemaVersion =
-          RankingEntry._intValue(rawSeason?['finalTop100SchemaVersion']);
-      if (rawFinalTop != null && schemaVersion == _finalTop100SchemaVersion) {
-        await _ensureSeasonBadgesFromFinalTop(seasonId, rawFinalTop);
-        return;
-      }
+    final snapshots = await Future.wait([
+      seasonRef.child('finalized').get(),
+      seasonRef.child('finalTop100').get(),
+      seasonRef.child('finalTop100SchemaVersion').get(),
+    ]);
+    final isFinalized = snapshots[0].value == true;
+    final rawFinalTop = snapshots[1].value;
+    final schemaVersion = RankingEntry._intValue(snapshots[2].value);
+    if (isFinalized &&
+        rawFinalTop != null &&
+        schemaVersion == _finalTop100SchemaVersion) {
+      await _ensureSeasonBadgesFromFinalTop(seasonId, rawFinalTop);
+      return;
     }
-    final entries = await _fetchSeasonSourceRankings(seasonId);
-    final topEntries = entries.take(_rankingLimit).toList();
-    final finalTop100 = <String, Object?>{};
-    final payload = <String, Object?>{};
-    for (var i = 0; i < topEntries.length; i++) {
-      final rank = i + 1;
-      final entry = topEntries[i];
-      finalTop100['rank_${rank.toString().padLeft(3, '0')}'] = {
-        'uid': entry.uid,
-        'publicId': entry.publicId,
-        'displayName': entry.displayName,
-        'rating': entry.rating,
-        'rank': rank,
-        'updatedAt': entry.updatedAt,
-        'seasonWins': entry.seasonWins,
-        'seasonLosses': entry.seasonLosses,
-      };
-    }
-    payload['rankedSeasons/seasons/$seasonId/finalTop100'] = finalTop100;
-    payload['rankedSeasons/seasons/$seasonId/finalTop100SchemaVersion'] =
-        _finalTop100SchemaVersion;
-    payload['rankedSeasons/seasons/$seasonId/finalized'] = true;
-    payload['rankedSeasons/seasons/$seasonId/finalizedAt'] =
-        ServerValue.timestamp;
-    await _db.update(payload);
+    debugPrint(
+      'Ranked season $seasonId is not finalized on server; '
+      'skipping client-side finalTop100 generation.',
+    );
   }
 
   Future<void> _ensureSeasonBadgesFromFinalTop(
@@ -1078,21 +1081,6 @@ class RankingManager {
     return null;
   }
 
-  Future<List<RankingEntry>> _fetchSeasonSourceRankings(String seasonId) async {
-    final snapshot = await _seasonRankingRef(seasonId).get();
-    final entries = _entriesFromSnapshot(snapshot);
-    final fallback = seasonId == RankedSeasonManager.baseSeasonId
-        ? _entriesFromSnapshot(await _legacyRankingRef().get())
-        : const <RankingEntry>[];
-    return _rankableEntries(
-      _mergeRankingEntries(primary: entries, fallback: fallback),
-    )..sort((a, b) {
-        final ratingDiff = b.rating.compareTo(a.rating);
-        if (ratingDiff != 0) return ratingDiff;
-        return (a.updatedAt ?? 0).compareTo(b.updatedAt ?? 0);
-      });
-  }
-
   Future<List<RankingEntry>> _fetchTopRatingEntries({
     required String seasonId,
   }) async {
@@ -1100,17 +1088,7 @@ class RankingManager {
         .orderByChild('rating')
         .limitToLast(_rankingLimit)
         .get();
-    if (seasonId != RankedSeasonManager.baseSeasonId) {
-      return _entriesFromSnapshot(seasonSnapshot);
-    }
-    final legacySnapshot = await _legacyRankingRef()
-        .orderByChild('rating')
-        .limitToLast(_rankingLimit)
-        .get();
-    return _mergeRankingEntries(
-      primary: _entriesFromSnapshot(seasonSnapshot),
-      fallback: _entriesFromSnapshot(legacySnapshot),
-    );
+    return _entriesFromSnapshot(seasonSnapshot);
   }
 
   Future<List<RankingEntry>> _fetchTopEndlessEntries({
@@ -1156,20 +1134,20 @@ class RankingManager {
     return entries.isEmpty ? null : entries.first;
   }
 
-  RankingEntry? _newerEntry(RankingEntry? first, RankingEntry? second) {
-    if (first == null) {
-      return second;
-    }
-    if (second == null) {
-      return first;
-    }
-    return (second.updatedAt ?? 0) > (first.updatedAt ?? 0) ? second : first;
-  }
-
   Future<List<RankingEntry>> _fetchDailyEntriesForDate(
     String dateKey, {
     required String currentSeasonId,
   }) async {
+    final dailySnapshot = await _dailyWinRankingRef(dateKey)
+        .orderByChild('dailyWins')
+        .limitToLast(_rankingLimit)
+        .get();
+    final dailyEntries = _entriesFromSnapshot(dailySnapshot)
+        .where((entry) => entry.dailyWins > 0)
+        .toList();
+    if (dailyEntries.isNotEmpty) {
+      return dailyEntries;
+    }
     final seasonIds = _dailyRankingSeasonIds(
       dateKey,
       currentSeasonId: currentSeasonId,
@@ -1199,24 +1177,6 @@ class RankingManager {
     }
     final mergedSeasonEntries =
         _mergeDailyRankingEntries(seasonEntries, dateKey);
-    if (seasonIds.contains(RankedSeasonManager.baseSeasonId)) {
-      final legacySnapshot = await _legacyRankingRef()
-          .orderByChild('dailyWinDate')
-          .equalTo(dateKey)
-          .get();
-      final previousLegacySnapshot = await _legacyRankingRef()
-          .orderByChild('previousDailyWinDate')
-          .equalTo(dateKey)
-          .get();
-      return _mergeDailyFallbackEntries(
-        primary: mergedSeasonEntries,
-        fallback: [
-          ..._entriesFromSnapshot(legacySnapshot),
-          ..._previousDailyEntriesFromSnapshot(previousLegacySnapshot),
-        ],
-        dateKey: dateKey,
-      ).where((entry) => entry.dailyWins > 0).toList();
-    }
     return mergedSeasonEntries.where((entry) => entry.dailyWins > 0).toList();
   }
 
@@ -1265,26 +1225,32 @@ class RankingManager {
           updatePayload['previousDailyWinDate'] = currentWinDate;
           updatePayload['previousDailyWins'] = rawCurrentWins;
         }
-        updatePayload['dailyWins'] = currentWins + 1;
+        final nextDailyWins = currentWins + 1;
+        updatePayload['dailyWins'] = nextDailyWins;
         updatePayload['dailyWinDate'] = today;
+        updatePayload['dailyWinRanking'] = {
+          'uid': uid,
+          'publicId': publicId,
+          'displayName': displayName,
+          'dailyWins': nextDailyWins,
+          'updatedAt': ServerValue.timestamp,
+        };
       }
     }
 
     return updatePayload;
   }
 
-  Map<String, Object?> _buildLegacyRankingUpdatePayload({
+  Map<String, Object?> _buildAllTimeEndlessRankingUpdatePayload({
     required String uid,
     required String publicId,
     required String displayName,
-    required int rating,
     required int highestEndlessScore,
   }) {
     return {
       'uid': uid,
       'publicId': publicId,
       'displayName': displayName,
-      'rating': rating,
       'highestEndlessScore': highestEndlessScore,
       'updatedAt': ServerValue.timestamp,
     };
@@ -1304,22 +1270,6 @@ class RankingManager {
       'updatedAt': ServerValue.timestamp,
       'seededFromLegacy': null,
     };
-  }
-
-  List<RankingEntry> _mergeRankingEntries({
-    required List<RankingEntry> primary,
-    required List<RankingEntry> fallback,
-  }) {
-    final merged = <RankingEntry>[];
-    final seenKeys = <String>{};
-    for (final entry in [...primary, ...fallback]) {
-      final key =
-          entry.publicId.isNotEmpty ? 'public:${entry.publicId}' : entry.uid;
-      if (seenKeys.add(key)) {
-        merged.add(entry);
-      }
-    }
-    return merged;
   }
 
   List<RankingEntry> _dedupeEndlessRankingEntries(
@@ -1369,47 +1319,6 @@ class RankingManager {
         publicId: newerEntry.publicId,
         updatedAt: newerEntry.updatedAt,
         dailyWins: previous.dailyWins + entry.dailyWins,
-        dailyWinDate: dateKey,
-        seasonWins: newerEntry.seasonWins,
-        seasonLosses: newerEntry.seasonLosses,
-        highestEndlessScore: newerEntry.highestEndlessScore,
-        finalRank: newerEntry.finalRank,
-      );
-    }
-    return merged.values.toList();
-  }
-
-  List<RankingEntry> _mergeDailyFallbackEntries({
-    required List<RankingEntry> primary,
-    required List<RankingEntry> fallback,
-    required String dateKey,
-  }) {
-    final merged = <String, RankingEntry>{
-      for (final entry in primary) _entryKey(entry): entry,
-    };
-    for (final entry in fallback) {
-      if (entry.dailyWinDate != dateKey || entry.dailyWins <= 0) {
-        continue;
-      }
-      final key = _entryKey(entry);
-      final previous = merged[key];
-      if (previous == null) {
-        merged[key] = entry;
-        continue;
-      }
-      final newerEntry = (entry.updatedAt ?? 0) >= (previous.updatedAt ?? 0)
-          ? entry
-          : previous;
-      merged[key] = RankingEntry(
-        uid: newerEntry.uid,
-        displayName: newerEntry.displayName,
-        rating:
-            previous.rating >= entry.rating ? previous.rating : entry.rating,
-        publicId: newerEntry.publicId,
-        updatedAt: newerEntry.updatedAt,
-        dailyWins: previous.dailyWins >= entry.dailyWins
-            ? previous.dailyWins
-            : entry.dailyWins,
         dailyWinDate: dateKey,
         seasonWins: newerEntry.seasonWins,
         seasonLosses: newerEntry.seasonLosses,
@@ -1540,12 +1449,16 @@ class RankingManager {
     return _db.child('rankedSeasons/seasons/$seasonId/rankings');
   }
 
-  DatabaseReference _legacyRankingRef() {
-    return _db.child('rankings/global');
+  DatabaseReference _dailyWinRankingRef(String dateKey) {
+    return _db.child('dailyWinRankings/$dateKey');
   }
 
   DatabaseReference _endlessSeasonRankingRef(String seasonId) {
     return _db.child('endlessSeasons/seasons/$seasonId/rankings');
+  }
+
+  DatabaseReference _allTimeEndlessRankingRef() {
+    return _db.child('endlessAllTimeRankings');
   }
 
   Future<void> _saveLastPush({
