@@ -18,6 +18,7 @@ class OjamaBlockComponent extends PositionComponent
 
   late final double fallSpeed;
   bool _collided = false;
+  double? _syncedLandingY;
   double _effectTime = 0;
 
   OjamaBlockComponent({
@@ -54,6 +55,7 @@ class OjamaBlockComponent extends PositionComponent
     } else if (ojamaType == OjamaType.hexagonSet) {
       _buildHexagon();
     }
+    _syncedLandingY = _computeSyncedLandingY();
   }
 
   void _buildStraight() {
@@ -165,6 +167,16 @@ class OjamaBlockComponent extends PositionComponent
     if (_collided) return;
 
     position.y += fallSpeed * dt;
+
+    final syncedLandingY = _syncedLandingY;
+    if (syncedLandingY != null) {
+      if (position.y >= syncedLandingY) {
+        position.y = syncedLandingY;
+        _collided = true;
+        _breakApart();
+      }
+      return;
+    }
 
     if (_checkCollision()) {
       _collided = true;
@@ -296,6 +308,28 @@ class OjamaBlockComponent extends PositionComponent
       }
     }
     return false;
+  }
+
+  double? _computeSyncedLandingY() {
+    final cells = lockedCells;
+    if (cells == null || cells.isEmpty || innerBalls.isEmpty) {
+      return null;
+    }
+    final impactYs = <double>[];
+    for (final cell in cells) {
+      final impactY = _asDouble(cell['impactY']);
+      if (impactY != null && impactY.isFinite) {
+        impactYs.add(impactY);
+      }
+    }
+    if (impactYs.isNotEmpty) {
+      impactYs.sort();
+      return impactYs[impactYs.length ~/ 2];
+    }
+
+    // 古い同期ペイロードには impactY が無い。landingCells は接地後の
+    // グリッド確定にだけ使い、空中での分解位置推測には使わない。
+    return null;
   }
 
   void _breakApart() {

@@ -12,8 +12,9 @@ class BallPopRingEffect extends PositionComponent {
   BallPopRingEffect({
     required Vector2 position,
     required this.ringColor,
-  }) : _radius = 10.0, _alpha = 0.85,
-       super(position: position, anchor: Anchor.center);
+  })  : _radius = 10.0,
+        _alpha = 0.85,
+        super(position: position, anchor: Anchor.center);
 
   @override
   void update(double dt) {
@@ -130,7 +131,8 @@ class _Spark {
     final tailLen = length * (1.0 - progress * 0.5);
 
     final paint = Paint()
-      ..color = Color.lerp(Colors.white, color, progress)!.withValues(alpha: alpha * 0.9)
+      ..color = Color.lerp(Colors.white, color, progress)!
+          .withValues(alpha: alpha * 0.9)
       ..strokeWidth = max(0.5, 2.0 * (1.0 - progress))
       ..strokeCap = StrokeCap.round;
 

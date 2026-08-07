@@ -27,12 +27,14 @@ class AppSettings {
       'settings_interstitial_skip_until';
   static const String _usedAdGiftCodesKey = 'settings_used_ad_gift_codes';
   static const String _onboardingSeenKey = 'settings_onboarding_seen';
+  static const String _hintGuideEnabledKey = 'settings_hint_guide_enabled';
 
   final ValueNotifier<double> musicVolume = ValueNotifier(1.0);
   final ValueNotifier<double> sfxVolume = ValueNotifier(1.0);
   final ValueNotifier<bool> adsRemoved = ValueNotifier(false);
   final ValueNotifier<DateTime?> interstitialSkipUntil = ValueNotifier(null);
   final ValueNotifier<bool> onboardingSeen = ValueNotifier(false);
+  final ValueNotifier<bool> hintGuideEnabled = ValueNotifier(true);
   final ValueNotifier<ControlLayoutPreset> controlLayout =
       ValueNotifier(ControlLayoutPreset.rotateMoveMoveRotate);
 
@@ -58,6 +60,7 @@ class AppSettings {
             ? DateTime.fromMillisecondsSinceEpoch(skipUntilMs)
             : null;
     onboardingSeen.value = prefs.getBool(_onboardingSeenKey) ?? false;
+    hintGuideEnabled.value = prefs.getBool(_hintGuideEnabledKey) ?? true;
     final defaultLayout = ControlLayoutPreset.rotateMoveMoveRotate.index;
     final rawLayout = prefs.getInt(_controlLayoutKey) ?? defaultLayout;
     controlLayout.value = ControlLayoutPreset
@@ -141,6 +144,12 @@ class AppSettings {
     onboardingSeen.value = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_onboardingSeenKey, value);
+  }
+
+  Future<void> setHintGuideEnabled(bool value) async {
+    hintGuideEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_hintGuideEnabledKey, value);
   }
 
   String text(String ja, String en) => ja;

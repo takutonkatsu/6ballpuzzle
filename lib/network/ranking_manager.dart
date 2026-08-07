@@ -93,6 +93,7 @@ class RankingManager {
   static RankingManager get instance => _instance;
 
   static const int _rankingLimit = 100;
+  static const int _rankingFetchLimit = 300;
   static const int _minimumListedRating = 1001;
   static const int _finalTop100SchemaVersion = 6;
   static const Duration _rankingCacheTtl = Duration(minutes: 5);
@@ -161,7 +162,7 @@ class RankingManager {
     if (value.inMinutes >= 1) {
       return '残り${value.inMinutes}分';
     }
-    return '残り${value.inSeconds}秒';
+    return '残り${value.inSeconds.toString().padLeft(2, '0')}秒';
   }
 
   static String todayKeyJst({DateTime? nowJstOverride}) {
@@ -195,13 +196,25 @@ class RankingManager {
       return;
     }
 
+    final seasonId = clock.currentSeasonId;
+    final endlessSeasonId = clock.currentEndlessSeasonId;
     await PlayerDataManager.instance.load();
+    if (PlayerDataManager.instance.rankedSeasonId != seasonId ||
+        !_isPlausibleSeasonRating(
+          rating: PlayerDataManager.instance.currentRating,
+          wins: PlayerDataManager.instance.seasonRankedWins,
+          losses: PlayerDataManager.instance.seasonRankedLosses,
+        )) {
+      await syncSeasonStateForCurrentPlayer();
+      await PlayerDataManager.instance.load();
+      if (!incrementDailyWin && !incrementSeasonLoss) {
+        rating = PlayerDataManager.instance.currentRating;
+      }
+    }
     final savedPlayerName = PlayerDataManager.instance.playerName.trim();
     final resolvedName = (displayName ?? savedPlayerName).trim().isEmpty
         ? PlayerDataManager.instance.displayPlayerName
         : (displayName ?? savedPlayerName).trim();
-    final seasonId = clock.currentSeasonId;
-    final endlessSeasonId = clock.currentEndlessSeasonId;
     final publicId = PlayerDataManager.instance.playerId;
     final highestEndlessScore = PlayerDataManager.instance.highestEndlessScore
         .clamp(0, PlayerDataManager.maxEndlessScore)
@@ -219,7 +232,8 @@ class RankingManager {
     final seasonEntryRef = _seasonRankingRef(seasonId).child(resolvedUid);
     final endlessSeasonEntryRef =
         _endlessSeasonRankingRef(endlessSeasonId).child(resolvedUid);
-    final allTimeEndlessEntryRef = _allTimeEndlessRankingRef().child(resolvedUid);
+    final allTimeEndlessEntryRef =
+        _allTimeEndlessRankingRef().child(resolvedUid);
     final prefs = await SharedPreferences.getInstance();
     final pushKey =
         '$_lastPushPrefix${seasonId}_${endlessSeasonId}_$resolvedUid';
@@ -1086,7 +1100,7 @@ class RankingManager {
   }) async {
     final seasonSnapshot = await _seasonRankingRef(seasonId)
         .orderByChild('rating')
-        .limitToLast(_rankingLimit)
+        .limitToLast(_rankingFetchLimit)
         .get();
     return _entriesFromSnapshot(seasonSnapshot);
   }
@@ -1363,7 +1377,30 @@ class RankingManager {
   List<RankingEntry> _rankableEntries(List<RankingEntry> entries) {
     return entries
         .where((entry) => entry.rating >= _minimumListedRating)
+        .where(_isPlausibleSeasonEntry)
         .toList();
+  }
+
+  bool _isPlausibleSeasonEntry(RankingEntry entry) {
+    return _isPlausibleSeasonRating(
+      rating: entry.rating,
+      wins: entry.seasonWins,
+      losses: entry.seasonLosses,
+    );
+  }
+
+  bool _isPlausibleSeasonRating({
+    required int rating,
+    required int wins,
+    required int losses,
+  }) {
+    final maxReachable = MultiplayerManager.initialRating +
+        wins.clamp(0, 1 << 30) * 95 -
+        losses.clamp(0, 1 << 30) * 5;
+    final minReachable = MultiplayerManager.initialRating +
+        wins.clamp(0, 1 << 30) * 5 -
+        losses.clamp(0, 1 << 30) * 95;
+    return rating >= minReachable && rating <= maxReachable;
   }
 
   String _entryKey(RankingEntry entry) {
@@ -1547,7 +1584,9 @@ class RankingManager {
   }
 
   bool _hasSeasonRecord(RankingEntry? entry) {
-    return entry != null && entry.seasonWins + entry.seasonLosses > 0;
+    return entry != null &&
+        entry.seasonWins + entry.seasonLosses > 0 &&
+        _isPlausibleSeasonEntry(entry);
   }
 
   int _displayRankAt(List<RankingEntry> entries, int index) {

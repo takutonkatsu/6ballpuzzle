@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../data/models/game_item.dart';
+import '../theme/game_theme_colors.dart';
 
 class StampWidget extends StatefulWidget {
   const StampWidget({
@@ -61,6 +62,7 @@ class _StampWidgetState extends State<StampWidget>
       'Yellow' => Colors.amberAccent,
       'Magenta' => Colors.pinkAccent,
       'Purple' => Colors.deepPurpleAccent,
+      'Green' => GameThemeColors.endless,
       _ => Colors.white,
     };
   }

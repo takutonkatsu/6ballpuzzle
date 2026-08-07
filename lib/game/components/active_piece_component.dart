@@ -14,6 +14,7 @@ class ActivePieceComponent extends PositionComponent {
   double fallSpeed;
   bool isLocked = false;
   final bool isGhost;
+  final bool isGuideGhost;
   final String ballSkinId;
 
   double logicalAngle = 0.0;
@@ -34,6 +35,7 @@ class ActivePieceComponent extends PositionComponent {
     required Vector2 position,
     this.ballRadius = 15.0,
     this.isGhost = false,
+    this.isGuideGhost = false,
     List<BallColor>? presetColors,
     this.fallSpeed = 50.0,
     this.ballSkinId = 'default',
@@ -68,6 +70,7 @@ class ActivePieceComponent extends PositionComponent {
         radius: ballRadius,
         ballColor: c,
         isGhost: isGhost,
+        isGuideGhost: isGuideGhost,
         ballSkinId: ballSkinId,
       )..state = BallState.locked);
     }
@@ -111,7 +114,18 @@ class ActivePieceComponent extends PositionComponent {
   @override
   void render(Canvas canvas) {
     // アクティブピース（非ゴースト）のみ、枠付近だけリング発光
-    if (!isGhost && !isLocked) {
+    if (isGuideGhost && !isLocked) {
+      final pulse = (sin(_auraTime * 4.4) + 1.0) / 2.0;
+      final guidePaint = Paint()
+        ..color = const Color(0xFF66F7FF).withValues(alpha: 0.18 + pulse * 0.14)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6 + pulse * 0.7
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3 + pulse * 2);
+      for (final offset in baseOffsets) {
+        canvas.drawCircle(
+            Offset(offset.x, offset.y), ballRadius + 7, guidePaint);
+      }
+    } else if (!isGhost && !isLocked) {
       final auraPulse = (sin(_auraTime * 3.0) + 1.0) / 2.0; // 0.0〜1.0
       for (var i = 0; i < baseOffsets.length; i++) {
         final offset = baseOffsets[i];

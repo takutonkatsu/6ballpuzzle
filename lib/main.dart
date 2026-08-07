@@ -7,6 +7,7 @@ import 'package:flame_audio/flame_audio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_settings.dart';
@@ -18,6 +19,7 @@ import 'data/player_data_manager.dart';
 import 'firebase_database_provider.dart';
 import 'firebase_options_dev.dart' as firebase_dev;
 import 'firebase_options_prod.dart' as firebase_prod;
+import 'moderation/moderation_manager.dart';
 import 'network/multiplayer_manager.dart';
 import 'network/ranking_manager.dart';
 import 'network/realtime_connection_guard.dart';
@@ -212,7 +214,7 @@ class StartupLoadingScreen extends StatefulWidget {
 }
 
 class _StartupLoadingScreenState extends State<StartupLoadingScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const Duration _bootstrapTimeout = Duration(seconds: 8);
   static const Duration _connectionStartupWaitTimeout = Duration(seconds: 8);
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
@@ -243,13 +245,28 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
 
   Future<void> _loadPublicPlayerId() async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedPlayerId =
+          prefs.getString(PlayerDataManager.playerIdPrefsKey) ?? '';
+      if (cachedPlayerId.isNotEmpty && mounted) {
+        setState(() {
+          _publicPlayerId = cachedPlayerId;
+        });
+      }
       final playerDataManager = PlayerDataManager.instance;
       await playerDataManager.load();
+      final loadedPlayerId = playerDataManager.playerId;
+      if (loadedPlayerId.isNotEmpty) {
+        await prefs.setString(
+          PlayerDataManager.playerIdPrefsKey,
+          loadedPlayerId,
+        );
+      }
       if (!mounted) {
         return;
       }
       setState(() {
-        _publicPlayerId = playerDataManager.playerId;
+        _publicPlayerId = loadedPlayerId;
       });
     } catch (_) {
       // ロード画面のID表示に失敗しても起動処理は止めない。
@@ -472,18 +489,13 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                 if (isSubmitting) {
                   return;
                 }
-                final nextName = controller.text.trim();
-                if (nextName.isEmpty) {
-                  setDialogState(() {
-                    errorText = '名前を入力してください。';
-                  });
-                  return;
-                }
                 setDialogState(() {
                   isSubmitting = true;
                   errorText = null;
                 });
                 try {
+                  final nextName = await ModerationManager.instance
+                      .validateAndSanitizePlayerName(controller.text);
                   await _saveAndSyncStartupPlayerName(
                     name: nextName,
                     rating: rating,
@@ -708,14 +720,23 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                                 );
                               },
                               child: Container(
-                                padding: const EdgeInsets.all(10),
+                                padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.035),
-                                  borderRadius: BorderRadius.circular(40),
+                                  color: Colors.black.withValues(alpha: 0.28),
+                                  borderRadius: BorderRadius.circular(36),
                                   border: Border.all(
-                                    color: GameThemeColors.cyanBorder,
-                                    width: 1.4,
+                                    color: Colors.white.withValues(alpha: 0.22),
+                                    width: 1.1,
                                   ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: GameThemeColors.cyan.withValues(
+                                        alpha: 0.14,
+                                      ),
+                                      blurRadius: 22,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
                                 ),
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(30),
@@ -809,29 +830,32 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
                           ),
                         )
                       else
-                        SizedBox(
-                          width: double.infinity,
-                          child: AnimatedBuilder(
-                            animation: _startPromptController,
-                            builder: (context, child) {
-                              final opacity = 0.38 +
-                                  Curves.easeInOut.transform(
-                                        _startPromptController.value,
-                                      ) *
-                                      0.42;
-                              return Opacity(
-                                opacity: opacity,
-                                child: child,
-                              );
-                            },
-                            child: Text(
-                              _isStartingAfterTap ? '開始中...' : 'タップでスタート',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: GameThemeColors.cyan,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 2.2,
+                        Transform.translate(
+                          offset: const Offset(0, -18),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: AnimatedBuilder(
+                              animation: _startPromptController,
+                              builder: (context, child) {
+                                final opacity = 0.38 +
+                                    Curves.easeInOut.transform(
+                                          _startPromptController.value,
+                                        ) *
+                                        0.42;
+                                return Opacity(
+                                  opacity: opacity,
+                                  child: child,
+                                );
+                              },
+                              child: Text(
+                                _isStartingAfterTap ? '開始中...' : 'タップでスタート',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: GameThemeColors.cyan,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 2.2,
+                                ),
                               ),
                             ),
                           ),

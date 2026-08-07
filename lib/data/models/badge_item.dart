@@ -287,13 +287,6 @@ class BadgeCatalog {
       thresholds: const [10, 50, 100, 1000, 10000],
       wazaKey: 'straight',
     ),
-    ..._leveledBadges(
-      idPrefix: 'arena_12_clear',
-      label: 'アリーナ12勝',
-      icon: Icons.workspace_premium,
-      type: BadgeUnlockType.arenaPerfectClearCount,
-      thresholds: const [1, 5, 10, 30, 100],
-    ),
     for (var year = 1; year <= 10; year++)
       BadgeItem(
         id: 'anniversary_$year',

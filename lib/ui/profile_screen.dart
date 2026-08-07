@@ -10,9 +10,11 @@ import '../data/models/badge_item.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
+import '../moderation/moderation_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranking_manager.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/player_icon_image.dart';
 import 'components/season_rank_badge_icon.dart';
 import 'theme/game_theme_colors.dart';
 
@@ -40,7 +42,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final RankingManager _rankingManager = RankingManager.instance;
   bool _loading = true;
   _ProfileViewData? _profile;
-  String? _selectedEquippedBadgeId;
+  bool _showAllOwnedBadges = false;
+  OverlayEntry? _badgeInfoOverlay;
 
   bool get _isOwnProfile {
     final playerUid = widget.playerUid;
@@ -52,6 +55,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _playUiTap() {
     AppSfx.playUiTap();
+  }
+
+  @override
+  void dispose() {
+    _dismissBadgeInfoOverlay();
+    super.dispose();
   }
 
   @override
@@ -243,12 +252,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: () {
-                  if (_selectedEquippedBadgeId == null) {
-                    return;
-                  }
-                  setState(() {
-                    _selectedEquippedBadgeId = null;
-                  });
+                  _dismissBadgeInfoOverlay();
                 },
                 child: Center(
                   child: SingleChildScrollView(
@@ -331,9 +335,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _ProfileViewData profile,
     List<_BadgeDisplay> equippedBadges,
   ) {
-    final selectedBadge = _selectedEquippedBadgeId == null
-        ? null
-        : _badgeDisplayById(equippedBadges, _selectedEquippedBadgeId!);
     final iconFrameColor = _playerIconFrameColor(profile.playerIconFrameId);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -384,10 +385,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                     Expanded(
-                      child: _buildEquippedBadges(
-                        equippedBadges,
-                        selectedBadge: selectedBadge,
-                      ),
+                      child: _buildEquippedBadges(equippedBadges),
                     ),
                   ],
                 ),
@@ -408,10 +406,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required double size,
     required double iconSize,
   }) {
-    final icon = Icon(
-      _playerIconData(iconId),
+    final icon = PlayerIconImage(
+      iconId: iconId,
+      fallbackIcon: _playerIconData(iconId),
       color: Colors.white,
       size: iconSize,
+    );
+    final innerBackgroundColor = playerIconInnerBackgroundColor(
+      iconId,
+      const Color(0xFF111827),
+      frameId: frameId,
     );
     if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
       return Container(
@@ -431,8 +435,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF111827),
+          decoration: BoxDecoration(
+            color: innerBackgroundColor,
             shape: BoxShape.circle,
           ),
           child: Center(child: icon),
@@ -443,21 +447,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: playerIconInnerBackgroundColor(
+          iconId,
+          color.withValues(alpha: 0.12),
+          frameId: frameId,
+        ),
         shape: BoxShape.circle,
         border: Border.all(color: color, width: 2),
       ),
       child: icon,
     );
-  }
-
-  _BadgeDisplay? _badgeDisplayById(List<_BadgeDisplay> badges, String id) {
-    for (final badge in badges) {
-      if (badge.id == id) {
-        return badge;
-      }
-    }
-    return null;
   }
 
   Widget _profileNameText(String name) {
@@ -497,104 +496,139 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildEquippedBadges(
-    List<_BadgeDisplay> badges, {
-    _BadgeDisplay? selectedBadge,
-  }) {
-    final shownBadges = badges.take(2).toList();
+  Widget _buildEquippedBadges(List<_BadgeDisplay> badges) {
+    final shownBadges = badges.take(3).toList();
     return SizedBox(
       height: 30,
-      child: Stack(
-        clipBehavior: Clip.none,
+      child: Row(
         children: [
-          Row(
-            children: [
-              for (final badge in shownBadges) ...[
-                InkWell(
-                  onTap: () {
-                    _playUiTap();
-                    setState(() {
-                      _selectedEquippedBadgeId =
-                          _selectedEquippedBadgeId == badge.id
-                              ? null
-                              : badge.id;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(999),
-                  child: Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _selectedEquippedBadgeId == badge.id
-                          ? badge.color.withValues(alpha: 0.12)
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: _selectedEquippedBadgeId == badge.id
-                            ? badge.color
-                            : Colors.transparent,
-                      ),
-                    ),
-                    child: Center(child: badge.icon),
-                  ),
+          for (final badge in shownBadges) ...[
+            Builder(
+              builder: (badgeContext) => InkWell(
+                onTap: () {
+                  _playUiTap();
+                  _showBadgeInfoPopup(badgeContext, badge);
+                },
+                borderRadius: BorderRadius.circular(999),
+                child: SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: Center(child: badge.icon),
                 ),
-                const SizedBox(width: 6),
-              ],
-            ],
-          ),
-          if (selectedBadge != null)
-            Positioned(
-              left: 0,
-              top: 25,
-              child: _buildEquippedBadgeOverlay(selectedBadge),
+              ),
             ),
+            const SizedBox(width: 6),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildEquippedBadgeOverlay(_BadgeDisplay badge) {
+  Widget _buildBadgeInfoPopup(_BadgeDisplay badge) {
     return Container(
-      width: 260,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: const Color(0xFF000000),
-        border: Border.all(color: badge.color.withValues(alpha: 0.72)),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black,
-            blurRadius: 0,
-            spreadRadius: 14,
+        color: const Color(0xF20D1424),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.58)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _popupFittedLine(
+            badge.label,
+            color: Colors.white,
+            fontSize: 11.5,
+          ),
+          const SizedBox(height: 4),
+          _popupFittedLine(
+            badge.detail,
+            color: Colors.white70,
+            fontSize: 10,
+            height: 14,
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+    );
+  }
+
+  Widget _popupFittedLine(
+    String text, {
+    required Color color,
+    required double fontSize,
+    double? height,
+  }) {
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: Text(
+          text,
+          maxLines: 1,
+          softWrap: false,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: color,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _dismissBadgeInfoOverlay() {
+    _badgeInfoOverlay?.remove();
+    _badgeInfoOverlay = null;
+  }
+
+  void _showBadgeInfoPopup(BuildContext anchorContext, _BadgeDisplay badge) {
+    _dismissBadgeInfoOverlay();
+    final overlay = Overlay.of(context);
+    final anchorBox = anchorContext.findRenderObject() as RenderBox?;
+    final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+    if (anchorBox == null || overlayBox == null) {
+      return;
+    }
+    final anchorTopLeft = anchorBox.localToGlobal(
+      Offset.zero,
+      ancestor: overlayBox,
+    );
+    const width = 150.0;
+    const estimatedHeight = 62.0;
+    final left = (anchorTopLeft.dx + anchorBox.size.width / 2 - width / 2)
+        .clamp(12.0, max(12.0, overlayBox.size.width - width - 12))
+        .toDouble();
+    var top = anchorTopLeft.dy + anchorBox.size.height + 8;
+    if (top + estimatedHeight > overlayBox.size.height - 12) {
+      top = max(12.0, anchorTopLeft.dy - estimatedHeight - 8);
+    }
+    _badgeInfoOverlay = OverlayEntry(
+      builder: (_) => Stack(
         children: [
-          Text(
-            badge.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: badge.color,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _dismissBadgeInfoOverlay,
+              child: const SizedBox.expand(),
             ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            badge.detail,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              height: 1.28,
+          Positioned(
+            left: left,
+            top: top,
+            width: width,
+            child: Material(
+              color: Colors.transparent,
+              child: _buildBadgeInfoPopup(badge),
             ),
           ),
         ],
       ),
     );
+    overlay.insert(_badgeInfoOverlay!);
   }
 
   Widget _buildMetricGrid(List<_MetricData> metrics) {
@@ -651,19 +685,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildBadgeGrid(List<_BadgeDisplay> badges) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        const minItemWidth = 102.0;
-        final columns =
-            (constraints.maxWidth / minItemWidth).floor().clamp(2, 3);
+        const columns = 4;
         final itemWidth =
-            (constraints.maxWidth - ((columns - 1) * 10)) / columns;
+            (constraints.maxWidth - ((columns - 1) * 6)) / columns;
         return Wrap(
-          spacing: 10,
-          runSpacing: 10,
+          spacing: 6,
+          runSpacing: 6,
           children: [
             for (final badge in badges)
               SizedBox(
                 width: itemWidth,
-                child: _ownedBadgeChip(badge),
+                child: Builder(
+                  builder: (badgeContext) => GestureDetector(
+                    onTap: () {
+                      _playUiTap();
+                      _showBadgeInfoPopup(badgeContext, badge);
+                    },
+                    child: _ownedBadgeChip(badge),
+                  ),
+                ),
               ),
           ],
         );
@@ -737,13 +777,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return _BadgeDisplay(
         id: id,
         label: seasonBadge.label,
-        detail: seasonBadge.detailLabel,
+        detail: seasonBadge.seasonName,
         color: Colors.amberAccent,
         icon: SeasonRankBadgeIcon(
           rank: seasonBadge.rank,
           kind: seasonBadge.kind,
-          size: 26,
+          size: 40,
         ),
+        rank: seasonBadge.rank,
       );
     }
     final badge = BadgeCatalog.findById(id);
@@ -755,7 +796,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       label: badge.label,
       detail: badge.unlockedCondition.description,
       color: badge.frameColor,
-      icon: Icon(badge.icon, color: badge.frameColor, size: 24),
+      icon: Icon(badge.icon, color: badge.frameColor, size: 40),
+      isProgressBadge: _isProgressOwnedBadge(badge),
     );
   }
 
@@ -779,69 +821,128 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _BadgeDisplay(
           id: badge.id,
           label: badge.label,
-          detail: badge.detailLabel,
+          detail: badge.seasonName,
           color: Colors.amberAccent,
           icon: SeasonRankBadgeIcon(
             rank: badge.rank,
             kind: badge.kind,
-            size: 26,
+            size: 40,
           ),
+          rank: badge.rank,
         ),
       );
     }
+    displays.sort(_compareOwnedBadges);
     return displays;
+  }
+
+  bool _isProgressOwnedBadge(BadgeItem badge) {
+    return badge.unlockedCondition.type == BadgeUnlockType.totalMatches ||
+        badge.unlockedCondition.type == BadgeUnlockType.wazaCount;
+  }
+
+  int _compareOwnedBadges(_BadgeDisplay a, _BadgeDisplay b) {
+    final groupDiff = _badgeSortGroup(a).compareTo(_badgeSortGroup(b));
+    if (groupDiff != 0) {
+      return groupDiff;
+    }
+    if (a.rank != null || b.rank != null) {
+      final rankA = a.rank ?? 9999;
+      final rankB = b.rank ?? 9999;
+      final rankDiff = rankA.compareTo(rankB);
+      if (rankDiff != 0) {
+        return rankDiff;
+      }
+    }
+    return a.label.compareTo(b.label);
+  }
+
+  int _badgeSortGroup(_BadgeDisplay badge) {
+    if (badge.rank != null) {
+      return 0;
+    }
+    if (badge.isProgressBadge) {
+      return 2;
+    }
+    return 1;
   }
 
   Widget _buildOwnedBadgeList(List<_BadgeDisplay> badges) {
     if (badges.isEmpty) {
       return _emptyPanel('所持バッジはまだありません');
     }
-    return _buildBadgeGrid(badges);
-  }
-
-  Widget _ownedBadgeChip(_BadgeDisplay badge) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 108),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.32),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: badge.color.withValues(alpha: 0.45)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          badge.icon,
-          const SizedBox(height: 7),
-          SizedBox(
-            height: 28,
-            child: Center(
-              child: Text(
-                badge.label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  height: 1.1,
+    final visibleBadges =
+        _showAllOwnedBadges ? badges : badges.take(8).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildBadgeGrid(visibleBadges),
+        if (badges.length > visibleBadges.length) ...[
+          const SizedBox(height: 12),
+          Center(
+            child: OutlinedButton(
+              onPressed: () {
+                _playUiTap();
+                _dismissBadgeInfoOverlay();
+                setState(() => _showAllOwnedBadges = true);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: GameThemeColors.cyan,
+                side: BorderSide(
+                  color: GameThemeColors.cyan.withValues(alpha: 0.64),
                 ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+              ),
+              child: const Text(
+                'さらに表示',
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
-          const SizedBox(height: 3),
-          Text(
-            badge.detail,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white54,
-              fontSize: 8.5,
-              fontWeight: FontWeight.bold,
-              height: 1.12,
+        ] else if (_showAllOwnedBadges && badges.length > 8) ...[
+          const SizedBox(height: 12),
+          Center(
+            child: OutlinedButton(
+              onPressed: () {
+                _playUiTap();
+                _dismissBadgeInfoOverlay();
+                setState(() => _showAllOwnedBadges = false);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: GameThemeColors.cyan,
+                side: BorderSide(
+                  color: GameThemeColors.cyan.withValues(alpha: 0.64),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+              ),
+              child: const Text(
+                '表示を減らす',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _ownedBadgeChip(_BadgeDisplay badge) {
+    return AspectRatio(
+      aspectRatio: 1,
+      child: Container(
+        padding: const EdgeInsets.all(7),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.32),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: badge.color.withValues(alpha: 0.45)),
+        ),
+        child: Center(child: badge.icon),
       ),
     );
   }
@@ -912,7 +1013,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   SeasonRankBadge? _bestSeasonRankBadge(_ProfileViewData profile) {
     final badges = profile.seasonRankBadges
-        .where((badge) => badge.rank > 0 && badge.seasonId.isNotEmpty)
+        .where((badge) =>
+            badge.kind == SeasonRankBadgeKind.ranked &&
+            badge.rank > 0 &&
+            badge.seasonId.isNotEmpty)
         .toList();
     if (badges.isEmpty) {
       return null;
@@ -1158,118 +1262,186 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF151827),
+          backgroundColor: const Color(0xFF0B0F18),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 22),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(20),
             side: BorderSide(
-              color: GameThemeColors.cyan.withValues(alpha: 0.58),
-              width: 1.4,
+              color: GameThemeColors.cyan.withValues(alpha: 0.85),
+              width: 2,
             ),
           ),
-          title: const Text(
-            '名前変更',
-            style: TextStyle(
-              color: GameThemeColors.cyan,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0,
-            ),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+          titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+          title: Row(
             children: [
-              const Text(
-                '・10文字以内',
-                style: TextStyle(color: Colors.white70, fontSize: 12),
-              ),
-              const SizedBox(height: 4),
-              const Row(
-                children: [
-                  Text(
-                    '・変更には',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: GameThemeColors.cyan.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: GameThemeColors.cyan.withValues(alpha: 0.72),
                   ),
-                  SizedBox(width: 4),
-                  HexagonCoinAmount(
-                    _nameChangeCost,
-                    color: Colors.white70,
-                    iconSize: 13,
-                    fontSize: 12,
-                  ),
-                  SizedBox(width: 4),
-                  Text(
-                    'が必要です',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                '・不適切な名前の使用はアカウント停止に繋がる恐れがあります',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12,
+                ),
+                child: const Icon(
+                  Icons.drive_file_rename_outline_rounded,
+                  color: GameThemeColors.cyan,
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                maxLength: 10,
-                maxLengthEnforcement: MaxLengthEnforcement.enforced,
-                cursorColor: GameThemeColors.cyan,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-                decoration: InputDecoration(
-                  counterText: '',
-                  filled: true,
-                  fillColor: Colors.black.withValues(alpha: 0.24),
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(
-                      color: GameThemeColors.cyan.withValues(alpha: 0.36),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                      color: GameThemeColors.cyan,
-                      width: 1.4,
-                    ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  '名前変更',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black,
+                        offset: Offset(0, 1.5),
+                        blurRadius: 1,
+                      ),
+                    ],
                   ),
                 ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                _playUiTap();
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text(
-                'キャンセル',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w900,
-                ),
+          content: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.12),
               ),
             ),
-            TextButton(
-              onPressed: () {
-                _playUiTap();
-                Navigator.of(dialogContext).pop(controller.text.trim());
-              },
-              child: const Text(
-                '保存',
-                style: TextStyle(
-                  color: GameThemeColors.cyan,
-                  fontWeight: FontWeight.w900,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.white70, size: 16),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '10文字以内 / 不適切な名前は使用できません',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 8),
+                const Row(
+                  children: [
+                    Text(
+                      '変更コスト',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    HexagonCoinAmount(
+                      _nameChangeCost,
+                      color: Color(0xFFFFE082),
+                      iconSize: 15,
+                      fontSize: 13,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: controller,
+                  maxLength: 10,
+                  maxLengthEnforcement: MaxLengthEnforcement.enforced,
+                  cursorColor: GameThemeColors.cyan,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                  decoration: InputDecoration(
+                    counterText: '',
+                    filled: true,
+                    fillColor: Colors.black.withValues(alpha: 0.34),
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                        color: GameThemeColors.cyan.withValues(alpha: 0.40),
+                      ),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(
+                        color: GameThemeColors.cyan,
+                        width: 1.6,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      _playUiTap();
+                      Navigator.of(dialogContext).pop();
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.38),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text(
+                      'キャンセル',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      _playUiTap();
+                      Navigator.of(dialogContext).pop(controller.text.trim());
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GameThemeColors.cyan,
+                      foregroundColor: const Color(0xFF042026),
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text(
+                      '保存',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         );
@@ -1280,9 +1452,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!mounted || nextName == null) {
       return;
     }
+    late final String validatedName;
+    try {
+      validatedName = await ModerationManager.instance
+          .validateAndSanitizePlayerName(nextName);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await _showNameErrorDialog('$error');
+      return;
+    }
 
     final previousName = _playerData.playerName;
-    if (nextName == previousName) {
+    if (validatedName == previousName) {
+      return;
+    }
+    if (!mounted) {
       return;
     }
 
@@ -1290,67 +1476,110 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (confirmContext) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF151827),
+          backgroundColor: const Color(0xFF0B0F18),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(20),
             side: BorderSide(
-              color: Colors.amberAccent.withValues(alpha: 0.58),
-              width: 1.4,
+              color: GameThemeColors.cyan.withValues(alpha: 0.78),
+              width: 2,
             ),
           ),
+          titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+          contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
           title: const Text(
-            '消費します',
+            '名前を変更しますか？',
+            textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.amberAccent,
-              fontSize: 18,
+              color: Colors.white,
+              fontSize: 20,
               fontWeight: FontWeight.w900,
               letterSpacing: 0,
+              shadows: [
+                Shadow(
+                  color: Colors.black,
+                  offset: Offset(0, 1.5),
+                  blurRadius: 1,
+                ),
+              ],
             ),
           ),
-          content: const Row(
-            children: [
-              Text(
-                '名前の変更には ',
-                style: TextStyle(color: Colors.white70, height: 1.5),
-              ),
-              HexagonCoinAmount(
-                _nameChangeCost,
-                color: Colors.white70,
-                iconSize: 16,
-                fontSize: 14,
-              ),
-              Text(
-                ' を消費します。',
-                style: TextStyle(color: Colors.white70, height: 1.5),
-              ),
-            ],
+          content: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.24),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '消費',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(width: 8),
+                HexagonCoinAmount(
+                  _nameChangeCost,
+                  color: Color(0xFFFFE082),
+                  iconSize: 18,
+                  fontSize: 16,
+                ),
+              ],
+            ),
           ),
           actions: [
-            TextButton(
-              onPressed: () {
-                _playUiTap();
-                Navigator.of(confirmContext).pop(false);
-              },
-              child: const Text(
-                'キャンセル',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w900,
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      _playUiTap();
+                      Navigator.of(confirmContext).pop(false);
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.38),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text(
+                      'キャンセル',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                _playUiTap();
-                Navigator.of(confirmContext).pop(true);
-              },
-              child: const Text(
-                '変更する',
-                style: TextStyle(
-                  color: Colors.amberAccent,
-                  fontWeight: FontWeight.w900,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      _playUiTap();
+                      Navigator.of(confirmContext).pop(true);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: GameThemeColors.cyan,
+                      foregroundColor: const Color(0xFF042026),
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text(
+                      '変更する',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
         );
@@ -1362,7 +1591,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       await _playerData.spendCoins(_nameChangeCost);
-      await _playerData.setPlayerName(nextName);
+      await _playerData.setPlayerName(validatedName);
       _multiplayerManager.setPlayerName(_playerData.playerName);
       await _multiplayerManager.updateUserName(_playerData.playerName);
     } catch (error) {
@@ -1402,6 +1631,51 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
+  Future<void> _showNameErrorDialog(String message) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0B0F18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: GameThemeColors.cyan.withValues(alpha: 0.72),
+              width: 1.5,
+            ),
+          ),
+          title: const Text(
+            '名前エラー',
+            style: TextStyle(
+              color: GameThemeColors.cyan,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              height: 1.45,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text(
+                'OK',
+                style: TextStyle(
+                  color: GameThemeColors.cyan,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   String _formatNumber(int value) {
     final text = value.toString();
     final buffer = StringBuffer();
@@ -1422,6 +1696,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'icon_gamepad' => Icons.sports_esports,
       'icon_sword' => Icons.gavel,
       'icon_hexagon' => Icons.hexagon,
+      'icon_hexagon2' => Icons.hexagon,
       'icon_trophy' => Icons.emoji_events,
       'icon_medal' => Icons.military_tech,
       'icon_crown' => Icons.workspace_premium,
@@ -1455,7 +1730,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       'green' => GameThemeColors.endless,
       'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
-      'black' => Colors.white70,
+      'white' => Colors.white,
+      'black' => const Color(0xFF05070D),
       'rainbow' => const Color(0xFFFFD54A),
       _ => GameThemeColors.cyan,
     };
@@ -1707,6 +1983,8 @@ class _BadgeDisplay {
     required this.detail,
     required this.color,
     required this.icon,
+    this.rank,
+    this.isProgressBadge = false,
   });
 
   final String id;
@@ -1714,6 +1992,8 @@ class _BadgeDisplay {
   final String detail;
   final Color color;
   final Widget icon;
+  final int? rank;
+  final bool isProgressBadge;
 }
 
 class _MetricData {

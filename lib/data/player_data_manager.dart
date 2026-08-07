@@ -140,6 +140,9 @@ class PlayerDataManager {
 
   static const int initialCoins = 10000;
   static const int maxEndlessScore = 99999999;
+  static const int maxEquippedStampCount = 12;
+  static const String emptyStampSlotId = '__empty_stamp_slot__';
+  static const String retiredPrismSkinId = 'skin_luxury_prism';
   static const String _coinsKey = 'player_coins';
   static const String _expKey = 'player_exp';
   static const String _gachaTicketsKey = 'player_gacha_tickets';
@@ -157,6 +160,7 @@ class PlayerDataManager {
       'player_last_login_bonus_streak';
   static const String _playerNameKey = 'player_name';
   static const String _playerIdKey = 'player_public_id';
+  static const String playerIdPrefsKey = _playerIdKey;
   static const String _equippedBadgeIdsKey = 'player_equipped_badge_ids_json';
   static const String _equippedStampIdsKey = 'player_equipped_stamp_ids_json';
   static const String _seasonRankBadgesKey = 'player_season_rank_badges_json';
@@ -504,7 +508,7 @@ class PlayerDataManager {
     }
     _equippedBadgeIds = _stringListFromJson(
       prefs.getString(_equippedBadgeIdsKey),
-    ).take(2).toList();
+    ).take(3).toList();
     _equippedStampIds = _stringListFromJson(
       prefs.getString(_equippedStampIdsKey),
     ).take(6).toList();
@@ -653,9 +657,12 @@ class PlayerDataManager {
             ))
         .where((id) =>
             unlockedBadgeIds.contains(id) || ownedSeasonBadgeIds.contains(id))
-        .toSet()
-        .take(2)
-        .toList();
+        .fold<List<String>>(<String>[], (items, id) {
+      if (!items.contains(id) && items.length < 3) {
+        items.add(id);
+      }
+      return items;
+    });
     if (!_stringListsEqual(loadedEquippedBadgeIds, _equippedBadgeIds)) {
       shouldSaveProfile = true;
     }
@@ -664,27 +671,18 @@ class PlayerDataManager {
       shouldSaveItems = _applyInventoryMigration(inventoryRevision);
       shouldSaveProfile = true;
     }
+    if (_removeRetiredCollectionItems()) {
+      shouldSaveItems = true;
+      shouldSaveProfile = true;
+    }
     var shouldSaveEquippedStamps = false;
     final loadedEquippedStampIds = List<String>.from(_equippedStampIds);
     final ownedStampIds = _ownedItems
         .where((item) => item.isStamp)
         .map((item) => item.id)
         .toSet();
-    _equippedStampIds = _equippedStampIds
-        .where(ownedStampIds.contains)
-        .toSet()
-        .take(6)
-        .toList();
-    if (_equippedStampIds.isEmpty && ownedStampIds.isNotEmpty) {
-      final defaultOwnedStampIds = GameItemCatalog.defaultStamps
-          .map((stamp) => stamp.id)
-          .where(ownedStampIds.contains)
-          .take(6)
-          .toList();
-      _equippedStampIds = defaultOwnedStampIds.isNotEmpty
-          ? defaultOwnedStampIds
-          : ownedStampIds.take(6).toList();
-    }
+    _equippedStampIds =
+        _normalizeEquippedStampSlots(_equippedStampIds, ownedStampIds);
     if (!_stringListsEqual(loadedEquippedStampIds, _equippedStampIds)) {
       shouldSaveEquippedStamps = true;
     }
@@ -735,6 +733,7 @@ class PlayerDataManager {
       final processedGrantIds = <String>[];
       var completedOwnInvite = false;
       var grantedAdRemoval = false;
+      var grantedItem = false;
       for (final entry in raw.entries) {
         final grantId = '${entry.key}';
         final grant = entry.value;
@@ -748,6 +747,56 @@ class PlayerDataManager {
           final title = grant['title']?.toString().trim() ?? '広告削除';
           final message =
               grant['message']?.toString().trim() ?? '広告削除を有効にしました。';
+          rewardLogs.add('$title\n$message');
+          continue;
+        }
+        if (grantType == 'item') {
+          final itemId = grant['itemId']?.toString().trim() ?? '';
+          final item = GameItemCatalog.byId(itemId);
+          if (item == null) {
+            continue;
+          }
+          processedGrantIds.add(grantId);
+          final level = _grantItemLevel(grant['level']);
+          if (_applyGrantedItem(item, level: level)) {
+            grantedItem = true;
+          }
+          final title = grant['title']?.toString().trim() ?? 'アイテム付与';
+          final message =
+              grant['message']?.toString().trim() ?? '${item.name}を受け取りました。';
+          rewardLogs.add('$title\n$message');
+          continue;
+        }
+        if (grantType == 'items') {
+          final rawItems = grant['items'];
+          if (rawItems is! List) {
+            continue;
+          }
+          var appliedAny = false;
+          for (final rawItem in rawItems) {
+            if (rawItem is! Map) {
+              continue;
+            }
+            final itemId = rawItem['itemId']?.toString().trim() ?? '';
+            final item = GameItemCatalog.byId(itemId);
+            if (item == null) {
+              continue;
+            }
+            if (_applyGrantedItem(
+              item,
+              level: _grantItemLevel(rawItem['level']),
+            )) {
+              appliedAny = true;
+            }
+          }
+          if (!appliedAny) {
+            continue;
+          }
+          processedGrantIds.add(grantId);
+          grantedItem = true;
+          final title = grant['title']?.toString().trim() ?? 'アイテム付与';
+          final message =
+              grant['message']?.toString().trim() ?? 'アイテムを受け取りました。';
           rewardLogs.add('$title\n$message');
           continue;
         }
@@ -766,14 +815,15 @@ class PlayerDataManager {
           rewardLogs.add([
             if (title.isNotEmpty) title,
             if (message.isNotEmpty) message,
-            if (message.isEmpty) '$coinsを受け取りました。',
+            if (message.isEmpty) '$coinsコインを受け取りました。',
           ].join('\n'));
         } else {
-          rewardLogs.add('$coinsを受け取りました。');
+          rewardLogs.add('$coinsコインを受け取りました。');
         }
       }
 
-      if ((totalCoins <= 0 && !grantedAdRemoval) || processedGrantIds.isEmpty) {
+      if ((totalCoins <= 0 && !grantedAdRemoval && !grantedItem) ||
+          processedGrantIds.isEmpty) {
         return false;
       }
 
@@ -782,6 +832,9 @@ class PlayerDataManager {
       }
       if (grantedAdRemoval) {
         await AppSettings.instance.setAdsRemoved(true);
+      }
+      if (grantedItem) {
+        await _saveItems();
       }
       await _saveEconomy();
       await grantsRef.update({
@@ -795,6 +848,27 @@ class PlayerDataManager {
     } catch (_) {
       return false;
     }
+  }
+
+  int _grantItemLevel(Object? value) {
+    return (_intValue(value) ?? 1).clamp(1, GameItem.maxStampLevel);
+  }
+
+  bool _applyGrantedItem(GameItem item, {required int level}) {
+    final existingIndex =
+        _ownedItems.indexWhere((ownedItem) => ownedItem.id == item.id);
+    final storedItem = item.isStamp ? item.copyWith(level: level) : item;
+    if (existingIndex < 0) {
+      _ownedItems.add(storedItem);
+      unawaited(_markCollectionItemUnseen(storedItem.id));
+      return true;
+    }
+    final existing = _ownedItems[existingIndex];
+    if (existing.isStamp && level > existing.level) {
+      _ownedItems[existingIndex] = existing.copyWith(level: level);
+      return true;
+    }
+    return false;
   }
 
   Future<void> checkDailyReset() async {
@@ -1056,9 +1130,12 @@ class PlayerDataManager {
               ownedSeasonBadgeIds: ownedSeasonBadgeIds,
             ))
         .where((id) => unlocked.contains(id))
-        .toSet()
-        .take(2)
-        .toList();
+        .fold<List<String>>(<String>[], (items, id) {
+      if (!items.contains(id) && items.length < 3) {
+        items.add(id);
+      }
+      return items;
+    });
     await _savePublicProfile();
     await _syncRecordSummarySafely(force: true);
   }
@@ -1069,10 +1146,40 @@ class PlayerDataManager {
         .where((item) => item.isStamp)
         .map((item) => item.id)
         .toSet();
-    _equippedStampIds =
-        stampIds.where(ownedStampIds.contains).toSet().take(6).toList();
+    _equippedStampIds = _normalizeEquippedStampSlots(stampIds, ownedStampIds);
     await _saveEquippedStamps();
     await _syncRecordSummarySafely(force: true);
+  }
+
+  List<String> _normalizeEquippedStampSlots(
+    List<String> stampIds,
+    Set<String> ownedStampIds,
+  ) {
+    final normalized = <String>[];
+    final actualStampIds = <String>{};
+    for (final id in stampIds) {
+      if (normalized.length >= maxEquippedStampCount) {
+        break;
+      }
+      if (id == emptyStampSlotId) {
+        normalized.add(id);
+        continue;
+      }
+      if (ownedStampIds.contains(id) && actualStampIds.add(id)) {
+        normalized.add(id);
+      }
+    }
+    if (actualStampIds.isNotEmpty || ownedStampIds.isEmpty) {
+      return normalized;
+    }
+    final defaultOwnedStampIds = GameItemCatalog.defaultStamps
+        .map((stamp) => stamp.id)
+        .where(ownedStampIds.contains)
+        .take(maxEquippedStampCount)
+        .toList();
+    return defaultOwnedStampIds.isNotEmpty
+        ? defaultOwnedStampIds
+        : ownedStampIds.take(maxEquippedStampCount).toList();
   }
 
   Future<void> setSeasonRankBadges(List<SeasonRankBadge> badges) async {
@@ -1102,9 +1209,12 @@ class PlayerDataManager {
             ))
         .where((id) =>
             unlockedBadgeIds.contains(id) || ownedSeasonBadgeIds.contains(id))
-        .toSet()
-        .take(2)
-        .toList();
+        .fold<List<String>>(<String>[], (items, id) {
+      if (!items.contains(id) && items.length < 3) {
+        items.add(id);
+      }
+      return items;
+    });
     await _saveSeasonRankBadges();
     await _savePublicProfile();
     await _syncRecordSummarySafely(force: true);
@@ -1622,11 +1732,34 @@ class PlayerDataManager {
     await load();
     if (_rankedSeasonId == currentSeasonId) {
       final resolvedSeasonRating = currentSeasonRating;
+      final hasLocalSeasonRecord = _seasonRankedWins + _seasonRankedLosses > 0;
+      if (!_isPlausibleRankedSeasonRating(
+        rating: _currentRating,
+        wins: _seasonRankedWins,
+        losses: _seasonRankedLosses,
+      )) {
+        _currentRating = 1000;
+        _seasonRankedWins = 0;
+        _seasonRankedLosses = 0;
+        _seasonRankedMaxWinStreak = 0;
+        _rankedCurrentWinStreak = 0;
+        await _savePublicProfile();
+        await _saveStats();
+        await _syncRecordSummarySafely(force: true);
+        return;
+      }
       if (hasCurrentSeasonRecord &&
           resolvedSeasonRating != null &&
           _currentRating != resolvedSeasonRating) {
         _currentRating = resolvedSeasonRating;
         _highestRating = max(_highestRating, resolvedSeasonRating);
+        await _savePublicProfile();
+        await _saveStats();
+        await _syncRecordSummarySafely(force: true);
+      } else if (!hasCurrentSeasonRecord &&
+          !hasLocalSeasonRecord &&
+          _currentRating != 1000) {
+        _currentRating = 1000;
         await _savePublicProfile();
         await _saveStats();
         await _syncRecordSummarySafely(force: true);
@@ -1688,6 +1821,18 @@ class PlayerDataManager {
     await _savePublicProfile();
     await _saveStats();
     await _syncRecordSummarySafely(force: true);
+  }
+
+  bool _isPlausibleRankedSeasonRating({
+    required int rating,
+    required int wins,
+    required int losses,
+  }) {
+    final safeWins = max(0, wins);
+    final safeLosses = max(0, losses);
+    final maxReachable = 1000 + safeWins * 95 - safeLosses * 5;
+    final minReachable = 1000 + safeWins * 5 - safeLosses * 95;
+    return rating >= minReachable && rating <= maxReachable;
   }
 
   Future<void> syncRecordSummary({
@@ -2258,6 +2403,21 @@ class PlayerDataManager {
     return changed;
   }
 
+  bool _removeRetiredCollectionItems() {
+    var changed = false;
+    final filteredItems =
+        _ownedItems.where((item) => item.id != retiredPrismSkinId).toList();
+    if (filteredItems.length != _ownedItems.length) {
+      _ownedItems = filteredItems;
+      changed = true;
+    }
+    if (_equippedBallSkinId == retiredPrismSkinId) {
+      _equippedBallSkinId = 'default';
+      changed = true;
+    }
+    return changed;
+  }
+
   GameItem _canonicalItem(GameItem item) {
     final catalogItem = GameItemCatalog.byId(item.id);
     if (catalogItem == null) {
@@ -2533,8 +2693,8 @@ class PlayerDataManager {
     }
     final prefs = await SharedPreferences.getInstance();
     final message = currentLevel == previousLevel + 1
-        ? 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として $rewardCoins を獲得しました。'
-        : 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として合計 $rewardCoins を獲得しました。';
+        ? 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として $rewardCoins コインを獲得しました。'
+        : 'Lv.$previousLevel → Lv.$currentLevel\nレベルアップ報酬として合計 $rewardCoins コインを獲得しました。';
     await prefs.setString(_pendingLevelUpRewardLogKey, message);
   }
 

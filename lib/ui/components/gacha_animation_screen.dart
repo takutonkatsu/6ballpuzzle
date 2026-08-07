@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import '../../audio/sfx.dart';
 import '../../data/models/game_item.dart';
 import '../../data/player_data_manager.dart';
+import '../../game/components/ball_component.dart';
 import '../../game/gacha_manager.dart';
+import '../../game/game_models.dart';
+import 'player_icon_image.dart';
 
 class GachaAnimationScreen extends StatefulWidget {
   final GachaRollResult result;
@@ -242,11 +245,7 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
                             ),
                           ),
                           const SizedBox(height: 18),
-                          Icon(
-                            _iconForItem(item),
-                            size: 100,
-                            color: accent,
-                          ),
+                          _itemVisualWidget(item, accent),
                           const SizedBox(height: 30),
                           Text(
                             item.name,
@@ -315,6 +314,7 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
           'gamepad' => Icons.sports_esports,
           'sword' => Icons.gavel,
           'hexagon' => Icons.hexagon,
+          'hexagon2' => Icons.hexagon,
           'trophy' => Icons.emoji_events,
           'medal' => Icons.military_tech,
           'crown' => Icons.workspace_premium,
@@ -352,6 +352,103 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
           _ => Icons.chat_bubble,
         };
     }
+  }
+
+  Widget _itemVisualWidget(GameItem item, Color accent) {
+    if (item.type == ItemType.skin) {
+      return SizedBox(
+        width: 112,
+        height: 112,
+        child: Center(
+          child: MiniBallWidget(
+            ballColor: BallColor.blue,
+            size: 104,
+            showOuterGlow: false,
+            ballSkinId: item.id,
+          ),
+        ),
+      );
+    }
+    if (item.type == ItemType.icon) {
+      return PlayerIconImage(
+        iconId: item.id,
+        fallbackIcon: _iconForItem(item),
+        size: 112,
+      );
+    }
+    if (item.type == ItemType.frame) {
+      if (item.colorName == 'rainbow') {
+        return Container(
+          width: 104,
+          height: 104,
+          padding: const EdgeInsets.all(13),
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: SweepGradient(
+              colors: [
+                Color(0xFFFF4D6D),
+                Color(0xFFFFD54A),
+                Color(0xFF35F0FF),
+                Color(0xFFB91DFF),
+                Color(0xFFFF4D6D),
+              ],
+            ),
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.84),
+              shape: BoxShape.circle,
+            ),
+          ),
+        );
+      }
+      final frameColor = _colorFromFrameName(item.colorName);
+      return Container(
+        width: 104,
+        height: 104,
+        decoration: BoxDecoration(
+          color: frameColor.withValues(alpha: 0.28),
+          shape: BoxShape.circle,
+          border: Border.all(color: frameColor, width: 8),
+          boxShadow: [
+            BoxShadow(
+              color: frameColor.withValues(alpha: 0.35),
+              blurRadius: 24,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+      );
+    }
+    if (item.type == ItemType.stamp) {
+      return Image.asset(
+        'assets/images/BattleStamps/battle_message_stamp.png',
+        width: 104,
+        height: 104,
+        fit: BoxFit.contain,
+      );
+    }
+    return Icon(
+      _iconForItem(item),
+      size: 100,
+      color: accent,
+    );
+  }
+
+  Color _colorFromFrameName(String? colorName) {
+    return switch (colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => const Color(0xFFFFD54A),
+      'lime' => Colors.limeAccent,
+      'green' => const Color(0xFF00DFA2),
+      'blue' => const Color(0xFF319BFF),
+      'purple' => Colors.purpleAccent,
+      'white' => Colors.white,
+      'black' => const Color(0xFF05070D),
+      'rainbow' => const Color(0xFFFFD54A),
+      _ => Colors.cyanAccent,
+    };
   }
 }
 

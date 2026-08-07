@@ -53,6 +53,15 @@
         }
       }
     },
+    "dailyChallengeRankings": {
+      "$date": {
+        ".read": "auth != null",
+        ".indexOn": ["score", "updatedAt"],
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid && newData.child('uid').val() === auth.uid && newData.child('score').isNumber()"
+        }
+      }
+    },
     "rankedSeasons": {
       ".read": "auth != null",
       "currentSeasonId": {
@@ -145,6 +154,12 @@
     "appConfig": {
       ".read": true,
       ".write": false
+    },
+    "userNotices": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
     },
     "adminStats": {
       ".read": false,

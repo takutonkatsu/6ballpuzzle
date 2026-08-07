@@ -105,17 +105,31 @@ class _CpuMoveResult {
     required this.x,
     required this.rotation,
     required this.elapsedMicroseconds,
+    required this.targetHexes,
     this.isImmediateWaza = false,
   });
 
   final double x;
   final int rotation;
   final int elapsedMicroseconds;
+  final List<HexCoordinate> targetHexes;
   final bool isImmediateWaza;
 }
 
 _CpuMoveResult? _computeBestMoveInIsolate(_CpuMoveRequest request) {
   return _CpuMoveComputer(request).compute();
+}
+
+class CpuMoveHint {
+  const CpuMoveHint({
+    required this.x,
+    required this.rotation,
+    required this.targetHexes,
+  });
+
+  final double x;
+  final int rotation;
+  final List<HexCoordinate> targetHexes;
 }
 
 class _RankedCpuProfile {
@@ -186,6 +200,48 @@ class CPUAgent {
     this.weights = const CPUWeights(),
   }) {
     _applyDifficultySettings();
+  }
+
+  static Future<CpuMoveHint?> computeOniMoveHint(PuzzleGame game) async {
+    final piece = game.activePiece;
+    if (piece == null || piece.isLocked) {
+      return null;
+    }
+    final request = _CpuMoveRequest(
+      boardEntries: [
+        for (final entry in game.grid.lockedBalls.entries)
+          [entry.key.col, entry.key.row, entry.value.ballColor.index],
+      ],
+      currentColors: piece.colors.map((color) => color.index).toList(),
+      nextColors:
+          game.nextPieceColors.value.map((color) => color.index).toList(),
+      difficultyIndex: CPUDifficulty.oni.index,
+      weights: const CPUWeights(),
+      leftWallX: game.grid.leftWallX,
+      rightWallX: game.grid.rightWallX,
+      floorY: game.grid.floorY,
+      gridOffsetX: game.grid.offset.x,
+      gridOffsetY: game.grid.offset.y,
+      randomSeed: DateTime.now().microsecondsSinceEpoch & 0x7fffffff,
+      isAndroid: Platform.isAndroid,
+    );
+    _CpuMoveResult? result;
+    try {
+      result = await Isolate.run(
+        () => _computeBestMoveInIsolate(request),
+        debugName: 'cpu_hint_move',
+      );
+    } catch (_) {
+      result = _computeBestMoveInIsolate(request);
+    }
+    if (result == null) {
+      return null;
+    }
+    return CpuMoveHint(
+      x: result.x,
+      rotation: result.rotation,
+      targetHexes: result.targetHexes,
+    );
   }
 
   void setDifficulty(CPUDifficulty nextDifficulty) {
@@ -1795,6 +1851,7 @@ class _CpuMoveComputer {
         x: bestImmediateWaza.x,
         rotation: bestImmediateWaza.rot,
         elapsedMicroseconds: stopwatch.elapsedMicroseconds,
+        targetHexes: bestImmediateWaza.simResult.orderedTargetHexes,
         isImmediateWaza: true,
       );
     }
@@ -1804,6 +1861,7 @@ class _CpuMoveComputer {
         x: bestOpeningLine.x,
         rotation: bestOpeningLine.rot,
         elapsedMicroseconds: stopwatch.elapsedMicroseconds,
+        targetHexes: bestOpeningLine.simResult.orderedTargetHexes,
       );
     }
 
@@ -1823,6 +1881,7 @@ class _CpuMoveComputer {
       x: selected.x,
       rotation: selected.rot,
       elapsedMicroseconds: stopwatch.elapsedMicroseconds,
+      targetHexes: selected.simResult.orderedTargetHexes,
     );
   }
 

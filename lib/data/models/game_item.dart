@@ -176,7 +176,7 @@ class GameItemCatalog {
       name: 'もう一戦？',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      colorName: 'Blue',
+      colorName: 'Green',
       text: 'もう一戦？',
     ),
     GameItem(
@@ -272,7 +272,7 @@ class GameItemCatalog {
       name: 'まだ大丈夫！',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      colorName: 'Cyan',
+      colorName: 'Green',
       text: 'まだ大丈夫！',
     ),
     GameItem(
@@ -352,7 +352,7 @@ class GameItemCatalog {
       name: 'なるほど',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      colorName: 'Cyan',
+      colorName: 'Green',
       text: 'なるほど',
     ),
     GameItem(
@@ -376,7 +376,7 @@ class GameItemCatalog {
       name: 'ちょっと待って！',
       type: ItemType.stamp,
       rarity: ItemRarity.common,
-      colorName: 'Magenta',
+      colorName: 'Green',
       text: 'ちょっと待って！',
     ),
     GameItem(
@@ -486,6 +486,13 @@ class GameItemCatalog {
       type: ItemType.icon,
       rarity: ItemRarity.common,
       iconName: 'hexagon',
+    ),
+    GameItem(
+      id: 'icon_hexagon2',
+      name: 'ヘキサゴン2',
+      type: ItemType.icon,
+      rarity: ItemRarity.common,
+      iconName: 'hexagon2',
     ),
     GameItem(
       id: 'icon_diamond',
@@ -629,6 +636,13 @@ class GameItemCatalog {
       type: ItemType.frame,
       rarity: ItemRarity.common,
       colorName: 'blue',
+    ),
+    GameItem(
+      id: 'frame_white',
+      name: '白フレーム',
+      type: ItemType.frame,
+      rarity: ItemRarity.common,
+      colorName: 'white',
     ),
     GameItem(
       id: 'frame_purple',

@@ -1,69 +1,62 @@
-# Website Custom Domain Deploy
+# Website GitHub Pages Deploy
 
-公式サイト、利用規約、プライバシーポリシーを `takutonkatsu.com/hexagon/` で公開する手順です。
+公式サイト、利用規約、プライバシーポリシーを `takutonkatsu.com/Hexagon/` で公開する手順です。
+`takutonkatsu.com/` から `/Hexagon/` への自動転送は行いません。
 
 ## DNS
 
-お名前.comで以下を設定します。
+`takutonkatsu.com` は GitHub Pages のユーザーサイト `takutonkatsu.github.io` に向けます。
+`takutonkatsu.com/Retina/` と同じ仕組みで、`Hexagon` リポジトリをプロジェクトサイトとして公開します。
 
-| TYPE | ホスト名 | VALUE |
-| --- | --- | --- |
-| A | 空欄 または `@` | `178.128.103.157` |
-| A | `www` | `178.128.103.157` |
+GitHub Pages の Custom domain は `takutonkatsu.github.io` 側で管理し、`Hexagon` リポジトリ側には設定しません。
 
-`realtime.hexagon.takutonkatsu.com` はWebSocket専用なので、そのまま残します。
+## GitHub Pages
 
-## Dropletでの配置
+GitHub の `takutonkatsu/Hexagon` リポジトリで以下を設定します。
 
-ローカルの `website/` 配下だけを `/var/www/hexagon` に配置します。
+1. Settings > Pages を開きます。
+2. Source を `Deploy from a branch` にします。
+3. Branch を `main`、Folder を `/root` にします。
+4. Custom domain は空欄のままにします。
+5. Save します。
 
-```bash
-sudo mkdir -p /var/www/hexagon
-sudo rsync -av --delete \
-  --exclude '.DS_Store' \
-  /path/to/6ballpuzzle/website/ \
-  /var/www/hexagon/
-sudo chown -R www-data:www-data /var/www/hexagon
-```
+## Deploy
 
-Droplet上にリポジトリを置いていない場合は、ローカルMacから次のように送ります。
+ローカルの `website/` 配下だけを `takutonkatsu/Hexagon` リポジトリへ配置します。
 
 ```bash
+cd /Users/takuto/development/6ballpuzzle
+
+tmp_dir="$(mktemp -d)"
 rsync -av --delete \
   --exclude '.DS_Store' \
   website/ \
-  root@178.128.103.157:/var/www/hexagon/
+  "$tmp_dir/"
+touch "$tmp_dir/.nojekyll"
+
+cd "$tmp_dir"
+git init
+git branch -M main
+git add .
+git commit -m "Deploy Hexagon official site"
+git remote add origin git@github.com:takutonkatsu/Hexagon.git
+git push -u origin main
 ```
 
-## Nginx
+2回目以降は既存の `Hexagon` リポジトリをcloneまたはpullして、同じ内容を同期してpushします。
 
-`docs/nginx_hexagon_site.conf` をDropletの `/etc/nginx/sites-available/hexagon-site` に配置し、有効化します。
-
-```bash
-sudo cp docs/nginx_hexagon_site.conf /etc/nginx/sites-available/hexagon-site
-sudo ln -sf /etc/nginx/sites-available/hexagon-site /etc/nginx/sites-enabled/hexagon-site
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-HTTPS証明書を発行します。
+## Verify
 
 ```bash
-sudo certbot --nginx -d takutonkatsu.com -d www.takutonkatsu.com
-```
-
-確認:
-
-```bash
+curl -I https://takutonkatsu.github.io/Hexagon/
+curl -I https://takutonkatsu.com/Hexagon/
+curl -I https://takutonkatsu.com/Hexagon/privacy.html
+curl -I https://takutonkatsu.com/Hexagon/terms.html
 curl -I https://takutonkatsu.com/
-curl -I https://takutonkatsu.com/hexagon/
-curl -I https://takutonkatsu.com/hexagon/privacy.html
-curl -I https://takutonkatsu.com/hexagon/terms.html
-curl -I https://takutonkatsu.com/privacy.html
 ```
 
-## アプリ側URL
+`https://takutonkatsu.com/` は `/Hexagon/` にリダイレクトしないことを確認します。
 
-アプリ内のプライバシーポリシーURLは `https://takutonkatsu.com/hexagon/privacy.html` にします。
+## App URL
 
-旧URLは301リダイレクトで新URLへ流します。
+アプリ内のプライバシーポリシーURLは `https://takutonkatsu.com/Hexagon/privacy.html` にします。

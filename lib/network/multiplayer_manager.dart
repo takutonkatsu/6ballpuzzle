@@ -1259,7 +1259,7 @@ class MultiplayerManager {
       final snapshot = await _db
           .child('rankedSeasons/seasons/${await _currentSeasonId()}/rankings')
           .orderByChild('rating')
-          .limitToLast(1)
+          .limitToLast(25)
           .get()
           .timeout(rankedBotTopRatingTimeout);
       final value = snapshot.value;
@@ -1268,7 +1268,7 @@ class MultiplayerManager {
       }
       var topRating = initialRating;
       for (final entry in value.values) {
-        if (entry is Map) {
+        if (entry is Map && _isPlausibleSeasonRankingEntry(entry)) {
           topRating = max(topRating, _intValue(entry['rating']) ?? topRating);
         }
       }
@@ -1276,6 +1276,18 @@ class MultiplayerManager {
     } catch (_) {
       return max(initialRating, currentRating);
     }
+  }
+
+  bool _isPlausibleSeasonRankingEntry(Map<dynamic, dynamic> entry) {
+    final rating = _intValue(entry['rating']);
+    if (rating == null) {
+      return false;
+    }
+    final wins = max(0, _intValue(entry['seasonWins']) ?? 0);
+    final losses = max(0, _intValue(entry['seasonLosses']) ?? 0);
+    final maxReachable = initialRating + wins * 95 - losses * 5;
+    final minReachable = initialRating + wins * 5 - losses * 95;
+    return rating >= minReachable && rating <= maxReachable;
   }
 
   int _rankedBotMaxRating(int topRating) {

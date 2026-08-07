@@ -14,12 +14,15 @@ import '../app_review_config.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
+import '../firebase_database_provider.dart';
 import '../game/arena_manager.dart';
+import '../game/daily_challenge_manager.dart';
 import '../game/friend_match_limit_manager.dart';
 import '../game/mission_catalog.dart';
 import '../game/mission_manager.dart';
 import '../invite/invite_manager.dart';
 import '../data/models/game_item.dart';
+import '../moderation/moderation_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
@@ -28,11 +31,13 @@ import '../network/server_time_manager.dart';
 import '../purchases/ad_removal_purchase_manager.dart';
 import '../game/game_models.dart';
 import '../game/components/ball_component.dart';
+import '../main.dart' show StartupLoadingScreen;
 import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/game_pressable.dart';
 import 'components/interstitial_ad_manager.dart';
+import 'components/player_icon_image.dart';
 import 'components/rewarded_ad_manager.dart';
-import 'components/screen_bottom_banner_ad.dart';
 import 'components/stamp_widget.dart';
 import 'collection_screen.dart';
 import 'game_screen.dart';
@@ -103,6 +108,27 @@ class _SeasonResultViewData {
   }
 }
 
+class _DailyRewardRow {
+  const _DailyRewardRow(this.label, this.amount);
+
+  final String label;
+  final int amount;
+}
+
+enum _HomeLobbyDestination {
+  shop,
+  collection,
+  home,
+  ranking,
+  record,
+}
+
+enum _ModeIconPlacement {
+  none,
+  above,
+  below,
+}
+
 const Duration _homeBootstrapOnlineTimeout = Duration(seconds: 4);
 const Color _homeCyan = GameThemeColors.cyan;
 const Color _homeCyanBorder = GameThemeColors.cyanBorder;
@@ -111,6 +137,7 @@ const Color _rankedPurpleText = GameThemeColors.rankedText;
 const Color _endlessGreen = GameThemeColors.endless;
 const Color _computerYellow = GameThemeColors.computer;
 const Color _friendPink = GameThemeColors.friend;
+const Color _dailyBlue = GameThemeColors.blueSide;
 const Color _mutedButtonGrey = GameThemeColors.mutedButton;
 const int _interstitialSkipTicketCost = 50000;
 const Duration _interstitialSkipTicketDuration = Duration(minutes: 30);
@@ -396,6 +423,7 @@ class _HomeScreenState extends State<HomeScreen>
   final ArenaManager _arenaManager = ArenaManager.instance;
   final MissionManager _missionManager = MissionManager.instance;
   final TextEditingController _playerNameController = TextEditingController();
+  late final PageController _lobbyPageController;
   late final List<BallColor> _rotatingBallColors = _randomRotatingBallColors();
   bool _isBusy = false;
   int _rating = MultiplayerManager.initialRating;
@@ -406,10 +434,6 @@ class _HomeScreenState extends State<HomeScreen>
   int _claimableMissionCount = 0;
   int _completedMissionCount = 0;
   bool _hasUnseenCollectionItems = false;
-  int _todayRankedWins = 0;
-  String _currentSeasonName = 'シーズン--';
-  String _seasonRankLabel = '圏外';
-  String _dailyWinRankLabel = '圏外';
   bool _isLoadingProfile = true;
   bool _isLoadingNotice = false;
   int _unreadNoticeCount = 0;
@@ -421,7 +445,19 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isAdRemovalPromptVisible = false;
   bool _didCheckAdRemovalPromptThisSession = false;
   Timer? _seasonStateTimer;
+  Timer? _networkErrorTimer;
+  StreamSubscription<bool>? _networkConnectionSubscription;
   bool _isSyncingRankedSeason = false;
+  bool _networkErrorDialogVisible = false;
+  int _selectedLobbyPageIndex = 2;
+
+  static const List<_HomeLobbyDestination> _lobbyDestinations = [
+    _HomeLobbyDestination.shop,
+    _HomeLobbyDestination.collection,
+    _HomeLobbyDestination.home,
+    _HomeLobbyDestination.ranking,
+    _HomeLobbyDestination.record,
+  ];
 
   // ignore: unused_element
   bool get _isArenaComingSoon => true;
@@ -442,6 +478,7 @@ class _HomeScreenState extends State<HomeScreen>
       'icon_gamepad' => Icons.sports_esports,
       'icon_sword' => Icons.gavel,
       'icon_hexagon' => Icons.hexagon,
+      'icon_hexagon2' => Icons.hexagon,
       'icon_trophy' => Icons.emoji_events,
       'icon_medal' => Icons.military_tech,
       'icon_crown' => Icons.workspace_premium,
@@ -473,9 +510,10 @@ class _HomeScreenState extends State<HomeScreen>
       'yellow' => _computerYellow,
       'lime' => Colors.limeAccent,
       'green' => _endlessGreen,
-      'blue' => _homeCyan,
+      'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
-      'black' => Colors.white70,
+      'white' => Colors.white,
+      'black' => const Color(0xFF05070D),
       'rainbow' => const Color(0xFFFFD54A),
       _ => _homeCyan,
     };
@@ -554,6 +592,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _lobbyPageController = PageController(initialPage: _selectedLobbyPageIndex);
     if (widget.bootstrapData case final bootstrapData?) {
       _applyBootstrapData(bootstrapData);
     } else {
@@ -565,7 +604,6 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(seconds: 4),
     )..repeat();
-    unawaited(_refreshCurrentSeasonName());
     unawaited(_loadRemoteNotice(showUnread: true));
     if (widget.bootstrapData == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -573,6 +611,7 @@ class _HomeScreenState extends State<HomeScreen>
       });
     }
     _startSeasonStateMonitor();
+    _startNetworkErrorMonitor();
     unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_startHomeBgm());
   }
@@ -581,17 +620,124 @@ class _HomeScreenState extends State<HomeScreen>
   void dispose() {
     unawaited(_stopHomeBgm());
     _seasonStateTimer?.cancel();
+    _networkErrorTimer?.cancel();
+    unawaited(_networkConnectionSubscription?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     _animController.dispose();
+    _lobbyPageController.dispose();
     _playerNameController.dispose();
     super.dispose();
+  }
+
+  void _startNetworkErrorMonitor() {
+    _networkConnectionSubscription?.cancel();
+    _networkConnectionSubscription =
+        RealtimeConnectionGuard.connectedChanges().listen((connected) {
+      if (!mounted) {
+        return;
+      }
+      if (connected) {
+        _networkErrorTimer?.cancel();
+        _networkErrorTimer = null;
+        return;
+      }
+      if (_networkErrorDialogVisible || _networkErrorTimer != null) {
+        return;
+      }
+      _networkErrorTimer = Timer(const Duration(seconds: 2), () {
+        _networkErrorTimer = null;
+        if (!mounted || _networkErrorDialogVisible) {
+          return;
+        }
+        unawaited(_showNetworkErrorDialog());
+      });
+    });
+  }
+
+  Future<void> _showNetworkErrorDialog() async {
+    if (_networkErrorDialogVisible || !mounted) {
+      return;
+    }
+    _networkErrorDialogVisible = true;
+    String? action;
+    try {
+      action = await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) {
+          return _buildCyberDialog(
+            accentColor: _homeCyan,
+            title: 'ネットワークエラー',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'ネットワークエラーです。電波の良いところでもう一度お試しください。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildCyberDialogButton(
+                        label: 'タイトルへ',
+                        accentColor: Colors.white54,
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop('title');
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildCyberDialogButton(
+                        label: 'リトライ',
+                        accentColor: _homeCyan,
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop('retry');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } finally {
+      _networkErrorDialogVisible = false;
+    }
+    if (!mounted) {
+      return;
+    }
+    if (action == 'title') {
+      Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const StartupLoadingScreen()),
+        (_) => false,
+      );
+      return;
+    }
+    if (action == 'retry') {
+      final connected = await RealtimeConnectionGuard.waitForConnected(
+        timeout: const Duration(seconds: 3),
+      );
+      if (!mounted || connected) {
+        return;
+      }
+      unawaited(_showNetworkErrorDialog());
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_resumeHomeBgmFromLifecycle());
-      unawaited(_refreshCurrentSeasonName(forceRefresh: true));
       unawaited(_checkRankedSeasonBoundary(showResultLog: true));
       unawaited(_loadRemoteNotice(showUnread: true));
       return;
@@ -628,23 +774,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _refreshCurrentSeasonName({bool forceRefresh = false}) async {
-    try {
-      final nowJst =
-          await ServerTimeManager.instance.nowJst(forceRefresh: forceRefresh);
-      final seasonId =
-          RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _currentSeasonName = RankedSeasonManager.seasonName(seasonId);
-      });
-    } catch (_) {
-      // サーバー時刻取得失敗時だけ一時表示のままにする。
-    }
-  }
-
   Future<void> _checkRankedSeasonBoundary({bool showResultLog = false}) async {
     if (_isSyncingRankedSeason) {
       return;
@@ -655,11 +784,6 @@ class _HomeScreenState extends State<HomeScreen>
       final nowJst = await ServerTimeManager.instance.nowJst();
       final currentSeasonId =
           RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
-      if (mounted) {
-        setState(() {
-          _currentSeasonName = RankedSeasonManager.seasonName(currentSeasonId);
-        });
-      }
       if (savedSeasonId.isNotEmpty && savedSeasonId != currentSeasonId) {
         await _syncRankedSeasonState(showResultLog: showResultLog);
       }
@@ -912,7 +1036,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: _homeCyan,
+          accentColor: _dailyBlue,
           title: 'もっと快適にプレイ',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -976,31 +1100,6 @@ class _HomeScreenState extends State<HomeScreen>
       final target = (mission['target'] as num?)?.toInt() ?? 0;
       return progress >= target;
     }).length;
-  }
-
-  Future<void> _refreshRankingSummary({bool forceRefresh = false}) async {
-    try {
-      final summary = await _rankingManager
-          .fetchMySummary(
-            forceRefresh: forceRefresh,
-          )
-          .timeout(_nameRegistrationSyncTimeout);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _todayRankedWins = summary.dailyWins;
-        _seasonRankLabel = summary.ratingRankLabel;
-        _dailyWinRankLabel = summary.dailyWinRankLabel;
-        if (_playerDataManager.rankedSeasonId.isNotEmpty) {
-          _currentSeasonName = RankedSeasonManager.seasonName(
-            _playerDataManager.rankedSeasonId,
-          );
-        }
-      });
-    } catch (_) {
-      // ランキング取得失敗はホーム表示を止めない。
-    }
   }
 
   Future<void> _loadRemoteNotice({
@@ -1348,9 +1447,6 @@ class _HomeScreenState extends State<HomeScreen>
       }
       setState(() {
         _rating = seasonRating;
-        _currentSeasonName = RankedSeasonManager.seasonName(
-          _playerDataManager.rankedSeasonId,
-        );
       });
       if (showResultLog) {
         final log =
@@ -1374,9 +1470,8 @@ class _HomeScreenState extends State<HomeScreen>
       } catch (_) {
         // 新シーズンのランキング行作成に失敗しても結果ログは表示する。
       }
-      unawaited(_refreshRankingSummary(forceRefresh: true));
     } catch (_) {
-      unawaited(_refreshRankingSummary(forceRefresh: true));
+      // シーズン同期の失敗でホーム画面は止めない。
     } finally {
       _isSyncingRankedSeason = false;
     }
@@ -1407,7 +1502,8 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _saveAndSyncPlayerName(String name) async {
-    final trimmed = name.trim();
+    final trimmed =
+        await ModerationManager.instance.validateAndSanitizePlayerName(name);
     await _playerDataManager.setPlayerName(trimmed);
     _multiplayerManager.setPlayerName(trimmed);
     _playerNameController.text = _playerDataManager.displayPlayerName;
@@ -1416,7 +1512,6 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     setState(() {});
-    unawaited(_refreshRankingSummary(forceRefresh: true));
   }
 
   Future<void> _syncPlayerNameOnline() async {
@@ -1486,18 +1581,13 @@ class _HomeScreenState extends State<HomeScreen>
                 if (isSubmitting) {
                   return;
                 }
-                final nextName = controller.text.trim();
-                if (nextName.isEmpty) {
-                  setDialogState(() {
-                    errorText = '名前を入力してください。';
-                  });
-                  return;
-                }
                 setDialogState(() {
                   isSubmitting = true;
                   errorText = null;
                 });
                 try {
+                  final nextName = await ModerationManager.instance
+                      .validateAndSanitizePlayerName(controller.text);
                   final inviteCode = inviteCodeController.text.trim();
                   await _saveAndSyncPlayerName(nextName);
                   InviteRedeemResult? inviteResult;
@@ -1613,9 +1703,7 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F13),
-      bottomNavigationBar: const ScreenBottomBannerAd(
-        reserveSpaceWhenHidden: true,
-      ),
+      bottomNavigationBar: _buildBottomBannerTop(),
       body: Stack(
         children: [
           const HexagonGridBackground(
@@ -1624,40 +1712,21 @@ class _HomeScreenState extends State<HomeScreen>
             hexRadius: 30,
           ),
           SafeArea(
-            child: Column(
-              children: [
-                _buildTopBanner1(),
-                const SizedBox(height: 12),
-                _buildTopBanner2(),
-                Expanded(
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            const ballHeight = 152.0;
-                            const spacing = 8.0;
-                            final modeHeight =
-                                (constraints.maxHeight - ballHeight - spacing)
-                                    .clamp(120.0, 280.0);
-
-                            return Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _build3DRotatingBall(),
-                                const SizedBox(height: spacing),
-                                _buildModeSelectionCutout(height: modeHeight),
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _buildInterstitialSkipTicketHomeButton(),
-                _buildBottomBannerTop(),
-              ],
+            bottom: false,
+            child: PageView.builder(
+              controller: _lobbyPageController,
+              itemCount: _lobbyDestinations.length,
+              onPageChanged: (index) {
+                setState(() {
+                  _selectedLobbyPageIndex = index;
+                });
+              },
+              itemBuilder: (context, index) {
+                return _buildLobbyPage(
+                  _lobbyDestinations[index],
+                  active: index == _selectedLobbyPageIndex,
+                );
+              },
             ),
           ),
         ],
@@ -1670,8 +1739,11 @@ class _HomeScreenState extends State<HomeScreen>
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 390;
         final edgePadding = compact ? 8.0 : 16.0;
-        final gap = compact ? 6.0 : 12.0;
-        final levelProgressWidth = compact ? 34.0 : 52.0;
+        final displayName = _playerNameController.text.trim().isEmpty
+            ? 'プレイヤー'
+            : _playerNameController.text.trim();
+        final frameId = _playerDataManager.equippedIconFrameId;
+        final frameColor = _playerIconFrameColor(frameId);
 
         return Padding(
           padding: EdgeInsets.symmetric(
@@ -1680,111 +1752,88 @@ class _HomeScreenState extends State<HomeScreen>
           ),
           child: Row(
             children: [
-              InkWell(
-                onTap: () {
-                  _playUiTap();
-                  unawaited(_showLevelDetailsDialog());
-                },
-                borderRadius: BorderRadius.circular(20),
-                child: Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: compact ? 8 : 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    border: Border.all(
-                      color: _homeCyanBorder,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          'Lv.$_level',
-                          style: const TextStyle(
-                            color: _homeCyan,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: compact ? 5 : 7),
-                      Container(
-                        width: levelProgressWidth,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: Colors.white12,
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                        child: FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: _levelProgress,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: _homeCyan,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(width: gap),
               Expanded(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 210),
-                    child: _buildProfileButton(compact: compact),
+                child: GamePressable(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () {
+                    _playUiTap();
+                    unawaited(_openProfileScreen());
+                  },
+                  child: Container(
+                    height: compact ? 58 : 64,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 10 : 12,
+                      vertical: compact ? 7 : 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.42),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _homeCyan.withValues(alpha: 0.56),
+                        width: 1.3,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        _buildPlayerIconAvatar(
+                          iconId: _playerDataManager.equippedPlayerIconId,
+                          frameId: frameId,
+                          color: frameColor,
+                          size: compact ? 36 : 42,
+                          iconSize: compact ? 20 : 23,
+                        ),
+                        SizedBox(width: compact ? 9 : 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  displayName,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: compact ? 16 : 18,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  const HexagonTrophyIcon(size: 14),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _isLoadingProfile ? '...' : '$_rating',
+                                    style: const TextStyle(
+                                      color: Colors.amberAccent,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              SizedBox(width: gap),
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  minWidth: compact ? 68 : 78,
-                  maxWidth: compact ? 82 : 96,
-                ),
-                child: Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: compact ? 8 : 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                      color: Colors.black54,
-                      border: Border.all(
-                        color: _homeCyanBorder,
-                      ),
-                      borderRadius: BorderRadius.circular(20)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.max,
-                    children: [
-                      HexagonCoinIcon(size: compact ? 14 : 16),
-                      SizedBox(width: compact ? 3 : 4),
-                      Expanded(
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            '$_coins',
-                            textAlign: TextAlign.right,
-                            maxLines: 1,
-                            style: const TextStyle(
-                              color: Color(0xFFEAF6FF),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              const SizedBox(width: 10),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  _buildHomeLevelPill(compact: compact),
+                  const SizedBox(height: 6),
+                  _buildHomeCoinPill(compact: compact),
+                ],
               ),
             ],
           ),
@@ -1793,57 +1842,86 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildProfileButton({required bool compact}) {
-    final displayName = _playerNameController.text.trim().isEmpty
-        ? 'プレイヤー'
-        : _playerNameController.text.trim();
-    final frameId = _playerDataManager.equippedIconFrameId;
-    final frameColor = _playerIconFrameColor(frameId);
-
-    return InkWell(
+  Widget _buildHomeLevelPill({required bool compact}) {
+    return GamePressable(
+      borderRadius: BorderRadius.circular(999),
       onTap: () {
         _playUiTap();
-        unawaited(_openProfileScreen());
+        unawaited(_showLevelDetailsDialog());
       },
-      borderRadius: BorderRadius.circular(18),
       child: Container(
-        height: compact ? 34 : 36,
-        padding: EdgeInsets.symmetric(horizontal: compact ? 7 : 10),
+        width: compact ? 86 : 100,
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 9 : 10,
+          vertical: 6,
+        ),
         decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: _homeCyanBorder,
-            )),
+          color: Colors.black.withValues(alpha: 0.48),
+          border: Border.all(color: _homeCyan.withValues(alpha: 0.42)),
+          borderRadius: BorderRadius.circular(999),
+        ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildPlayerIconAvatar(
-              iconId: _playerDataManager.equippedPlayerIconId,
-              frameId: frameId,
-              color: frameColor,
-              size: compact ? 18 : 22,
-              iconSize: compact ? 13 : 15,
+            Text(
+              'Lv.$_level',
+              style: const TextStyle(
+                color: _homeCyan,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
             ),
-            SizedBox(width: compact ? 5 : 8),
+            const SizedBox(width: 6),
             Expanded(
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  displayName,
-                  maxLines: 1,
-                  softWrap: false,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: compact ? 0.4 : 0.8,
-                    fontSize: compact ? 13 : 14,
-                  ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  minHeight: 5,
+                  value: _levelProgress,
+                  backgroundColor: Colors.white12,
+                  valueColor: const AlwaysStoppedAnimation(_homeCyan),
                 ),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildHomeCoinPill({required bool compact}) {
+    return Container(
+      width: compact ? 86 : 100,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 9 : 10,
+        vertical: 6,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.48),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.max,
+        children: [
+          HexagonCoinIcon(size: compact ? 14 : 16),
+          const SizedBox(width: 5),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                '$_coins',
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                style: const TextStyle(
+                  color: Color(0xFFEAF6FF),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1855,16 +1933,22 @@ class _HomeScreenState extends State<HomeScreen>
     required double size,
     required double iconSize,
   }) {
-    final icon = Icon(
-      _playerIconData(iconId),
+    final icon = PlayerIconImage(
+      iconId: iconId,
+      fallbackIcon: _playerIconData(iconId),
       color: Colors.white,
       size: iconSize,
+    );
+    final innerBackgroundColor = playerIconInnerBackgroundColor(
+      iconId,
+      const Color(0xFF111827),
+      frameId: frameId,
     );
     if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
       return Container(
         width: size,
         height: size,
-        padding: const EdgeInsets.all(2),
+        padding: const EdgeInsets.all(4),
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
           gradient: SweepGradient(
@@ -1878,8 +1962,8 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
         child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF111827),
+          decoration: BoxDecoration(
+            color: innerBackgroundColor,
             shape: BoxShape.circle,
           ),
           child: Center(child: icon),
@@ -1890,10 +1974,15 @@ class _HomeScreenState extends State<HomeScreen>
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
+        color: playerIconInnerBackgroundColor(
+          iconId,
+          color.withValues(alpha: 0.16),
+          frameId: frameId,
+        ),
         shape: BoxShape.circle,
         border: Border.all(
-          color: color.withValues(alpha: 0.72),
+          color: color,
+          width: 2,
         ),
       ),
       child: icon,
@@ -1929,24 +2018,96 @@ class _HomeScreenState extends State<HomeScreen>
           displayName: savedName,
         ),
       );
-      unawaited(_refreshRankingSummary(forceRefresh: true));
     } finally {
       _isOpeningProfileScreen = false;
     }
   }
 
-  void _openRecordScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const RecordScreen()),
+  Widget _buildLobbyPage(
+    _HomeLobbyDestination destination, {
+    required bool active,
+  }) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      child: switch (destination) {
+        _HomeLobbyDestination.home => _buildBattleLobbyPage(),
+        _HomeLobbyDestination.shop => const ShopScreen(
+            key: ValueKey('shop_page'),
+            embedded: true,
+          ),
+        _HomeLobbyDestination.collection => const CollectionScreen(
+            key: ValueKey('collection_page'),
+            embedded: true,
+          ),
+        _HomeLobbyDestination.ranking => RankingScreen(
+            key: const ValueKey('ranking_page'),
+            embedded: true,
+            active: active,
+          ),
+        _HomeLobbyDestination.record => const RecordScreen(
+            key: ValueKey('record_page'),
+            embedded: true,
+          ),
+      },
     );
   }
 
-  Future<void> _openCollectionScreen() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CollectionScreen()),
+  Widget _buildBattleLobbyPage() {
+    return Column(
+      children: [
+        _buildTopBanner1(),
+        const SizedBox(height: 12),
+        _buildTopBanner2(),
+        Expanded(
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    const ballHeight = 152.0;
+                    const spacing = 8.0;
+                    final modeHeight =
+                        (constraints.maxHeight - ballHeight - spacing)
+                            .clamp(120.0, 280.0);
+
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _build3DRotatingBall(),
+                        const SizedBox(height: spacing),
+                        _buildModeSelectionCutout(height: modeHeight),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildInterstitialSkipTicketHomeButton(),
+      ],
     );
-    await _playerDataManager.clearUnseenCollectionItems();
-    await _refreshPlayerEconomy();
+  }
+
+  Widget _buildLobbyBadge(String label) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: _friendPink,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.76)),
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
   }
 
   Widget _buildTopBanner2() {
@@ -1955,72 +2116,47 @@ class _HomeScreenState extends State<HomeScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          InkWell(
-            onTap: _openRankingScreen,
-            borderRadius: BorderRadius.circular(12),
+          GamePressable(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => unawaited(_openMissionScreen()),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: _homeCyanBorder)),
+                color: Colors.black.withValues(alpha: 0.40),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _endlessGreen.withValues(alpha: 0.48),
+                ),
+              ),
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _currentSeasonName,
-                        style: const TextStyle(
-                          color: _homeCyan,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const HexagonTrophyIcon(size: 16),
-                          const SizedBox(width: 5),
-                          Text(
-                            _isLoadingProfile ? '...' : '$_rating',
-                            style: const TextStyle(
-                              color: Colors.amberAccent,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          if (!_isLoadingProfile) ...[
-                            const SizedBox(width: 6),
-                            Text(
-                              _seasonRankLabel,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '今日 $_todayRankedWins勝  $_dailyWinRankLabel',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                  Image.asset(
+                    'assets/images/HomeActions/action_mission.png',
+                    width: 24,
+                    height: 24,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.assignment_turned_in_rounded,
+                        color: _endlessGreen,
+                        size: 18,
+                      );
+                    },
                   ),
-                  const SizedBox(width: 10),
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    color: _homeCyan,
-                    size: 22,
+                  const SizedBox(width: 7),
+                  const Text(
+                    'ミッション',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
+                  if (_claimableMissionCount > 0) ...[
+                    const SizedBox(width: 7),
+                    _buildLobbyBadge('$_claimableMissionCount'),
+                  ],
                 ],
               ),
             ),
@@ -2036,6 +2172,7 @@ class _HomeScreenState extends State<HomeScreen>
                     _homeCyan,
                     () => unawaited(_loadRemoteNotice(forceDialog: true)),
                     tooltip: 'お知らせ',
+                    assetPath: 'assets/images/HomeActions/action_notice.png',
                     badgeCount: _unreadNoticeCount,
                   ),
                   const SizedBox(width: 6),
@@ -2044,6 +2181,7 @@ class _HomeScreenState extends State<HomeScreen>
                     _homeCyan,
                     () => unawaited(_showHowToDialog()),
                     tooltip: '遊び方',
+                    assetPath: 'assets/images/HomeActions/action_help.png',
                   ),
                   const SizedBox(width: 6),
                   _buildRoundIcon(
@@ -2051,6 +2189,7 @@ class _HomeScreenState extends State<HomeScreen>
                     _homeCyan,
                     () => unawaited(_showSettingsDialog()),
                     tooltip: '設定',
+                    assetPath: 'assets/images/HomeActions/action_settings.png',
                   ),
                   if (_debugControlsEnabled) ...[
                     const SizedBox(width: 6),
@@ -2069,6 +2208,8 @@ class _HomeScreenState extends State<HomeScreen>
                       _homeCyan,
                       () => unawaited(_showAdRemovalDialog(context)),
                       tooltip: '広告削除',
+                      assetPath:
+                          'assets/images/HomeActions/action_ad_remove.png',
                     ),
                   ],
                 ],
@@ -2085,38 +2226,46 @@ class _HomeScreenState extends State<HomeScreen>
     Color color,
     VoidCallback onTap, {
     required String tooltip,
+    String? assetPath,
     int badgeCount = 0,
   }) {
     return Tooltip(
       message: tooltip,
-      child: InkWell(
+      child: GamePressable(
+        borderRadius: BorderRadius.circular(10),
         onTap: () {
           _playUiTap();
           onTap();
         },
-        borderRadius: BorderRadius.circular(8),
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            SizedBox(
+            Container(
               width: 45,
+              height: 45,
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.32),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: color.withValues(alpha: 0.18),
+                ),
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, color: color, size: 28),
-                  const SizedBox(height: 2),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      tooltip,
-                      maxLines: 1,
-                      softWrap: false,
-                      style: TextStyle(
-                        color: color.withValues(alpha: 0.82),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+                  Expanded(
+                    child: assetPath == null
+                        ? Icon(icon, color: color, size: 30)
+                        : Image.asset(
+                            assetPath,
+                            width: 35,
+                            height: 35,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Icon(icon, color: color, size: 30);
+                            },
+                          ),
                   ),
                 ],
               ),
@@ -2143,20 +2292,6 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-
-  void _openRankingScreen() {
-    _playUiTap();
-    Navigator.of(context).push(
-      PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 240),
-        reverseTransitionDuration: const Duration(milliseconds: 180),
-        pageBuilder: (_, animation, __) => FadeTransition(
-          opacity: animation,
-          child: const RankingScreen(),
         ),
       ),
     );
@@ -2385,7 +2520,10 @@ class _HomeScreenState extends State<HomeScreen>
                     Expanded(
                         child: _buildGridButton('エンドレス', _endlessGreen,
                             () => _showEndlessStartDialog(context),
-                            alignment: Alignment.topLeft)),
+                            alignment: Alignment.topLeft,
+                            assetPath:
+                                'assets/images/HomeModes/mode_endless.png',
+                            iconPlacement: _ModeIconPlacement.below)),
                     const SizedBox(width: 8),
                     Expanded(
                         child: _buildGridButton(
@@ -2394,7 +2532,10 @@ class _HomeScreenState extends State<HomeScreen>
                             _isBusy
                                 ? null
                                 : () => _showFriendBattleDialog(context),
-                            alignment: Alignment.topRight)),
+                            alignment: Alignment.topRight,
+                            assetPath:
+                                'assets/images/HomeModes/mode_friend.png',
+                            iconPlacement: _ModeIconPlacement.below)),
                   ],
                 ),
               ),
@@ -2409,11 +2550,18 @@ class _HomeScreenState extends State<HomeScreen>
                             _isBusy
                                 ? null
                                 : () => _showCpuDifficultyDialog(context),
-                            alignment: Alignment.bottomLeft)),
+                            alignment: Alignment.bottomLeft,
+                            assetPath:
+                                'assets/images/HomeModes/mode_computer.png',
+                            iconPlacement: _ModeIconPlacement.above)),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: _buildArenaGridButton(_homeCyan, null,
-                            alignment: Alignment.bottomRight)),
+                      child: _buildDailyGridButton(
+                        _dailyBlue,
+                        () => _showDailyStartDialog(context),
+                        alignment: Alignment.bottomRight,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -2443,60 +2591,55 @@ class _HomeScreenState extends State<HomeScreen>
                         width: 5,
                       ),
                     ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF171125),
-                          border: Border.all(
-                            color: _rankedPurple,
-                            width: 2.4,
-                          )),
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text(
-                              'ランク戦',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: _rankedPurpleText,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 18,
-                                letterSpacing: 2,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.62),
-                                borderRadius: BorderRadius.circular(999),
+                    child: ClipOval(
+                      child: Stack(
+                        children: [
+                          Container(
+                            decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: const Color(0xFF171125),
                                 border: Border.all(
-                                  color: _rankedPurple.withValues(alpha: 0.82),
-                                ),
-                              ),
-                              child: Row(
+                                  color: _rankedPurple,
+                                  width: 2.4,
+                                )),
+                            child: Center(
+                              child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const HexagonTrophyIcon(size: 12),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    _isLoadingProfile ? '...' : '$_rating',
-                                    style: const TextStyle(
-                                      color: Colors.amberAccent,
-                                      fontSize: 11,
+                                  Image.asset(
+                                    'assets/images/HomeModes/mode_ranked.png',
+                                    width: 54,
+                                    height: 54,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return const Icon(
+                                        Icons.emoji_events_rounded,
+                                        color: _rankedPurpleText,
+                                        size: 44,
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 5),
+                                  const Text(
+                                    'ランク戦',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: _rankedPurpleText,
                                       fontWeight: FontWeight.w900,
-                                      letterSpacing: 0.8,
+                                      fontSize: 18,
+                                      letterSpacing: 2,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+                          Positioned.fill(
+                            child: _RankedButtonShine(
+                              animation: _animController,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
@@ -2516,8 +2659,14 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildGridButton(String title, Color accentColor, VoidCallback? onTap,
-      {Alignment alignment = Alignment.center}) {
+  Widget _buildGridButton(
+    String title,
+    Color accentColor,
+    VoidCallback? onTap, {
+    Alignment alignment = Alignment.center,
+    String? assetPath,
+    _ModeIconPlacement iconPlacement = _ModeIconPlacement.none,
+  }) {
     final textAlign = alignment.x < 0
         ? TextAlign.left
         : alignment.x > 0
@@ -2544,15 +2693,35 @@ class _HomeScreenState extends State<HomeScreen>
           alignment: alignment,
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Text(
-              AppSettings.instance.translate(title),
-              textAlign: textAlign,
-              style: TextStyle(
-                color: accentColor.withValues(alpha: 0.96),
-                fontWeight: FontWeight.w900,
-                fontSize: 17,
-                letterSpacing: 1.2,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: alignment.x < 0
+                  ? CrossAxisAlignment.start
+                  : alignment.x > 0
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.center,
+              children: [
+                if (assetPath != null &&
+                    iconPlacement == _ModeIconPlacement.above) ...[
+                  _buildModeIconImage(assetPath, accentColor),
+                  const SizedBox(height: 4),
+                ],
+                Text(
+                  AppSettings.instance.translate(title),
+                  textAlign: textAlign,
+                  style: TextStyle(
+                    color: accentColor.withValues(alpha: 0.96),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                if (assetPath != null &&
+                    iconPlacement == _ModeIconPlacement.below) ...[
+                  const SizedBox(height: 4),
+                  _buildModeIconImage(assetPath, accentColor),
+                ],
+              ],
             ),
           ),
         ),
@@ -2560,10 +2729,27 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildArenaGridButton(Color accentColor, VoidCallback? onTap,
-      {Alignment alignment = Alignment.center}) {
-    const disabledArenaColor = Color(0xFF676D76);
+  Widget _buildModeIconImage(String assetPath, Color accentColor) {
+    return Image.asset(
+      assetPath,
+      width: 46,
+      height: 46,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) {
+        return Icon(
+          Icons.circle,
+          color: accentColor.withValues(alpha: 0.9),
+          size: 36,
+        );
+      },
+    );
+  }
 
+  Widget _buildDailyGridButton(
+    Color accentColor,
+    VoidCallback? onTap, {
+    Alignment alignment = Alignment.center,
+  }) {
     return InkWell(
       onTap: onTap == null
           ? null
@@ -2574,28 +2760,25 @@ class _HomeScreenState extends State<HomeScreen>
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-            color: const Color(0xFF151922),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: disabledArenaColor.withValues(alpha: 0.42),
-              width: 2.4,
-            )),
+          color: const Color(0xFF111722),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: accentColor.withValues(alpha: 0.56),
+            width: 2.4,
+          ),
+        ),
         child: Align(
           alignment: alignment,
           child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: alignment,
-              child: const Text(
-                'Coming Soon...',
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                  color: Color(0xFFB8C0CA),
-                  fontWeight: FontWeight.w900,
-                  fontSize: 17,
-                  letterSpacing: 1.2,
-                ),
+            padding: const EdgeInsets.all(14),
+            child: Text(
+              'デイリー',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: accentColor.withValues(alpha: 0.96),
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+                letterSpacing: 1.2,
               ),
             ),
           ),
@@ -2614,7 +2797,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: _homeCyan,
+          accentColor: _dailyBlue,
           title: 'アリーナ再入場',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2649,7 +2832,7 @@ class _HomeScreenState extends State<HomeScreen>
                   Expanded(
                     child: _buildCyberDialogButton(
                       label: '再入場',
-                      accentColor: _homeCyan,
+                      accentColor: _dailyBlue,
                       onPressed: () => Navigator.of(dialogContext).pop(true),
                     ),
                   ),
@@ -2668,7 +2851,7 @@ class _HomeScreenState extends State<HomeScreen>
       context: context,
       builder: (dialogContext) {
         return _buildCyberDialog(
-          accentColor: _homeCyan,
+          accentColor: _dailyBlue,
           title: 'アリーナ入場',
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2831,33 +3014,255 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildBottomBannerTop() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
+    return Container(
+      height: 86,
+      padding: EdgeInsets.zero,
+      decoration: BoxDecoration(
+        color: const Color(0xF20B1625),
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withValues(alpha: 0.16),
+            width: 1.2,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.42),
+            blurRadius: 16,
+            offset: const Offset(0, -6),
+          ),
+        ],
+      ),
       child: Row(
         children: [
           _buildBottomTextButton(
-            Icons.storefront,
+            Icons.storefront_rounded,
             'ショップ',
-            () => _openDailyShop(context),
+            _HomeLobbyDestination.shop,
+            iconAsset: 'assets/images/HomeNav/nav_shop.png',
           ),
           _buildBottomTextButton(
-            Icons.collections_bookmark,
+            Icons.collections_bookmark_rounded,
             'コレクション',
-            () => unawaited(_openCollectionScreen()),
+            _HomeLobbyDestination.collection,
+            iconAsset: 'assets/images/HomeNav/nav_collection.png',
             showDot: _hasUnseenCollectionItems,
           ),
           _buildBottomTextButton(
-            Icons.assignment_turned_in,
-            'ミッション',
-            () => unawaited(_openMissionScreen()),
-            badgeCount: _claimableMissionCount,
+            Icons.sports_esports_rounded,
+            'バトル',
+            _HomeLobbyDestination.home,
+            iconAsset: 'assets/images/HomeNav/nav_battle.png',
           ),
           _buildBottomTextButton(
-            Icons.bar_chart,
+            Icons.leaderboard_rounded,
+            'ランキング',
+            _HomeLobbyDestination.ranking,
+            iconAsset: 'assets/images/HomeNav/nav_ranking.png',
+          ),
+          _buildBottomTextButton(
+            Icons.bar_chart_rounded,
             'レコード',
-            _openRecordScreen,
+            _HomeLobbyDestination.record,
+            iconAsset: 'assets/images/HomeNav/nav_record.png',
           ),
         ],
+      ),
+    );
+  }
+
+  void _openLobbyDestination(_HomeLobbyDestination destination) {
+    final index = _lobbyDestinations.indexOf(destination);
+    if (index < 0) {
+      return;
+    }
+    if (index == _selectedLobbyPageIndex) {
+      return;
+    }
+    setState(() {
+      _selectedLobbyPageIndex = index;
+    });
+    unawaited(
+      _lobbyPageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
+  Widget _buildBottomNavIcon({
+    required IconData fallbackIcon,
+    required String assetPath,
+    required Color color,
+  }) {
+    return Image.asset(
+      assetPath,
+      width: 46,
+      height: 46,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) {
+        return Icon(
+          fallbackIcon,
+          color: color,
+          size: 39,
+        );
+      },
+    );
+  }
+
+  Widget _buildBottomTextButton(
+    IconData icon,
+    String label,
+    _HomeLobbyDestination destination, {
+    required String iconAsset,
+    int badgeCount = 0,
+    bool showDot = false,
+  }) {
+    final selected = _lobbyDestinations[_selectedLobbyPageIndex] == destination;
+    final destinationIndex = _lobbyDestinations.indexOf(destination);
+    final showLeftArrow = selected && destinationIndex > 0;
+    final showRightArrow =
+        selected && destinationIndex < _lobbyDestinations.length - 1;
+    final color = selected ? Colors.white : _homeCyan.withValues(alpha: 0.66);
+    return Expanded(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+            right: BorderSide(color: Colors.black.withValues(alpha: 0.42)),
+          ),
+        ),
+        child: GamePressable(
+          borderRadius: BorderRadius.zero,
+          onTap: () {
+            _playUiTap();
+            _openLobbyDestination(destination);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            height: 86,
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+            decoration: BoxDecoration(
+              gradient: selected
+                  ? LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        _homeCyan.withValues(alpha: 0.30),
+                        _homeCyan.withValues(alpha: 0.10),
+                        Colors.black.withValues(alpha: 0.10),
+                      ],
+                    )
+                  : LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.06),
+                        Colors.black.withValues(alpha: 0.08),
+                      ],
+                    ),
+              border: selected
+                  ? Border(
+                      top: BorderSide(
+                        color: _homeCyan.withValues(alpha: 0.92),
+                        width: 2,
+                      ),
+                    )
+                  : null,
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                if (showLeftArrow)
+                  Positioned(
+                    left: 1,
+                    child: Icon(
+                      Icons.chevron_left_rounded,
+                      color: _homeCyan.withValues(alpha: 0.86),
+                      size: 18,
+                    ),
+                  ),
+                if (showRightArrow)
+                  Positioned(
+                    right: 1,
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      color: _homeCyan.withValues(alpha: 0.86),
+                      size: 18,
+                    ),
+                  ),
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildBottomNavIcon(
+                        fallbackIcon: icon,
+                        assetPath: iconAsset,
+                        color: color,
+                      ),
+                      if (selected) ...[
+                        const SizedBox(height: 1),
+                        SizedBox(
+                          width: 62,
+                          height: 14,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              softWrap: false,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (badgeCount > 0 || showDot)
+                  Positioned(
+                    top: 5,
+                    right: 10,
+                    child: Container(
+                      width: showDot && badgeCount <= 0 ? 9 : null,
+                      height: showDot && badgeCount <= 0 ? 9 : null,
+                      padding: showDot && badgeCount <= 0
+                          ? EdgeInsets.zero
+                          : const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                      decoration: BoxDecoration(
+                        color: _friendPink,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.72),
+                        ),
+                      ),
+                      child: showDot && badgeCount <= 0
+                          ? null
+                          : Text(
+                              '$badgeCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -2878,7 +3283,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ? '広告なし 残り${_formatSkipTicketRemaining(remaining)}'
                 : '30分広告なし';
             return Padding(
-              padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
+              padding: const EdgeInsets.fromLTRB(18, 6, 18, 14),
               child: InkWell(
                 onTap: () {
                   _playUiTap();
@@ -2956,75 +3361,6 @@ class _HomeScreenState extends State<HomeScreen>
       return;
     }
     await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  Widget _buildBottomTextButton(
-    IconData icon,
-    String label,
-    VoidCallback onTap, {
-    int badgeCount = 0,
-    bool showDot = false,
-  }) {
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          _playUiTap();
-          onTap();
-        },
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.topCenter,
-          children: [
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  icon,
-                  color: _homeCyan.withValues(alpha: 0.88),
-                  size: 24,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _homeCyan.withValues(alpha: 0.88),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            if (badgeCount > 0 || showDot)
-              Positioned(
-                top: -6,
-                right: 18,
-                child: Container(
-                  width: showDot && badgeCount <= 0 ? 9 : null,
-                  height: showDot && badgeCount <= 0 ? 9 : null,
-                  padding: showDot && badgeCount <= 0
-                      ? EdgeInsets.zero
-                      : const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  decoration: BoxDecoration(
-                      color: _friendPink,
-                      borderRadius: BorderRadius.circular(999)),
-                  child: showDot && badgeCount <= 0
-                      ? null
-                      : Text(
-                          '$badgeCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _showInterstitialSkipTicketDialog(BuildContext context) async {
@@ -3604,6 +3940,797 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Future<void> _showDailyStartDialog(BuildContext context) async {
+    final status = await DailyChallengeManager.instance.loadStatus();
+    if (!mounted || !context.mounted) {
+      return;
+    }
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _dailyBlue,
+          title: 'デイリー',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '世界共通の盤面で60秒間のスコアアタック',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildDailyStartScoreValue(
+                      label: '今日のスコア',
+                      value: status.bestScore,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'ランキング',
+                      accentColor: _dailyBlue,
+                      onPressed: () {
+                        unawaited(_showDailyRankingDialog(
+                          context,
+                          initialDateKey: status.dateKey,
+                        ));
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: 'キャンセル',
+                      accentColor: Colors.white54,
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildCyberDialogButton(
+                      label: !status.canAttempt
+                          ? '本日は終了'
+                          : status.needsRewardAd &&
+                                  !AppSettings.instance.adsRemoved.value
+                              ? '広告を見て開始'
+                              : '開始',
+                      accentColor: _dailyBlue,
+                      onPressed: () async {
+                        final shouldShowAd = status.needsRewardAd &&
+                            !AppSettings.instance.adsRemoved.value;
+                        if (!status.canAttempt) {
+                          await _showAlert(
+                            context,
+                            'デイリー',
+                            '本日の挑戦回数は上限に達しました。',
+                          );
+                          return;
+                        }
+                        if (shouldShowAd) {
+                          final rewarded = await RewardedAdManager.instance
+                              .showDoubleRewardAd();
+                          if (!rewarded) {
+                            if (context.mounted) {
+                              await _showAlert(
+                                context,
+                                '広告エラー',
+                                '動画の視聴が完了しませんでした。',
+                              );
+                            }
+                            return;
+                          }
+                        }
+                        final started = await DailyChallengeManager.instance
+                            .recordAttemptStart();
+                        if (!mounted || !dialogContext.mounted) {
+                          return;
+                        }
+                        Navigator.of(dialogContext).pop();
+                        unawaited(_stopHomeBgm());
+                        Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (context) => GameScreen(
+                              isDailyMode: true,
+                              dailyDateKey: started.dateKey,
+                              dailySeed: started.seed,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '本日 ${status.attemptsUsed}/${DailyChallengeManager.maxAttemptsPerDay} 回挑戦済み',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDailyStartScoreValue({
+    required String label,
+    required int value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: _dailyBlue.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _dailyBlue.withValues(alpha: 0.48)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _dailyBlue.withValues(alpha: 0.9),
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              '${_formatScoreNumber(value)}点',
+              maxLines: 1,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDailyRankingDialog(
+    BuildContext context, {
+    required String initialDateKey,
+  }) {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        var dateKey = initialDateKey;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final showingToday = dateKey == initialDateKey;
+            return _buildCyberDialog(
+              accentColor: _dailyBlue,
+              title: showingToday ? 'ランキング' : '昨日のランキング',
+              titleTrailing: _buildDailyRankingSwitchButton(
+                label: '報酬',
+                onTap: () => _showDailyRewardDialog(context),
+              ),
+              child: FutureBuilder<List<DailyChallengeEntry>>(
+                key: ValueKey(dateKey),
+                future: DailyChallengeManager.instance
+                    .fetchTopRankings(dateKey: dateKey),
+                builder: (context, snapshot) {
+                  final entries =
+                      snapshot.data ?? const <DailyChallengeEntry>[];
+                  final loading =
+                      snapshot.connectionState != ConnectionState.done;
+                  return SizedBox(
+                    height: 500,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          top: 0,
+                          bottom: 54,
+                          child: loading
+                              ? const Center(
+                                  child: Text(
+                                    '読み込み中...',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                )
+                              : entries.isEmpty
+                                  ? Center(
+                                      child: Text(
+                                        '${_dailyRankingDateLabel(dateKey)} の記録はまだありません。',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    )
+                                  : _buildDailyRankingContent(entries),
+                        ),
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: _buildDailyRankingSwitchButton(
+                            label: showingToday ? '昨日のランキング' : '今日のランキング',
+                            onTap: () {
+                              setDialogState(() {
+                                dateKey = showingToday
+                                    ? _previousDailyDateKey(initialDateKey)
+                                    : initialDateKey;
+                              });
+                            },
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          bottom: 0,
+                          child: _buildDailyRankingSwitchButton(
+                            label: '閉じる',
+                            muted: true,
+                            onTap: () => Navigator.of(dialogContext).pop(),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showDailyRewardDialog(BuildContext context) {
+    const rewards = <_DailyRewardRow>[
+      _DailyRewardRow('1位', 50000),
+      _DailyRewardRow('2〜3位', 20000),
+      _DailyRewardRow('4〜10位', 5000),
+    ];
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _dailyBlue,
+          title: 'デイリー報酬',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _dailyRewardSection(
+                title: 'デイリー',
+                subtitle: '日付変更後 / 10位まで',
+                rows: rewards,
+              ),
+              const SizedBox(height: 14),
+              _buildCyberDialogButton(
+                label: '閉じる',
+                accentColor: Colors.white54,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _dailyRewardSection({
+    required String title,
+    required String subtitle,
+    required List<_DailyRewardRow> rows,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.26),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _dailyBlue.withValues(alpha: 0.28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: _dailyBlue,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  subtitle,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final row in rows)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      row.label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  HexagonCoinAmount(
+                    row.amount,
+                    iconSize: 15,
+                    fontSize: 13,
+                    color: const Color(0xFFEAF6FF),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyRankingContent(List<DailyChallengeEntry> entries) {
+    final myEntry = _findMyDailyRankingEntry(entries);
+    final myRank =
+        myEntry == null ? null : _dailyDisplayRankFor(entries, myEntry);
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(0, 4, 0, 8),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate(
+              [
+                _buildDailyRankingSummary(myEntry: myEntry, myRank: myRank),
+                if (entries.length >= 3) ...[
+                  const SizedBox(height: 12),
+                  _buildDailyTopPodium(entries),
+                ],
+                const SizedBox(height: 12),
+                for (var index = entries.length >= 3 ? 3 : 0;
+                    index < entries.length;
+                    index++) ...[
+                  _buildDailyRankingTile(
+                      _dailyDisplayRankAt(entries, index), entries[index]),
+                  if (index != entries.length - 1) const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDailyRankingSummary({
+    required DailyChallengeEntry? myEntry,
+    required int? myRank,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.30),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _dailyBlue.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: _dailyBlue.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _dailyBlue.withValues(alpha: 0.48)),
+            ),
+            child: const Icon(
+              Icons.speed_rounded,
+              color: _dailyBlue,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '60秒スコアアタック',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  '報酬対象: 10位まで',
+                  style: TextStyle(
+                    color: _dailyBlue,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'あなた',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  myRank == null ? '圏外' : '$myRank位',
+                  style: TextStyle(
+                    color: myEntry == null ? Colors.white54 : _dailyBlue,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDailyTopPodium(List<DailyChallengeEntry> entries) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: _buildDailyPodiumCard(
+            entry: entries[1],
+            rank: _dailyDisplayRankAt(entries, 1),
+            height: 112,
+            color: const Color(0xFFDCE8FF),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildDailyPodiumCard(
+            entry: entries[0],
+            rank: 1,
+            height: 136,
+            color: const Color(0xFFFFD85A),
+            champion: true,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildDailyPodiumCard(
+            entry: entries[2],
+            rank: _dailyDisplayRankAt(entries, 2),
+            height: 106,
+            color: const Color(0xFFFFA35A),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDailyPodiumCard({
+    required DailyChallengeEntry entry,
+    required int rank,
+    required double height,
+    required Color color,
+    bool champion = false,
+  }) {
+    return GamePressable(
+      onTap: () => _openDailyRankingProfile(entry, rank),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: champion ? 0.18 : 0.10),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: color.withValues(alpha: champion ? 0.92 : 0.62),
+            width: champion ? 1.8 : 1.2,
+          ),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$rank位',
+              style: TextStyle(
+                color: color,
+                fontSize: champion ? 18 : 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    entry.displayName,
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '${_formatScoreNumber(entry.score)}点',
+                maxLines: 1,
+                style: TextStyle(
+                  color: color,
+                  fontSize: champion ? 15 : 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDailyRankingTile(int rank, DailyChallengeEntry entry) {
+    final accent = switch (rank) {
+      1 => const Color(0xFFFFD54F),
+      2 => const Color(0xFFC9D6E2),
+      3 => const Color(0xFFD59A62),
+      _ => _dailyBlue,
+    };
+    final rankIsTop = rank <= 3;
+    final fillColor = switch (rank) {
+      1 => const Color(0xFF4A3714),
+      2 => const Color(0xFF303A4F),
+      3 => const Color(0xFF4A2416),
+      _ => const Color(0xFF101827),
+    };
+    return GamePressable(
+      onTap: () => _openDailyRankingProfile(entry, rank),
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        constraints: const BoxConstraints(minHeight: 58),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+            color: rankIsTop ? fillColor.withValues(alpha: 0.98) : null,
+            gradient: rankIsTop
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF101827).withValues(alpha: 0.96),
+                      const Color(0xFF070B14).withValues(alpha: 0.98),
+                    ],
+                  ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: rankIsTop
+                  ? accent.withValues(alpha: 0.78)
+                  : Colors.white.withValues(alpha: 0.16),
+              width: rankIsTop ? 1.4 : 1,
+            )),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 34,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: rankIsTop ? 0.34 : 0.20),
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(
+                  color: accent.withValues(alpha: rankIsTop ? 0.78 : 0.34),
+                  width: rankIsTop ? 1.2 : 1,
+                ),
+              ),
+              child: Text(
+                '$rank',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color:
+                      rankIsTop ? accent : Colors.white.withValues(alpha: 0.78),
+                  fontSize: rankIsTop ? 14 : 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  entry.displayName,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.24),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: accent.withValues(alpha: 0.30)),
+              ),
+              child: Text(
+                '${_formatScoreNumber(entry.score)}点',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  DailyChallengeEntry? _findMyDailyRankingEntry(
+    List<DailyChallengeEntry> entries,
+  ) {
+    final uid = _multiplayerManager.myUid ?? '';
+    final publicId = _playerDataManager.playerId;
+    for (final entry in entries) {
+      if ((uid.isNotEmpty && entry.uid == uid) ||
+          (publicId.isNotEmpty && entry.publicId == publicId)) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  int _dailyDisplayRankFor(
+    List<DailyChallengeEntry> entries,
+    DailyChallengeEntry target,
+  ) {
+    return entries.where((entry) => entry.score > target.score).length + 1;
+  }
+
+  Future<void> _openDailyRankingProfile(
+    DailyChallengeEntry entry,
+    int rank,
+  ) async {
+    _playUiTap();
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(
+          playerUid: entry.uid,
+          initialEntry: RankingEntry(
+            uid: entry.uid,
+            displayName: entry.displayName,
+            rating: 0,
+            publicId: entry.publicId,
+            highestEndlessScore: entry.score,
+            updatedAt: entry.updatedAt,
+          ),
+          initialRankLabel: '$rank位',
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDailyRankingSwitchButton({
+    required String label,
+    required VoidCallback onTap,
+    bool muted = false,
+  }) {
+    final color = muted ? _mutedButtonGrey : _dailyBlue;
+    return GamePressable(
+      onTap: () {
+        _playUiTap();
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.32),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.55)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  int _dailyDisplayRankAt(List<DailyChallengeEntry> entries, int index) {
+    if (index <= 0) {
+      return 1;
+    }
+    final score = entries[index].score;
+    return entries.where((entry) => entry.score > score).length + 1;
+  }
+
+  String _previousDailyDateKey(String dateKey) {
+    final parsed = DateTime.tryParse(dateKey);
+    if (parsed == null) {
+      return dateKey;
+    }
+    return DailyChallengeManager.dateKeyFor(
+      parsed.subtract(const Duration(days: 1)),
+    );
+  }
+
+  String _dailyRankingDateLabel(String dateKey) {
+    final parsed = DateTime.tryParse(dateKey);
+    if (parsed == null) {
+      return dateKey;
+    }
+    return '${parsed.month}/${parsed.day}';
+  }
+
   Widget _buildEndlessStartScoreValue({
     required String label,
     required int value,
@@ -3816,9 +4943,11 @@ class _HomeScreenState extends State<HomeScreen>
               Row(
                 children: [
                   Expanded(
-                    child: _buildCyberDialogButton(
+                    child: _buildFriendRoomActionButton(
                       label: '部屋を作成',
                       accentColor: _friendPink,
+                      icon: Icons.add_home_work_rounded,
+                      filled: true,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
                         unawaited(_createRoom());
@@ -3827,9 +4956,11 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _buildCyberDialogButton(
+                    child: _buildFriendRoomActionButton(
                       label: '部屋に参加',
-                      accentColor: _friendPink,
+                      accentColor: _homeCyan,
+                      icon: Icons.login_rounded,
+                      filled: false,
                       onPressed: () {
                         Navigator.of(dialogContext).pop();
                         unawaited(_joinRoom());
@@ -3851,11 +4982,74 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Future<void> _openDailyShop(BuildContext context) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ShopScreen()),
+  Widget _buildFriendRoomActionButton({
+    required String label,
+    required Color accentColor,
+    required IconData icon,
+    required bool filled,
+    required VoidCallback onPressed,
+  }) {
+    return GamePressable(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        _playUiTap();
+        onPressed();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        constraints: const BoxConstraints(minHeight: 88),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        decoration: BoxDecoration(
+          color: filled
+              ? Colors.transparent
+              : Colors.black.withValues(alpha: 0.34),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: accentColor.withValues(alpha: filled ? 0.88 : 0.58),
+            width: filled ? 1.8 : 1.3,
+          ),
+          boxShadow: filled
+              ? [
+                  BoxShadow(
+                    color: accentColor.withValues(alpha: 0.20),
+                    blurRadius: 18,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: accentColor, size: 26),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: TextStyle(
+                  color: filled ? Colors.white : accentColor,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              filled ? 'ルームIDを発行' : '6桁IDで入室',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.56),
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
-    await _refreshPlayerEconomy();
   }
 
   // ignore: unused_element
@@ -5433,7 +6627,6 @@ class _HomeScreenState extends State<HomeScreen>
     setState(() {
       _rating = resolution.newRating ?? _multiplayerManager.currentRating;
     });
-    unawaited(_refreshRankingSummary(forceRefresh: true));
     if (resolution.wasAbandoned) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) {
@@ -5647,16 +6840,13 @@ class _HomeScreenState extends State<HomeScreen>
     final lines = message.split('\n');
     final rewardLine = lines.length > 1 ? lines.sublist(1).join('\n') : '';
     final match = RegExp(
-      r'^レベルアップ報酬として(合計 )?(\d+) を獲得しました。$',
+      r'^レベルアップ報酬として(合計 )?([\d,，]+)\s*(?:コイン)?を獲得しました。$',
     ).firstMatch(rewardLine.trim());
     if (match == null) {
-      return Text(
-        message,
-        style: const TextStyle(color: Colors.white70, height: 1.5),
-        textAlign: TextAlign.center,
-      );
+      return _buildCoinAwareMessage(message);
     }
-    final amount = int.tryParse(match.group(2) ?? '') ?? 0;
+    final amountText = (match.group(2) ?? '').replaceAll(RegExp(r'[,，]'), '');
+    final amount = int.tryParse(amountText) ?? 0;
     final prefix = match.group(1) == null ? '' : '合計 ';
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -5726,13 +6916,78 @@ class _HomeScreenState extends State<HomeScreen>
         );
       }
     }
-    return Text(
-      message,
-      style: const TextStyle(
-        color: Colors.white70,
-        height: 1.5,
-      ),
-      textAlign: TextAlign.center,
+    return _buildCoinAwareMessage(message);
+  }
+
+  Widget _buildCoinAwareMessage(String message) {
+    final lines = message.split('\n');
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var index = 0; index < lines.length; index++) ...[
+          _buildCoinAwareLine(lines[index]),
+          if (index != lines.length - 1) const SizedBox(height: 4),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCoinAwareLine(String line) {
+    final trimmedLine = line.trim();
+    if (trimmedLine.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final coinTextMatch = RegExp(
+      r'([\d,，]+)\s*コイン',
+    ).firstMatch(trimmedLine);
+    if (coinTextMatch == null) {
+      return Text(
+        trimmedLine,
+        style: const TextStyle(
+          color: Colors.white70,
+          height: 1.5,
+        ),
+        textAlign: TextAlign.center,
+      );
+    }
+
+    final amountText =
+        (coinTextMatch.group(1) ?? '').replaceAll(RegExp(r'[,，]'), '');
+    final amount = int.tryParse(amountText) ?? 0;
+    final before = trimmedLine.substring(0, coinTextMatch.start);
+    final after = trimmedLine.substring(coinTextMatch.end);
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 5,
+      runSpacing: 4,
+      children: [
+        if (before.isNotEmpty)
+          Text(
+            before,
+            style: const TextStyle(color: Colors.white70, height: 1.5),
+            textAlign: TextAlign.center,
+          ),
+        if (amount > 0)
+          _buildCoinAmount(
+            amount,
+            iconSize: 18,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+          )
+        else
+          Text(
+            coinTextMatch.group(0) ?? '',
+            style: const TextStyle(color: Colors.white70, height: 1.5),
+            textAlign: TextAlign.center,
+          ),
+        if (after.isNotEmpty)
+          Text(
+            after,
+            style: const TextStyle(color: Colors.white70, height: 1.5),
+            textAlign: TextAlign.center,
+          ),
+      ],
     );
   }
 
@@ -6007,6 +7262,7 @@ class _HomeScreenState extends State<HomeScreen>
     double musicVolume = AppSettings.instance.musicVolume.value;
     double sfxVolume = AppSettings.instance.sfxVolume.value;
     var layout = AppSettings.instance.controlLayout.value;
+    var hintGuideEnabled = AppSettings.instance.hintGuideEnabled.value;
 
     await showDialog<void>(
       context: context,
@@ -6035,6 +7291,13 @@ class _HomeScreenState extends State<HomeScreen>
               await AppSettings.instance.setControlLayout(preset);
             }
 
+            Future<void> updateHintGuide(bool value) async {
+              setDialogState(() {
+                hintGuideEnabled = value;
+              });
+              await AppSettings.instance.setHintGuideEnabled(value);
+            }
+
             return _buildCyberDialog(
               accentColor: _homeCyan,
               title: '設定',
@@ -6042,6 +7305,13 @@ class _HomeScreenState extends State<HomeScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  _buildSettingsToggleButton(
+                    title: 'ヒントガイド',
+                    body: 'コンピュータ対戦とフレンド対戦で、迷った時におすすめ位置を表示します。',
+                    value: hintGuideEnabled,
+                    onChanged: (value) => unawaited(updateHintGuide(value)),
+                  ),
+                  const SizedBox(height: 10),
                   _buildCyberDialogButton(
                     label: AppSettings.instance.text('音量設定', 'Audio'),
                     accentColor: _homeCyan,
@@ -6625,6 +7895,90 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  Widget _buildSettingsToggleButton({
+    required String title,
+    required String body,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return GamePressable(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () {
+        _playUiTap();
+        onChanged(!value);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+        decoration: BoxDecoration(
+          color: value
+              ? _homeCyan.withValues(alpha: 0.12)
+              : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: value
+                ? _homeCyan.withValues(alpha: 0.76)
+                : Colors.white.withValues(alpha: 0.14),
+            width: value ? 1.4 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              width: 44,
+              height: 26,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: value
+                    ? _homeCyan.withValues(alpha: 0.92)
+                    : Colors.white.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Align(
+                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    body,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 11,
+                      height: 1.35,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildControlLayoutOption({
     required ControlLayoutPreset preset,
     required bool selected,
@@ -6717,6 +8071,7 @@ class _HomeScreenState extends State<HomeScreen>
     required String title,
     required Widget child,
     required Color accentColor,
+    Widget? titleTrailing,
   }) {
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -6738,15 +8093,27 @@ class _HomeScreenState extends State<HomeScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: accentColor,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2.4,
-              ),
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Center(
+                  child: Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: accentColor,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.4,
+                    ),
+                  ),
+                ),
+                if (titleTrailing != null)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: titleTrailing,
+                  ),
+              ],
             ),
             const SizedBox(height: 18),
             child,
@@ -7291,6 +8658,124 @@ class _RankedMatchmakingEstimateState
   }
 }
 
+class _ModeButtonBorderOverlayPainter extends CustomPainter {
+  static const double _strokeWidth = 2.4;
+  static const double _arcRadius = 76.3;
+  static const double _arcGap = 0.065;
+
+  final List<Color> _colors = [
+    _endlessGreen,
+    _friendPink,
+    _computerYellow,
+    const Color(0xFF8B96A3),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final arcRect = Rect.fromCircle(center: center, radius: _arcRadius);
+    final arcs = [
+      (start: math.pi + _arcGap, color: _colors[0]),
+      (start: -math.pi / 2 + _arcGap, color: _colors[1]),
+      (start: math.pi / 2 + _arcGap, color: _colors[2]),
+      (start: _arcGap, color: _colors[3]),
+    ];
+
+    for (final arc in arcs) {
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = _strokeWidth
+        ..color = arc.color.withValues(alpha: 0.58);
+      canvas.drawArc(
+        arcRect,
+        arc.start,
+        math.pi / 2 - (_arcGap * 2),
+        false,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ModeButtonBorderOverlayPainter oldDelegate) {
+    return true;
+  }
+}
+
+class _RankedButtonShine extends StatelessWidget {
+  const _RankedButtonShine({
+    required this.animation,
+  });
+
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          return CustomPaint(
+            painter: _RankedButtonShinePainter(animation.value),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _RankedButtonShinePainter extends CustomPainter {
+  const _RankedButtonShinePainter(this.value);
+
+  final double value;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const periodMs = 10000;
+    const activeMs = 1600;
+    final elapsedMs = DateTime.now().millisecondsSinceEpoch % periodMs;
+    if (elapsedMs > activeMs) {
+      return;
+    }
+    final progress = elapsedMs / activeMs;
+    final diagonal = size.width + size.height;
+    final center = Offset(
+      -size.width * 0.42 + diagonal * progress,
+      -size.height * 0.42 + diagonal * progress,
+    );
+    final rect = Rect.fromCenter(
+      center: center,
+      width: size.width * 0.52,
+      height: size.height * 0.42,
+    );
+    final paint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Color(0x00FFFFFF),
+          Color(0x22FFFFFF),
+          Color(0x55FFFFFF),
+          Color(0x22FFFFFF),
+          Color(0x00FFFFFF),
+        ],
+        stops: [0.0, 0.32, 0.5, 0.68, 1.0],
+      ).createShader(rect);
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(-math.pi / 4);
+    canvas.translate(-center.dx, -center.dy);
+    canvas.drawRect(rect, paint);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _RankedButtonShinePainter oldDelegate) {
+    return oldDelegate.value != value;
+  }
+}
+
 class _RankedMatchmakingHint extends StatefulWidget {
   const _RankedMatchmakingHint();
 
@@ -7299,7 +8784,7 @@ class _RankedMatchmakingHint extends StatefulWidget {
 }
 
 class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
-  static const List<String> _hints = [
+  static const List<String> _defaultHints = [
     'ネクストボールを見ると、次の一手が少しだけ未来になります。',
     'ヘキサゴンを狙いすぎると、盤面が小声で止めてきます。',
     '序盤は低く、終盤は冷静に。だいたいこれで助かります。',
@@ -7308,7 +8793,7 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
     'ピラミッドは作りやすく、頼れるフォーメーションです。',
     'ストレートは素早く妨害を送りたい時に有効です。',
     '端に積みすぎると、あとで端に泣かされます。',
-    '大技が見えない時は、小さな消去で流れを作りましょう。',
+    '大きなフォーメーションが見えない時は、小さな消去で流れを作りましょう。',
     '相手のネクストを見ると、攻撃タイミングを読みやすくなります。',
     'ハードドロップは速いですが、置きミスも速いです。',
     '迷ったら中央を整えると、次の一手が楽になります。',
@@ -7317,7 +8802,7 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
     '負けている時でも、1回のフォーメーションでひっくり返せます。',
     'レートは大事。でもまずは目の前の3個です。',
     '連勝中の油断は、だいたい次の試合で回収されます。',
-    '盤面が荒れてきたら、大技よりも整地を優先しましょう。',
+    '盤面が荒れてきたら、大きなフォーメーションよりも整地を優先しましょう。',
     'たまには守りの一手が、一番攻撃的な一手になります。',
     'マッチング中は指を温めておきましょう。心も少しだけ。',
     'レート差があっても、盤面は平等です。',
@@ -7327,6 +8812,7 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
     '負けても次があります。レートは逃げますが、また捕まえられます。',
   ];
 
+  List<String> _hints = _defaultHints;
   late int _index;
   Timer? _timer;
 
@@ -7334,6 +8820,7 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
   void initState() {
     super.initState();
     _index = DateTime.now().millisecondsSinceEpoch % _hints.length;
+    unawaited(_loadServerHints());
     _timer = Timer.periodic(const Duration(seconds: 8), (_) => _nextHint());
   }
 
@@ -7350,6 +8837,78 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
     setState(() {
       _index = (_index + 1) % _hints.length;
     });
+  }
+
+  Future<void> _loadServerHints() async {
+    try {
+      final snapshot = await AppFirebaseDatabase.ref()
+          .child('appConfig/rankedMatchmakingHints')
+          .get()
+          .timeout(const Duration(seconds: 3));
+      final loadedHints = _parseServerHints(snapshot.value);
+      if (!mounted || loadedHints.isEmpty) {
+        return;
+      }
+      setState(() {
+        _hints = loadedHints;
+        _index = _index % _hints.length;
+      });
+    } catch (_) {
+      // 待機画面の表示を優先し、取得できない時は内蔵ヒントを使う。
+    }
+  }
+
+  List<String> _parseServerHints(Object? raw) {
+    final source = raw is Map && raw['items'] != null ? raw['items'] : raw;
+    final hints = <String>[];
+    if (source is List) {
+      for (final value in source) {
+        final text = _hintTextValue(value);
+        if (text != null) {
+          hints.add(text);
+        }
+      }
+    } else if (source is Map) {
+      final entries = source.entries.toList()
+        ..sort((a, b) {
+          final aOrder = _hintOrderValue(a.value) ?? 0;
+          final bOrder = _hintOrderValue(b.value) ?? 0;
+          if (aOrder != bOrder) {
+            return aOrder.compareTo(bOrder);
+          }
+          return a.key.toString().compareTo(b.key.toString());
+        });
+      for (final entry in entries) {
+        final text = _hintTextValue(entry.value);
+        if (text != null) {
+          hints.add(text);
+        }
+      }
+    }
+    return hints;
+  }
+
+  String? _hintTextValue(Object? raw) {
+    Object? value = raw;
+    if (raw is Map) {
+      if (raw['enabled'] == false) {
+        return null;
+      }
+      value = raw['text'] ?? raw['message'] ?? raw['label'];
+    }
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  int? _hintOrderValue(Object? raw) {
+    if (raw is! Map) {
+      return null;
+    }
+    final value = raw['order'];
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '');
   }
 
   @override
@@ -7423,50 +8982,5 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
         ),
       ),
     );
-  }
-}
-
-class _ModeButtonBorderOverlayPainter extends CustomPainter {
-  static const double _strokeWidth = 2.4;
-  static const double _arcRadius = 76.3;
-  static const double _arcGap = 0.065;
-
-  final List<Color> _colors = [
-    _endlessGreen,
-    _friendPink,
-    _computerYellow,
-    const Color(0xFF8B96A3),
-  ];
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final arcRect = Rect.fromCircle(center: center, radius: _arcRadius);
-    final arcs = [
-      (start: math.pi + _arcGap, color: _colors[0]),
-      (start: -math.pi / 2 + _arcGap, color: _colors[1]),
-      (start: math.pi / 2 + _arcGap, color: _colors[2]),
-      (start: _arcGap, color: _colors[3]),
-    ];
-
-    for (final arc in arcs) {
-      final paint = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeWidth = _strokeWidth
-        ..color = arc.color.withValues(alpha: 0.58);
-      canvas.drawArc(
-        arcRect,
-        arc.start,
-        math.pi / 2 - (_arcGap * 2),
-        false,
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ModeButtonBorderOverlayPainter oldDelegate) {
-    return true;
   }
 }

@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import 'firebase_database_provider.dart';
+import 'network/multiplayer_manager.dart';
 import 'network/server_time_manager.dart';
 
 class AppNotice {
@@ -41,19 +43,25 @@ class AppNoticeManager {
               ? 'android'
               : 'other';
       final now = await _now();
-      final snapshots = await Future.wait([
-        AppFirebaseDatabase.ref()
-            .child('appConfig/notices')
-            .get()
-            .timeout(_fetchTimeout),
-        AppFirebaseDatabase.ref()
-            .child('appConfig/notice')
-            .get()
-            .timeout(_fetchTimeout),
-      ]);
+      final uid = MultiplayerManager.instance.myUid ??
+          FirebaseAuth.instance.currentUser?.uid;
+      final globalNoticesSnapshot = await AppFirebaseDatabase.ref()
+          .child('appConfig/notices')
+          .get()
+          .timeout(_fetchTimeout);
+      final legacyNoticeSnapshot = await AppFirebaseDatabase.ref()
+          .child('appConfig/notice')
+          .get()
+          .timeout(_fetchTimeout);
+      final personalNoticesSnapshot = uid == null || uid.isEmpty
+          ? null
+          : await AppFirebaseDatabase.ref()
+              .child('userNotices/$uid')
+              .get()
+              .timeout(_fetchTimeout);
 
       final rawNotices = <Map<dynamic, dynamic>>[];
-      final noticesRaw = snapshots[0].value;
+      final noticesRaw = globalNoticesSnapshot.value;
       if (noticesRaw is Map) {
         for (final entry in noticesRaw.entries) {
           if (entry.value is Map) {
@@ -64,7 +72,18 @@ class AppNoticeManager {
           }
         }
       }
-      final legacyRaw = snapshots[1].value;
+      final personalRaw = personalNoticesSnapshot?.value;
+      if (personalRaw is Map) {
+        for (final entry in personalRaw.entries) {
+          if (entry.value is Map) {
+            rawNotices.add({
+              'id': 'personal_${entry.key}',
+              ...Map<dynamic, dynamic>.from(entry.value as Map),
+            });
+          }
+        }
+      }
+      final legacyRaw = legacyNoticeSnapshot.value;
       if (legacyRaw is Map && legacyRaw['enabled'] == true) {
         rawNotices.add(Map<dynamic, dynamic>.from(legacyRaw));
       }

@@ -1029,6 +1029,12 @@ async function resetRankedSeason(currentSeasonId) {
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/ranked/seasonMatches`] = 0;
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/updatedAt`] =
       admin.database.ServerValue.TIMESTAMP;
+    updates[`users/${uid}/rating`] = RANKED_INITIAL_RATING;
+    updates[`users/${uid}/updatedAt`] = admin.database.ServerValue.TIMESTAMP;
+    updates[`publicProfiles/${uid}/ranked/currentRating`] =
+      RANKED_INITIAL_RATING;
+    updates[`publicProfiles/${uid}/updatedAt`] =
+      admin.database.ServerValue.TIMESTAMP;
   }
 
   updates['rankedSeasons/currentSeasonId'] = currentSeasonId;
@@ -1159,7 +1165,8 @@ function rankedRankingRewardCoins(rank) {
   if (rank <= 3) return 150000;
   if (rank <= 10) return 80000;
   if (rank <= 30) return 30000;
-  if (rank <= 100) return 10000;
+  if (rank <= 50) return 10000;
+  if (rank <= 100) return 5000;
   return 0;
 }
 

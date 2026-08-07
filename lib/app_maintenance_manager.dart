@@ -141,7 +141,7 @@ class AppMaintenanceManager {
             return const MaintenanceNotice(
               enabled: true,
               title: 'ランキング集計中',
-              message: 'エンドレスランキングを集計しています。しばらくお待ちください。',
+              message: 'ランキングとスコアを集計しています。21:30ごろ再開予定です。',
             );
           }
         case MaintenanceMode.friend:

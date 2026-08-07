@@ -13,12 +13,15 @@ import '../game/mission_manager.dart';
 import 'components/gacha_animation_screen.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/player_icon_image.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/screen_bottom_banner_ad.dart';
 import 'theme/game_theme_colors.dart';
 
 class ShopScreen extends StatefulWidget {
-  const ShopScreen({super.key});
+  const ShopScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<ShopScreen> createState() => _ShopScreenState();
@@ -381,6 +384,52 @@ class _ShopScreenState extends State<ShopScreen> {
   @override
   Widget build(BuildContext context) {
     final adsRemoved = AppSettings.instance.adsRemoved.value;
+    final content = Stack(
+      children: [
+        if (!widget.embedded)
+          const HexagonGridBackground(
+            color: GameThemeColors.cyan,
+            opacity: 0.04,
+            hexRadius: 30,
+          ),
+        _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(color: GameThemeColors.cyan),
+              )
+            : SafeArea(
+                child: ListView(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  children: [
+                    _buildGachaPanel(adsRemoved: adsRemoved),
+                    const SizedBox(height: 32),
+                    _sectionTitle('限定コレクション'),
+                    for (final item in GameItemCatalog.permanentShopItems.where(
+                      (item) => item.id != PlayerDataManager.retiredPrismSkinId,
+                    )) ...[
+                      _buildItemCard(item),
+                      const SizedBox(height: 16),
+                    ],
+                    const SizedBox(height: 20),
+                    _sectionTitle('デイリーセール'),
+                    for (final item in _items) ...[
+                      _buildItemCard(item),
+                      const SizedBox(height: 16),
+                    ],
+                    const SizedBox(height: 40),
+                  ],
+                ),
+              ),
+      ],
+    );
+    if (widget.embedded) {
+      return Column(
+        children: [
+          _embeddedHeader('ショップ', 'HEXAGON STORE'),
+          Expanded(child: content),
+        ],
+      );
+    }
     return Scaffold(
       backgroundColor: GameThemeColors.background,
       bottomNavigationBar: const ScreenBottomBannerAd(),
@@ -418,44 +467,16 @@ class _ShopScreenState extends State<ShopScreen> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          const HexagonGridBackground(
-            color: GameThemeColors.cyan,
-            opacity: 0.04,
-            hexRadius: 30,
-          ),
-          _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(color: GameThemeColors.cyan),
-                )
-              : SafeArea(
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
-                    children: [
-                      _buildGachaPanel(adsRemoved: adsRemoved),
-                      const SizedBox(height: 32),
+      body: content,
+    );
+  }
 
-                      _sectionTitle('限定コレクション'),
-                      for (final item
-                          in GameItemCatalog.permanentShopItems) ...[
-                        _buildItemCard(item),
-                        const SizedBox(height: 16),
-                      ],
-                      const SizedBox(height: 20),
-
-                      // Direct Buy Shop
-                      _sectionTitle('デイリーセール'),
-                      for (final item in _items) ...[
-                        _buildItemCard(item),
-                        const SizedBox(height: 16),
-                      ],
-                      const SizedBox(height: 40),
-                    ],
-                  ),
-                ),
-        ],
+  Widget _embeddedHeader(String title, String subtitle) {
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Center(child: _ShopPageTitle(title: title, subtitle: subtitle)),
       ),
     );
   }
@@ -761,6 +782,7 @@ class _ShopScreenState extends State<ShopScreen> {
           'gamepad' => Icons.sports_esports,
           'sword' => Icons.gavel,
           'hexagon' => Icons.hexagon,
+          'hexagon2' => Icons.hexagon,
           'trophy' => Icons.emoji_events,
           'medal' => Icons.military_tech,
           'crown' => Icons.workspace_premium,
@@ -819,7 +841,7 @@ class _ShopScreenState extends State<ShopScreen> {
         height: 32,
         padding: const EdgeInsets.all(4),
         decoration: const BoxDecoration(
-          shape: BoxShape.rectangle,
+          shape: BoxShape.circle,
           gradient: SweepGradient(
             colors: [
               Color(0xFFFF4D6D),
@@ -830,7 +852,39 @@ class _ShopScreenState extends State<ShopScreen> {
             ],
           ),
         ),
-        child: Container(color: _shopPanelColor),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: _shopPanelColor,
+            shape: BoxShape.circle,
+          ),
+        ),
+      );
+    }
+    if (item.type == ItemType.frame) {
+      final frameColor = _colorFromFrameName(item.colorName);
+      return Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: frameColor.withValues(alpha: 0.28),
+          shape: BoxShape.circle,
+          border: Border.all(color: frameColor, width: 2.4),
+        ),
+      );
+    }
+    if (item.type == ItemType.icon) {
+      return PlayerIconImage(
+        iconId: item.id,
+        fallbackIcon: _iconForItem(item),
+        size: 38,
+      );
+    }
+    if (item.type == ItemType.stamp) {
+      return Image.asset(
+        'assets/images/BattleStamps/battle_message_stamp.png',
+        width: 34,
+        height: 34,
+        fit: BoxFit.contain,
       );
     }
     return Icon(
@@ -888,7 +942,8 @@ class _ShopScreenState extends State<ShopScreen> {
       'green' => GameThemeColors.endless,
       'blue' => GameThemeColors.blueSide,
       'purple' => Colors.purpleAccent,
-      'black' => Colors.white70,
+      'white' => Colors.white,
+      'black' => const Color(0xFF05070D),
       'rainbow' => const Color(0xFFFFD54A),
       _ => GameThemeColors.cyan,
     };
@@ -922,6 +977,7 @@ class _ShopPageTitle extends StatelessWidget {
           AppSettings.instance.translate(title),
           style: const TextStyle(
             color: Colors.white,
+            fontSize: 18,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
           ),

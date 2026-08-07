@@ -1,6 +1,11 @@
 import 'package:flutter/foundation.dart';
 import 'game_models.dart';
 
+enum ScoreMode {
+  endless,
+  daily,
+}
+
 class ScoreState {
   final int score;
   final int level;
@@ -16,14 +21,21 @@ class ScoreState {
 class ScoreManager {
   static const int maxEndlessScore = 99999999;
 
-  final ValueNotifier<ScoreState> state = ValueNotifier(ScoreState(
-    score: 0,
-    level: 1,
-    totalClearedBalls: 0,
-  ));
+  ScoreManager({
+    this.mode = ScoreMode.endless,
+  }) : state = ValueNotifier(ScoreState(
+          score: 0,
+          level: 1,
+          totalClearedBalls: 0,
+        ));
+
+  final ScoreMode mode;
+  final ValueNotifier<ScoreState> state;
 
   int _chain = 0;
   int _maxChain = 0;
+  DateTime? _lastPlacementAt;
+  Duration? _lastPlacementInterval;
 
   int get maxChainThisRun => _maxChain;
 
@@ -62,6 +74,8 @@ class ScoreManager {
   void reset() {
     _chain = 0;
     _maxChain = 0;
+    _lastPlacementAt = null;
+    _lastPlacementInterval = null;
     state.value = ScoreState(
       score: 0,
       level: 1,
@@ -73,6 +87,18 @@ class ScoreManager {
     _chain = 0;
   }
 
+  void recordPlacement() {
+    if (mode != ScoreMode.daily) {
+      return;
+    }
+    final now = DateTime.now();
+    final previous = _lastPlacementAt;
+    _lastPlacementAt = now;
+    if (previous != null) {
+      _lastPlacementInterval = now.difference(previous);
+    }
+  }
+
   void addMatch(int ballsDestroyed, WazaType highestWaza) {
     if (ballsDestroyed == 0) return;
 
@@ -81,14 +107,9 @@ class ScoreManager {
       _maxChain = _chain;
     }
 
-    int baseScore = ballsDestroyed * 100;
-    double shapeMultiplier = highestWaza.multiplier;
-    double chainMultiplier = 1.0 + (_chain - 1) * 0.5;
-    double levelMultiplier = 1.0 + (state.value.level * 0.1);
-
-    int earnedScore =
-        (baseScore * shapeMultiplier * chainMultiplier * levelMultiplier)
-            .toInt();
+    final earnedScore = mode == ScoreMode.daily
+        ? _dailyScoreForMatch(ballsDestroyed, highestWaza)
+        : _endlessScoreForMatch(ballsDestroyed, highestWaza);
 
     int newTotalCleared = state.value.totalClearedBalls + ballsDestroyed;
     // 60個ごとに1レベルアップ
@@ -99,6 +120,51 @@ class ScoreManager {
           (state.value.score + earnedScore).clamp(0, maxEndlessScore).toInt(),
       level: newLevel,
       totalClearedBalls: newTotalCleared,
+    );
+  }
+
+  int _endlessScoreForMatch(int ballsDestroyed, WazaType highestWaza) {
+    final baseScore = ballsDestroyed * 100;
+    final shapeMultiplier = highestWaza.multiplier;
+    final chainMultiplier = 1.0 + (_chain - 1) * 0.5;
+    final levelMultiplier = 1.0 + (state.value.level * 0.1);
+    return (baseScore * shapeMultiplier * chainMultiplier * levelMultiplier)
+        .toInt();
+  }
+
+  int _dailyScoreForMatch(int ballsDestroyed, WazaType highestWaza) {
+    var score = ballsDestroyed * 100;
+    if (highestWaza != WazaType.none) {
+      score += switch (highestWaza) {
+        WazaType.straight => 800,
+        WazaType.pyramid => 1500,
+        WazaType.hexagon => 3000,
+        WazaType.none => 0,
+      };
+      score += ballsDestroyed * 180;
+    }
+    if (_chain >= 2) {
+      score += 300 * (_chain - 1);
+    }
+    final interval = _lastPlacementInterval;
+    if (interval != null) {
+      if (interval.inMilliseconds <= 2000) {
+        score += 250;
+      } else if (interval.inMilliseconds <= 3000) {
+        score += 120;
+      }
+    }
+    return score;
+  }
+
+  void addDailyEndBonus({required bool noDanger}) {
+    if (mode != ScoreMode.daily || !noDanger) {
+      return;
+    }
+    state.value = ScoreState(
+      score: (state.value.score + 1000).clamp(0, maxEndlessScore).toInt(),
+      level: state.value.level,
+      totalClearedBalls: state.value.totalClearedBalls,
     );
   }
 

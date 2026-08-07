@@ -21,7 +21,9 @@ import 'profile_screen.dart';
 import 'theme/game_theme_colors.dart';
 
 class RecordScreen extends StatefulWidget {
-  const RecordScreen({super.key});
+  const RecordScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<RecordScreen> createState() => _RecordScreenState();
@@ -82,6 +84,77 @@ class _RecordScreenState extends State<RecordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final body = Stack(
+      children: [
+        if (!widget.embedded)
+          const HexagonGridBackground(
+            color: GameThemeColors.cyan,
+            opacity: 0.04,
+            hexRadius: 30,
+          ),
+        _loading
+            ? const SizedBox.shrink()
+            : TabBarView(
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  _summaryTab(),
+                  _historyTab(),
+                ],
+              ),
+      ],
+    );
+    if (widget.embedded) {
+      return DefaultTabController(
+        length: 2,
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                const SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: 48,
+                          child: Center(
+                            child: _RecordPageTitle(
+                              title: 'レコード',
+                              subtitle: 'PLAYER DATA',
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        _RecordNeonTabBar(tabs: ['総合', '対戦履歴']),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(child: body),
+              ],
+            ),
+            SafeArea(
+              bottom: false,
+              child: Align(
+                alignment: Alignment.topRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 12, right: 16),
+                  child: IconButton(
+                    tooltip: 'レコードをシェア',
+                    onPressed:
+                        _sharingRecord ? null : () => _shareRecordImage(),
+                    icon: _sharingRecord
+                        ? const SizedBox(width: 20, height: 20)
+                        : const Icon(Icons.ios_share_rounded),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -140,27 +213,7 @@ class _RecordScreenState extends State<RecordScreen> {
             ),
           ),
         ),
-        body: Stack(
-          children: [
-            const HexagonGridBackground(
-              color: GameThemeColors.cyan,
-              opacity: 0.04,
-              hexRadius: 30,
-            ),
-            _loading
-                ? const Center(
-                    child: CircularProgressIndicator(
-                      color: GameThemeColors.cyan,
-                    ),
-                  )
-                : TabBarView(
-                    children: [
-                      _summaryTab(),
-                      _historyTab(),
-                    ],
-                  ),
-          ],
-        ),
+        body: body,
       ),
     );
   }
@@ -633,7 +686,7 @@ class _RecordScreenState extends State<RecordScreen> {
       _recordPlayStyleData() {
     final now = DateTime.now();
     final cutoff = now.subtract(const Duration(days: 7));
-    final recentBattles = _playerData.matchHistory
+    final recentBattles = _visibleMatchHistory()
         .where(
           (entry) => entry.mode != 'SOLO' && !entry.playedAt.isBefore(cutoff),
         )
@@ -899,12 +952,6 @@ class _RecordScreenState extends State<RecordScreen> {
           _StatItem('総対戦数', '${counts['FRIEND'] ?? 0}'),
           _StatItem('勝敗', _recordText(friendRecord)),
         ], accentColor: GameThemeColors.friend),
-        _sectionTitle('アリーナ'),
-        _statGrid([
-          _StatItem('最高勝利数', '${_playerData.maxArenaWins}'),
-          _StatItem('挑戦回数', '${_playerData.arenaChallengeCount}'),
-          _StatItem('12勝達成回数', '${_playerData.arenaPerfectClearCount}'),
-        ], accentColor: GameThemeColors.arena),
       ],
     );
   }
@@ -912,7 +959,7 @@ class _RecordScreenState extends State<RecordScreen> {
   Widget _playStyleRadar() {
     final now = DateTime.now();
     final cutoff = now.subtract(const Duration(days: 7));
-    final recentBattles = _playerData.matchHistory
+    final recentBattles = _visibleMatchHistory()
         .where(
           (entry) => entry.mode != 'SOLO' && !entry.playedAt.isBefore(cutoff),
         )
@@ -1029,7 +1076,7 @@ class _RecordScreenState extends State<RecordScreen> {
   }
 
   Widget _historyTab() {
-    final history = _playerData.matchHistory.take(30).toList();
+    final history = _visibleMatchHistory().take(30).toList();
     if (history.isEmpty) {
       return Center(
         child: Text(
@@ -1176,7 +1223,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
   _ModeRecord _modeRecord(String mode) {
     var record = const _ModeRecord();
-    for (final entry in _playerData.matchHistory.where(
+    for (final entry in _visibleMatchHistory().where(
       (history) => history.mode == mode,
     )) {
       record = record.add(entry.isWin);
@@ -1212,7 +1259,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
   Iterable<MatchHistoryEntry> _currentSeasonRankedHistory() {
     final start = _currentSeasonStartJst;
-    return _playerData.matchHistory.where((entry) {
+    return _visibleMatchHistory().where((entry) {
       if (entry.mode != 'RANKED') {
         return false;
       }
@@ -1225,6 +1272,10 @@ class _RecordScreenState extends State<RecordScreen> {
 
   String _recordText(_ModeRecord record) {
     return '${record.wins}勝 ${record.losses}敗';
+  }
+
+  Iterable<MatchHistoryEntry> _visibleMatchHistory() {
+    return _playerData.matchHistory.where((entry) => entry.mode != 'ARENA');
   }
 
   Widget _historyTile(MatchHistoryEntry entry) {
@@ -1339,9 +1390,7 @@ class _RecordScreenState extends State<RecordScreen> {
     if (_isRankedCpuHistory(entry)) {
       return false;
     }
-    return entry.mode == 'RANKED' ||
-        entry.mode == 'FRIEND' ||
-        entry.mode == 'ARENA';
+    return entry.mode == 'RANKED' || entry.mode == 'FRIEND';
   }
 
   bool _isRankedCpuHistory(MatchHistoryEntry entry) {
@@ -1550,7 +1599,6 @@ class _RecordScreenState extends State<RecordScreen> {
       'RANKED' => GameThemeColors.ranked,
       'FRIEND' => GameThemeColors.friend,
       'CPU' => GameThemeColors.computer,
-      'ARENA' => GameThemeColors.arena,
       'SOLO' => GameThemeColors.endless,
       _ => Colors.white54,
     };
@@ -1559,7 +1607,6 @@ class _RecordScreenState extends State<RecordScreen> {
   String _localizedMode(String mode) {
     return switch (mode) {
       'RANKED' => 'ランク戦',
-      'ARENA' => 'アリーナ',
       'CPU' => 'コンピュータ対戦',
       'SOLO' => 'エンドレス',
       'FRIEND' => 'フレンド対戦',
@@ -1595,6 +1642,7 @@ class _RecordPageTitle extends StatelessWidget {
           AppSettings.instance.translate(title),
           style: const TextStyle(
             color: Colors.white,
+            fontSize: 18,
             fontWeight: FontWeight.w900,
             letterSpacing: 1.2,
           ),

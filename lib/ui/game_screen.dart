@@ -20,10 +20,12 @@ import '../data/player_data_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
 import '../game/components/effect_components.dart';
+import '../game/daily_challenge_manager.dart';
 import '../game/friend_match_limit_manager.dart';
 import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import '../game/puzzle_game.dart';
+import '../game/score_manager.dart';
 import '../invite/invite_manager.dart';
 import '../network/multiplayer_manager.dart';
 import '../network/game_activity_presence.dart';
@@ -31,11 +33,14 @@ import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
 import '../network/realtime_connection_guard.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/game_pressable.dart';
 import 'components/interstitial_ad_manager.dart';
+import 'components/player_icon_image.dart';
 import 'components/rewarded_ad_manager.dart';
 import 'components/screen_bottom_banner_ad.dart';
 import 'components/season_rank_badge_icon.dart';
 import 'components/stamp_widget.dart';
+import 'components/stamp_square_tile.dart';
 import 'home_screen.dart';
 import 'theme/game_theme_colors.dart';
 
@@ -46,6 +51,7 @@ const Color _rankedPurple = GameThemeColors.ranked;
 const Color _endlessGreen = GameThemeColors.endless;
 const Color _computerYellow = GameThemeColors.computer;
 const Color _friendPink = GameThemeColors.friend;
+const Color _dailyBlue = GameThemeColors.blueSide;
 const Color _mutedButtonGrey = GameThemeColors.mutedButton;
 const Duration _playerProfileSyncTimeout = Duration(seconds: 15);
 const String _shareAppIconAsset = 'assets/images/Hexagon_icon02_1024x1024.png';
@@ -70,6 +76,9 @@ class GameScreen extends StatefulWidget {
   final String rankedBotFrameId;
   final bool isTutorialMode;
   final bool returnToCallerOnExit;
+  final bool isDailyMode;
+  final String? dailyDateKey;
+  final int? dailySeed;
 
   const GameScreen({
     super.key,
@@ -86,6 +95,9 @@ class GameScreen extends StatefulWidget {
     this.rankedBotFrameId = 'default',
     this.isTutorialMode = false,
     this.returnToCallerOnExit = false,
+    this.isDailyMode = false,
+    this.dailyDateKey,
+    this.dailySeed,
   });
 
   const GameScreen.online({
@@ -101,6 +113,9 @@ class GameScreen extends StatefulWidget {
         rankedBotFrameId = 'default',
         isTutorialMode = false,
         returnToCallerOnExit = false,
+        isDailyMode = false,
+        dailyDateKey = null,
+        dailySeed = null,
         isCpuMode = false,
         isOnlineMultiplayer = true;
 
@@ -169,6 +184,7 @@ class _GameScreenState extends State<GameScreen>
   bool _onlineResultWasForfeit = false;
   bool _onlineResultWasOfflineForfeit = false;
   bool _activeResultWasForfeit = false;
+  bool _battleResultWasOfflineForfeitLoss = false;
   bool _isWaitingForRematch = false;
   bool _opponentRequestedRematch = false;
   bool _opponentUnavailableForRematch = false;
@@ -196,6 +212,9 @@ class _GameScreenState extends State<GameScreen>
   int? _matchExpEarned;
   bool _soloExpApplied = false;
   int? _soloExpEarned;
+  bool _dailyResultRecorded = false;
+  Timer? _dailyChallengeTimer;
+  int _dailyRemainingSeconds = DailyChallengeManager.durationSeconds;
   bool _resultCoinApplied = false;
   int? _resultCoinBaseEarned;
   bool _resultCoinTripleClaimed = false;
@@ -216,6 +235,7 @@ class _GameScreenState extends State<GameScreen>
 
   // Stamp States
   bool _isStampCoolingDown = false;
+  bool _isStampGridVisible = false;
   GameItem? _currentFloatingStamp;
   GameItem? _opponentFloatingStamp;
   bool _tutorialRightMoveActive = false;
@@ -348,6 +368,28 @@ class _GameScreenState extends State<GameScreen>
 
   int get _currentPlayerLevel => _playerGame.scoreManager.state.value.level;
 
+  Color get _readyGoThemeColor {
+    if (widget.isDailyMode) {
+      return _dailyBlue;
+    }
+    if (widget.isRankedMode) {
+      return _rankedPurple;
+    }
+    if (widget.isArenaMode) {
+      return _gameCyan;
+    }
+    if (widget.isCpuMode) {
+      return _computerYellow;
+    }
+    if (_isFriendMode) {
+      return _friendPink;
+    }
+    if (_usesEndlessBattleLayout) {
+      return _endlessGreen;
+    }
+    return _gameCyan;
+  }
+
   bool get _isRankedBotMode =>
       widget.isCpuMode && widget.isRankedMode && !_isOnlineMode;
 
@@ -408,10 +450,19 @@ class _GameScreenState extends State<GameScreen>
         setState(() {});
       }
     }));
-    final gameSeed = widget.isOnlineMultiplayer
-        ? _multiplayerManager.currentRoom?.seed
-        : DateTime.now().millisecondsSinceEpoch;
+    final gameSeed = widget.isDailyMode
+        ? widget.dailySeed
+        : widget.isOnlineMultiplayer
+            ? _multiplayerManager.currentRoom?.seed
+            : DateTime.now().millisecondsSinceEpoch;
     final localGameSeed = gameSeed ?? DateTime.now().millisecondsSinceEpoch;
+    final playerHintGuideEnabled =
+        AppSettings.instance.hintGuideEnabled.value &&
+            !widget.isTutorialMode &&
+            (widget.isCpuMode ||
+                (widget.isOnlineMultiplayer &&
+                    !widget.isRankedMode &&
+                    !widget.isArenaMode));
 
     _playerGame = PuzzleGame(
       isCpuMode: false,
@@ -419,6 +470,8 @@ class _GameScreenState extends State<GameScreen>
       autoStart: false,
       useConstantFallSpeed: _usesConstantFallSpeed,
       manualPieceSpawning: widget.isTutorialMode,
+      hintGuideEnabled: playerHintGuideEnabled,
+      scoreMode: widget.isDailyMode ? ScoreMode.daily : ScoreMode.endless,
       wallColor: Colors.blueAccent,
       ballSkinId: _playerDataManager.equippedBallSkinId,
     );
@@ -573,6 +626,10 @@ class _GameScreenState extends State<GameScreen>
       }
     };
     _playerGame.onGameOverTriggered = () {
+      if (widget.isDailyMode) {
+        unawaited(_finishDailyChallenge());
+        return;
+      }
       if (widget.isCpuMode) {
         unawaited(
           _presentRankedSafeBattleResult(
@@ -883,6 +940,7 @@ class _GameScreenState extends State<GameScreen>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(GameActivityPresence.instance.exit());
     _clearAllPendingAttacks();
+    _dailyChallengeTimer?.cancel();
     _rankedAutoStartTimer?.cancel();
     _pendingEmptyOpponentBoardTimer?.cancel();
     _myStampTimer?.cancel();
@@ -971,6 +1029,7 @@ class _GameScreenState extends State<GameScreen>
     setState(() {
       _currentFloatingStamp = stamp;
       _isStampCoolingDown = true;
+      _isStampGridVisible = false;
     });
 
     _stampCooldownTimer?.cancel();
@@ -992,81 +1051,92 @@ class _GameScreenState extends State<GameScreen>
     });
   }
 
-  void _showStampGrid() {
+  void _toggleStampGrid() {
+    setState(() {
+      _isStampGridVisible = !_isStampGridVisible;
+    });
+  }
+
+  void _dismissStampGrid() {
+    if (!_isStampGridVisible || !mounted) {
+      return;
+    }
+    setState(() {
+      _isStampGridVisible = false;
+    });
+  }
+
+  List<GameItem?> _equippedStampSlots() {
     final ownedStampsById = {
       for (final item in PlayerDataManager.instance.ownedItems
           .where((item) => item.isStamp))
         item.id: item,
     };
-    final equippedStamps = PlayerDataManager.instance.equippedStampIds
-        .map((id) => ownedStampsById[id] ?? GameItemCatalog.byId(id))
-        .whereType<GameItem>()
+    return PlayerDataManager.instance.equippedStampIds
+        .take(PlayerDataManager.maxEquippedStampCount)
+        .map((id) => id == PlayerDataManager.emptyStampSlotId
+            ? null
+            : ownedStampsById[id] ?? GameItemCatalog.byId(id))
         .toList();
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFF0F0F13).withValues(alpha: 0.95),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            border: Border.all(color: _gameCyan.withValues(alpha: 0.3)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'SEND STAMP',
-                style: TextStyle(
-                  color: _gameCyan,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
+  }
+
+  Widget _buildStampGridOverlay() {
+    final equippedStamps = _equippedStampSlots();
+    final hasAnyStamp = equippedStamps.any((stamp) => stamp != null);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = min(constraints.maxWidth - 24, 369.0);
+        final gap = width < 338 ? 8.0 : 10.0;
+        return Align(
+          alignment: Alignment.topCenter,
+          child: Container(
+            width: width,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F0F13).withValues(alpha: 0.86),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _gameCyan.withValues(alpha: 0.48)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
                 ),
-              ),
-              const SizedBox(height: 20),
-              if (equippedStamps.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    '装備中のスタンプがありません。\nコレクションから最大6つ装備できます。',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white70, height: 1.5),
-                  ),
-                )
-              else
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  alignment: WrapAlignment.center,
-                  children: equippedStamps.map((stamp) {
-                    return InkWell(
-                      onTap: () {
-                        Navigator.pop(context);
-                        _sendStamp(stamp);
-                      },
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: 140,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        decoration: BoxDecoration(
-                          color: _gameCyan.withValues(alpha: 0.06),
-                          border: Border.all(
-                            color: _gameCyan.withValues(alpha: 0.36),
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Center(
-                          child: StampWidget(
-                            item: stamp,
-                            level: stamp.level,
-                          ),
-                        ),
+              ],
+            ),
+            child: hasAnyStamp
+                ? GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: PlayerDataManager.maxEquippedStampCount,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      crossAxisSpacing: gap,
+                      mainAxisSpacing: gap,
+                    ),
+                    itemBuilder: (context, index) {
+                      final stamp = index < equippedStamps.length
+                          ? equippedStamps[index]
+                          : null;
+                      return StampSquareTile(
+                        item: stamp,
+                        level: stamp?.level,
+                        compact: true,
+                        onTap: stamp == null ? null : () => _sendStamp(stamp),
+                      );
+                    },
+                  )
+                : const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Text(
+                      '装備スタンプがありません',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w800,
                       ),
-                    );
-                  }).toList(),
-                ),
-            ],
+                    ),
+                  ),
           ),
         );
       },
@@ -1098,6 +1168,7 @@ class _GameScreenState extends State<GameScreen>
                     _buildScoreWidget(_playerGame),
                   Expanded(child: _buildPlayerArea(_playerGame)),
                   _buildControls(_playerGame),
+                  const SizedBox(height: 48),
                 ],
               ),
               if (_isOnlineMode)
@@ -1117,6 +1188,21 @@ class _GameScreenState extends State<GameScreen>
                 ),
               if (widget.isTutorialMode) _buildTutorialSkipOverlay(),
               if (_readyGoOverlayText != null) _buildReadyGoOverlay(),
+              if (_isStampGridVisible)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTapDown: (_) => _dismissStampGrid(),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              if (_isStampGridVisible)
+                Positioned(
+                  top: _showsOpponentBoard ? 18 : 82,
+                  left: 0,
+                  right: 0,
+                  child: _buildStampGridOverlay(),
+                ),
               if (_currentFloatingStamp != null)
                 Positioned(
                   top: MediaQuery.of(context).size.height * 0.17,
@@ -1323,15 +1409,22 @@ class _GameScreenState extends State<GameScreen>
               child: HexagonCoinIcon(size: compact ? 18 : 24),
             ),
             Center(
-              child: Text(
-                '+$totalCoins',
-                maxLines: 1,
-                style: TextStyle(
-                  color: const Color(0xFFEAF6FF),
-                  fontSize: compact ? 18 : 20,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.5,
-                ),
+              child: TweenAnimationBuilder<int>(
+                tween: IntTween(begin: 0, end: totalCoins),
+                duration: const Duration(milliseconds: 620),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  return Text(
+                    '$value',
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: const Color(0xFFEAF6FF),
+                      fontSize: compact ? 18 : 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -1347,13 +1440,12 @@ class _GameScreenState extends State<GameScreen>
     final waiting = _resultCoinTripleInProgress;
     final claimed = _resultCoinTripleClaimed;
     final shouldAnimate = highlight && !waiting && !claimed;
-    final button = InkWell(
-      onTap: waiting || claimed || _resultCoinBaseEarned == null
-          ? null
-          : () {
-              unawaited(_claimResultTripleCoinBonus());
-            },
+    final button = GamePressable(
+      enabled: !waiting && !claimed && _resultCoinBaseEarned != null,
       borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        unawaited(_claimResultTripleCoinBonus());
+      },
       child: Container(
         width: compact ? 68 : 92,
         padding: EdgeInsets.symmetric(
@@ -1453,12 +1545,53 @@ class _GameScreenState extends State<GameScreen>
       );
     }
 
-    return _buildResultInfoRow(
-      label: 'EXP',
-      value: '+$totalExp',
-      color: Colors.white,
-      centerValue: true,
-      compactHeight: true,
+    return SizedBox(
+      height: 58,
+      width: double.infinity,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.42),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.42)),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'EXP',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+            Center(
+              child: TweenAnimationBuilder<int>(
+                tween: IntTween(begin: 0, end: totalExp),
+                duration: const Duration(milliseconds: 620),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  return Text(
+                    '$value',
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1468,6 +1601,70 @@ class _GameScreenState extends State<GameScreen>
       value: '$_currentPlayerScore点',
       color: _endlessGreen,
       valueColor: Colors.white,
+    );
+  }
+
+  Widget _buildResultWazaSummary() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.34),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.42)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildResultWazaCountItem(
+              assetPath: 'assets/images/ResultWaza/result_hexagon.png',
+              count: _hexagonCount,
+            ),
+          ),
+          Expanded(
+            child: _buildResultWazaCountItem(
+              assetPath: 'assets/images/ResultWaza/result_pyramid.png',
+              count: _pyramidCount,
+            ),
+          ),
+          Expanded(
+            child: _buildResultWazaCountItem(
+              assetPath: 'assets/images/ResultWaza/result_straight.png',
+              count: _straightCount,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultWazaCountItem({
+    required String assetPath,
+    required int count,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          assetPath,
+          width: 32,
+          height: 32,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return const Icon(Icons.hexagon, color: _gameCyan, size: 24);
+          },
+        ),
+        const SizedBox(width: 5),
+        Text(
+          '$count',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1488,7 +1685,7 @@ class _GameScreenState extends State<GameScreen>
           badgeIds: _playerDataManager.equippedBadgeIds,
           ratingDelta: _myResultRatingDeltaText(),
           ratingDeltaColor: _myResultRatingDeltaColor(),
-          showRatingDelta: true,
+          showRatingDelta: !widget.isRankedMode,
         ),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1514,6 +1711,104 @@ class _GameScreenState extends State<GameScreen>
           showRatingDelta: false,
         ),
       ],
+    );
+  }
+
+  Widget _buildRankedRatingAnimationSummary() {
+    final change = _rankedRatingChange;
+    if (change == null) {
+      return const SizedBox.shrink();
+    }
+    final deltaColor =
+        change.delta >= 0 ? _battlePlayerColor : _battleOpponentColor;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.34),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _rankedPurple.withValues(alpha: 0.62)),
+        boxShadow: [
+          BoxShadow(
+            color: _rankedPurple.withValues(alpha: 0.12),
+            blurRadius: 18,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '現在レート',
+                  style: TextStyle(
+                    color: Colors.white60,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const HexagonTrophyIcon(size: 24),
+                    const SizedBox(width: 8),
+                    TweenAnimationBuilder<int>(
+                      tween: IntTween(
+                        begin: change.oldRating,
+                        end: change.newRating,
+                      ),
+                      duration: const Duration(milliseconds: 900),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) {
+                        return Text(
+                          '$value',
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: Colors.amberAccent,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.6,
+                            height: 1.0,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: deltaColor.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: deltaColor.withValues(alpha: 0.52)),
+            ),
+            child: TweenAnimationBuilder<int>(
+              tween: IntTween(begin: 0, end: change.delta),
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) {
+                final deltaText = value > 0 ? '+$value' : '$value';
+                return Text(
+                  deltaText,
+                  style: TextStyle(
+                    color: deltaColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    height: 1.0,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1659,6 +1954,10 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Color _myResultRatingDeltaColor() {
+    final change = _rankedRatingChange;
+    if (change != null) {
+      return change.delta >= 0 ? _battlePlayerColor : _battleOpponentColor;
+    }
     return Colors.amberAccent;
   }
 
@@ -1873,7 +2172,12 @@ class _GameScreenState extends State<GameScreen>
     }
 
     final useEndlessLayout = _usesEndlessBattleLayout;
-    final levelColor = useEndlessLayout ? _endlessGreen : Colors.amberAccent;
+    final levelColor = widget.isDailyMode
+        ? _dailyBlue
+        : useEndlessLayout
+            ? _endlessGreen
+            : Colors.amberAccent;
+    final scorePanelBorderColor = widget.isDailyMode ? _dailyBlue : _gameCyan;
     final scorePanel = Container(
       margin: EdgeInsets.fromLTRB(
           useEndlessLayout ? 64 : 16, useEndlessLayout ? 18 : 10, 16, 6),
@@ -1882,7 +2186,7 @@ class _GameScreenState extends State<GameScreen>
           color: const Color(0xFF101827).withValues(alpha: 0.96),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: _gameCyan.withValues(alpha: 0.42),
+            color: scorePanelBorderColor.withValues(alpha: 0.42),
             width: 1.2,
           )),
       child: ValueListenableBuilder(
@@ -1903,9 +2207,9 @@ class _GameScreenState extends State<GameScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'レベル',
-                      style: TextStyle(
+                    Text(
+                      widget.isDailyMode ? '残り' : 'レベル',
+                      style: const TextStyle(
                         color: Colors.white60,
                         fontSize: 11,
                         fontWeight: FontWeight.w900,
@@ -1913,7 +2217,9 @@ class _GameScreenState extends State<GameScreen>
                     ),
                     const SizedBox(height: 1),
                     Text(
-                      '${state.level}',
+                      widget.isDailyMode
+                          ? '$_dailyRemainingSeconds'
+                          : '${state.level}',
                       style: TextStyle(
                         color: levelColor,
                         fontSize: 24,
@@ -2088,7 +2394,7 @@ class _GameScreenState extends State<GameScreen>
                                 ? null
                                 : () {
                                     AppSfx.playUiTap();
-                                    _showStampGrid();
+                                    _toggleStampGrid();
                                   },
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
@@ -2099,10 +2405,21 @@ class _GameScreenState extends State<GameScreen>
                                   border: Border.all(
                                     color: _gameCyan.withValues(alpha: 0.58),
                                   )),
-                              child: Icon(
-                                Icons.chat,
-                                color: _gameCyan.withValues(
-                                  alpha: _isStampCoolingDown ? 0.72 : 1,
+                              child: Opacity(
+                                opacity: _isStampCoolingDown ? 0.62 : 1,
+                                child: Image.asset(
+                                  'assets/images/BattleStamps/battle_message_stamp.png',
+                                  width: 28,
+                                  height: 28,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Icon(
+                                      Icons.chat,
+                                      color: _gameCyan.withValues(
+                                        alpha: _isStampCoolingDown ? 0.72 : 1,
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             ),
@@ -2307,7 +2624,7 @@ class _GameScreenState extends State<GameScreen>
   }
 
   Widget _buildBadgeIconRow(List<String> badgeIds) {
-    final badges = badgeIds.map(_badgeIconForId).whereType<Widget>().take(2);
+    final badges = badgeIds.map(_badgeIconForId).whereType<Widget>().take(3);
     if (badges.isEmpty) {
       return const SizedBox(height: 24);
     }
@@ -2434,7 +2751,7 @@ class _GameScreenState extends State<GameScreen>
                     fontFamily: 'Courier',
                     fontWeight: FontWeight.w900,
                     color: _playerGame.isReadyGoText
-                        ? _battleOpponentColor
+                        ? _readyGoThemeColor
                         : Colors.orangeAccent,
                     letterSpacing: 2,
                   ),
@@ -2454,23 +2771,42 @@ class _GameScreenState extends State<GameScreen>
           final cpuPlayerWon =
               _cpuBattlePlayerWon ?? (pState != GameState.gameover);
           final isBattleResult = widget.isCpuMode || widget.isTutorialMode;
-          final title =
-              isBattleResult ? (cpuPlayerWon ? '勝ち' : '負け') : 'ゲームオーバー';
+          final isOfflineForfeitLoss = isBattleResult &&
+              !cpuPlayerWon &&
+              _battleResultWasOfflineForfeitLoss;
+          final title = isBattleResult
+              ? (isOfflineForfeitLoss
+                  ? '不戦敗'
+                  : cpuPlayerWon
+                      ? '勝ち'
+                      : '負け')
+              : widget.isDailyMode
+                  ? '${_formatShareNumber(_currentPlayerScore)}点'
+                  : 'ゲームオーバー';
           final titleColor = isBattleResult
               ? (cpuPlayerWon ? _battlePlayerColor : _battleOpponentColor)
-              : _endlessGreen;
+              : widget.isDailyMode
+                  ? Colors.white
+                  : _endlessGreen;
 
           return _buildUnifiedResultSheet(
             title: title,
             titleColor: titleColor,
+            borderColor: widget.isDailyMode ? _dailyBlue : titleColor,
             children: widget.isTutorialMode
                 ? _buildTutorialResultChildren()
                 : [
                     _buildBattleResultProfiles(),
-                    if (!isBattleResult) ...[
+                    if (widget.isRankedMode && _rankedRatingChange != null) ...[
+                      const SizedBox(height: 10),
+                      _buildRankedRatingAnimationSummary(),
+                    ],
+                    if (!isBattleResult && !widget.isDailyMode) ...[
                       const SizedBox(height: 12),
                       _buildResultScoreSummary(),
                     ],
+                    const SizedBox(height: 10),
+                    _buildResultWazaSummary(),
                     const SizedBox(height: 18),
                     _buildResultRewardSummaryRow(
                       highlightTripleReward: isBattleResult && cpuPlayerWon,
@@ -2480,17 +2816,7 @@ class _GameScreenState extends State<GameScreen>
                       _buildBadgeUnlockResultCard(),
                     ],
                     const SizedBox(height: 12),
-                    _buildCyberResultButton(
-                      label: _resultShareInProgress ? '共有準備中...' : '結果をシェア',
-                      baseColor: _gameCyan,
-                      icon: Icons.ios_share_rounded,
-                      isWaiting: _resultShareInProgress,
-                      onPressed: _resultShareInProgress
-                          ? null
-                          : () => unawaited(_shareCurrentResult()),
-                    ),
-                    const SizedBox(height: 12),
-                    if (!isBattleResult) ...[
+                    if (!isBattleResult && !widget.isDailyMode) ...[
                       _buildCyberResultButton(
                         label: 'リスタート',
                         baseColor: _endlessGreen,
@@ -2510,11 +2836,8 @@ class _GameScreenState extends State<GameScreen>
                       ),
                       const SizedBox(height: 12),
                     ],
-                    _buildCyberResultButton(
-                      label: 'ホームへ戻る',
-                      baseColor: _mutedButtonGrey,
-                      isWaiting: false,
-                      onPressed: () {
+                    _buildResultShareHomeButtonRow(
+                      onHomePressed: () {
                         _clearAllPendingAttacks();
                         unawaited(_returnHomeAfterMatch());
                       },
@@ -2539,7 +2862,7 @@ class _GameScreenState extends State<GameScreen>
     final textColor = win ? _battlePlayerColor : _battleOpponentColor;
     final title = win && _onlineResultWasForfeit
         ? '不戦勝'
-        : _onlineResultWasOfflineForfeit
+        : !win && (_onlineResultWasOfflineForfeit || _onlineResultWasForfeit)
             ? '不戦敗'
             : (win ? '勝ち' : '負け');
 
@@ -2549,26 +2872,22 @@ class _GameScreenState extends State<GameScreen>
         titleColor: textColor,
         children: [
           _buildBattleResultProfiles(),
+          if (widget.isRankedMode && _rankedRatingChange != null) ...[
+            const SizedBox(height: 10),
+            _buildRankedRatingAnimationSummary(),
+          ],
           if (widget.isArenaMode) ...[
             const SizedBox(height: 12),
             _buildArenaResultSummary(),
           ],
+          const SizedBox(height: 10),
+          _buildResultWazaSummary(),
           const SizedBox(height: 18),
           _buildResultRewardSummaryRow(highlightTripleReward: win),
           if (_newlyUnlockedBadges.isNotEmpty) ...[
             const SizedBox(height: 12),
             _buildBadgeUnlockResultCard(),
           ],
-          const SizedBox(height: 12),
-          _buildCyberResultButton(
-            label: _resultShareInProgress ? '共有準備中...' : '結果をシェア',
-            baseColor: _gameCyan,
-            icon: Icons.ios_share_rounded,
-            isWaiting: _resultShareInProgress,
-            onPressed: _resultShareInProgress
-                ? null
-                : () => unawaited(_shareCurrentResult()),
-          ),
           const SizedBox(height: 12),
           if (_canShowRematchButton) ...[
             if (_opponentRequestedRematch) ...[
@@ -2587,11 +2906,8 @@ class _GameScreenState extends State<GameScreen>
             ),
             const SizedBox(height: 12),
           ],
-          _buildCyberResultButton(
-            label: 'ホームへ戻る',
-            baseColor: _mutedButtonGrey,
-            isWaiting: false,
-            onPressed: () {
+          _buildResultShareHomeButtonRow(
+            onHomePressed: () {
               _leaveOnlineBattle();
             },
           ),
@@ -2714,8 +3030,10 @@ class _GameScreenState extends State<GameScreen>
   Widget _buildUnifiedResultSheet({
     required String title,
     required Color titleColor,
+    Color? borderColor,
     required List<Widget> children,
   }) {
+    final effectiveBorderColor = borderColor ?? titleColor;
     return Container(
       color: const Color(0xFF0F0F13).withValues(alpha: 0.90),
       child: SafeArea(
@@ -2730,7 +3048,7 @@ class _GameScreenState extends State<GameScreen>
                     color: const Color(0xFF141421),
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                      color: titleColor.withValues(alpha: 0.7),
+                      color: effectiveBorderColor.withValues(alpha: 0.7),
                       width: 1.5,
                     )),
                 child: Column(
@@ -2758,17 +3076,49 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
+  Widget _buildResultShareHomeButtonRow({
+    required VoidCallback onHomePressed,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildCyberResultButton(
+            label: _resultShareInProgress ? '共有準備中...' : '結果をシェア',
+            baseColor: _gameCyan,
+            icon: Icons.ios_share_rounded,
+            isWaiting: _resultShareInProgress,
+            compact: true,
+            onPressed: _resultShareInProgress
+                ? null
+                : () => unawaited(_shareCurrentResult()),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildCyberResultButton(
+            label: 'ホームへ戻る',
+            baseColor: _mutedButtonGrey,
+            isWaiting: false,
+            compact: true,
+            onPressed: onHomePressed,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildCyberResultButton({
     required String label,
     required VoidCallback? onPressed,
     required Color baseColor,
     required bool isWaiting,
     IconData? icon,
+    bool compact = false,
   }) {
     if (isWaiting) {
       return Container(
-        width: 280,
-        padding: const EdgeInsets.symmetric(vertical: 18),
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(vertical: compact ? 13 : 18),
         decoration: BoxDecoration(
           color: Colors.white10,
           borderRadius: BorderRadius.circular(12),
@@ -2779,22 +3129,24 @@ class _GameScreenState extends State<GameScreen>
             label: label,
             icon: icon,
             color: Colors.white54,
+            compact: compact,
           ),
         ),
       );
     }
 
-    return InkWell(
+    return GamePressable(
+      enabled: onPressed != null,
+      borderRadius: BorderRadius.circular(12),
       onTap: onPressed == null
           ? null
           : () {
               _playUiTap();
               onPressed();
             },
-      borderRadius: BorderRadius.circular(12),
       child: Container(
-        width: 280,
-        padding: const EdgeInsets.symmetric(vertical: 18),
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(vertical: compact ? 13 : 18),
         decoration: BoxDecoration(
             color: baseColor.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
@@ -2805,6 +3157,7 @@ class _GameScreenState extends State<GameScreen>
             label: label,
             icon: icon,
             color: Colors.white,
+            compact: compact,
           ),
         ),
       ),
@@ -2815,14 +3168,17 @@ class _GameScreenState extends State<GameScreen>
     required String label,
     required IconData? icon,
     required Color color,
+    bool compact = false,
   }) {
     final text = Text(
       label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color: color,
-        fontSize: 20,
+        fontSize: compact ? 13.5 : 20,
         fontWeight: FontWeight.w900,
-        letterSpacing: 1.2,
+        letterSpacing: compact ? 0.2 : 1.2,
       ),
     );
     if (icon == null) {
@@ -2831,9 +3187,9 @@ class _GameScreenState extends State<GameScreen>
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(width: 9),
-        text,
+        Icon(icon, color: color, size: compact ? 18 : 24),
+        SizedBox(width: compact ? 5 : 9),
+        Flexible(child: text),
       ],
     );
   }
@@ -2927,28 +3283,33 @@ class _GameScreenState extends State<GameScreen>
 
   Future<_ResultShareData> _buildResultShareData() async {
     final ranked = widget.isRankedMode && !widget.isArenaMode;
+    final daily = widget.isDailyMode;
     final endless =
-        !widget.isCpuMode && !_isOnlineMode && !widget.isTutorialMode;
+        !daily && !widget.isCpuMode && !_isOnlineMode && !widget.isTutorialMode;
     final playerWon = _sharePlayerWon;
     final seasonLabel =
         seasonIdForLabel(_room?.seasonId ?? _playerDataManager.rankedSeasonId);
-    final modeLabel = endless
-        ? 'エンドレス'
-        : ranked
-            ? 'ランク戦'
-            : widget.isArenaMode
-                ? 'アリーナ'
+    final modeLabel = daily
+        ? 'デイリー'
+        : endless
+            ? 'エンドレス'
+            : ranked
+                ? 'ランク戦'
+                : widget.isArenaMode
+                    ? 'アリーナ'
+                    : widget.isCpuMode
+                        ? 'コンピュータ対戦'
+                        : 'フレンド対戦';
+    final accentColor = daily
+        ? _dailyBlue
+        : endless
+            ? _endlessGreen
+            : ranked
+                ? _rankedPurple
                 : widget.isCpuMode
-                    ? 'コンピュータ対戦'
-                    : 'フレンド対戦';
-    final accentColor = endless
-        ? _endlessGreen
-        : ranked
-            ? _rankedPurple
-            : widget.isCpuMode
-                ? _computerYellow
-                : _friendPink;
-    final title = endless
+                    ? _computerYellow
+                    : _friendPink;
+    final title = daily || endless
         ? ''
         : playerWon
             ? '勝ち'
@@ -2970,11 +3331,19 @@ class _GameScreenState extends State<GameScreen>
       _playerDataManager.highestEndlessScore,
     );
     final endlessRankLabel = endless ? await _fetchShareEndlessRankLabel() : '';
+    final dailyDateKey = widget.dailyDateKey ??
+        await DailyChallengeManager.instance.currentDateKey();
+    final dailyRankLabel =
+        daily ? await _fetchShareDailyRankLabel(dailyDateKey) : '';
     final appIcon = await _loadShareImage(_shareAppIconAsset);
     final seasonBadgeIcon = await _loadShareImage(_shareSeasonBadgeAsset);
     final storeQrImage = await _loadShareImage(_shareStoreQrAsset);
     final coinIcon = await _loadShareImage(_shareCoinAsset);
     final trophyIcon = await _loadShareImage(_shareTrophyAsset);
+    final playerIconId = _playerDataManager.equippedPlayerIconId;
+    final opponentIconId = _opponentResultIconId();
+    final playerIconImage = await _loadPlayerIconShareImage(playerIconId);
+    final opponentIconImage = await _loadPlayerIconShareImage(opponentIconId);
     final inviteCode = await _shareInviteCode();
     final playerPreRating = ratingChange?.oldRating ??
         (_room?.players[_multiplayerManager.myRoleId]?.rating ??
@@ -2983,16 +3352,21 @@ class _GameScreenState extends State<GameScreen>
     return _ResultShareData(
       isRanked: ranked,
       isEndless: endless,
+      isDaily: daily,
       seasonLabel: ranked ? seasonLabel : '',
       modeLabel: modeLabel,
       title: title,
       titleColor: playerWon ? _battlePlayerColor : _battleOpponentColor,
       accentColor: accentColor,
-      scoreLabel: endless ? _formatShareNumber(_currentPlayerScore) : '',
+      scoreLabel:
+          (daily || endless) ? _formatShareNumber(_currentPlayerScore) : '',
       endlessLevelLabel: endless ? 'Lv.$_currentPlayerLevel' : '',
-      endlessBestScoreLabel:
-          endless ? _formatShareNumber(endlessBestScore) : '',
-      endlessRankLabel: endlessRankLabel,
+      endlessBestScoreLabel: daily
+          ? _shareDateLabel(dailyDateKey)
+          : endless
+              ? _formatShareNumber(endlessBestScore)
+              : '',
+      endlessRankLabel: daily ? dailyRankLabel : endlessRankLabel,
       ratingDeltaLabel: ratingDeltaLabel,
       newRatingLabel: ratingChange == null
           ? ''
@@ -3002,19 +3376,21 @@ class _GameScreenState extends State<GameScreen>
       dailyWinRankLabel: dailyWinRankLabel,
       player: _ShareParticipant(
         name: _playerDataManager.displayPlayerName,
-        iconId: _playerDataManager.equippedPlayerIconId,
+        iconId: playerIconId,
         frameId: _playerDataManager.equippedIconFrameId,
         badgeIds: _playerDataManager.equippedBadgeIds,
         ratingLabel: ranked ? _formatShareNumber(playerPreRating) : '',
         sideColor: _battlePlayerColor,
+        iconImage: playerIconImage,
       ),
       opponent: _ShareParticipant(
         name: _opponentResultName(),
-        iconId: _opponentResultIconId(),
+        iconId: opponentIconId,
         frameId: _opponentResultIconFrameId(),
         badgeIds: _opponentResultBadgeIds(),
         ratingLabel: ranked ? _opponentShareRatingLabel() : '',
         sideColor: _battleOpponentColor,
+        iconImage: opponentIconImage,
       ),
       inviteCode: inviteCode,
       generatedAtLabel: _shareGeneratedAtLabel(DateTime.now()),
@@ -3063,6 +3439,14 @@ class _GameScreenState extends State<GameScreen>
     }
   }
 
+  Future<ui.Image?> _loadPlayerIconShareImage(String iconId) async {
+    final assetPath = playerIconAssetPath(iconId);
+    if (assetPath == null) {
+      return null;
+    }
+    return _loadShareImage(assetPath);
+  }
+
   bool get _sharePlayerWon {
     if (_onlineResultMessage != null) {
       return _onlineResultMessage == 'YOU WIN!!';
@@ -3109,6 +3493,39 @@ class _GameScreenState extends State<GameScreen>
     } catch (_) {
       return '';
     }
+  }
+
+  Future<String> _fetchShareDailyRankLabel(String dateKey) async {
+    try {
+      await DailyChallengeManager.instance
+          .submitScore(dateKey: dateKey, score: _currentPlayerScore)
+          .timeout(const Duration(seconds: 2));
+      final entries = await DailyChallengeManager.instance
+          .fetchTopRankings(dateKey: dateKey)
+          .timeout(const Duration(seconds: 2));
+      final publicId = _playerDataManager.playerId;
+      final uid = _multiplayerManager.myUid ?? '';
+      final index = entries.indexWhere((entry) =>
+          (uid.isNotEmpty && entry.uid == uid) ||
+          (publicId.isNotEmpty && entry.publicId == publicId));
+      if (index == -1) {
+        return '';
+      }
+      final myScore = entries[index].score;
+      final rank = entries.where((entry) => entry.score > myScore).length + 1;
+      return '$rank位';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _shareDateLabel(String dateKey) {
+    final normalized = dateKey.replaceAll('-', '/');
+    final parts = normalized.split('/');
+    if (parts.length != 3) {
+      return normalized;
+    }
+    return '${parts[0]}/${parts[1].padLeft(2, '0')}/${parts[2].padLeft(2, '0')}';
   }
 
   String _opponentShareRatingLabel() {
@@ -3309,6 +3726,61 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _drawShareEndlessBestPanel(Canvas canvas, _ResultShareData data) {
+    if (data.isDaily) {
+      const rect = Rect.fromLTWH(260, 548, 560, 86);
+      final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(18));
+      canvas.drawRRect(
+        rrect,
+        Paint()..color = Colors.black.withValues(alpha: 0.24),
+      );
+      canvas.drawRRect(
+        rrect,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = data.accentColor.withValues(alpha: 0.42),
+      );
+      _drawShareText(
+        canvas,
+        '日付',
+        Offset(rect.left + 18, rect.top + 12),
+        fontSize: 17,
+        color: Colors.white54,
+        weight: FontWeight.w900,
+        maxLines: 1,
+      );
+      _drawShareFittedText(
+        canvas,
+        data.endlessBestScoreLabel.isEmpty ? '-' : data.endlessBestScoreLabel,
+        Rect.fromLTWH(rect.left + 18, rect.top + 32, 330, 42),
+        fontSize: 34,
+        minFontSize: 18,
+        color: Colors.white,
+        weight: FontWeight.w900,
+        align: TextAlign.center,
+      );
+      if (data.endlessRankLabel.isNotEmpty) {
+        canvas.drawLine(
+          Offset(rect.left + 365, rect.top + 20),
+          Offset(rect.left + 365, rect.bottom - 20),
+          Paint()
+            ..strokeWidth = 1.4
+            ..color = Colors.white.withValues(alpha: 0.16),
+        );
+        _drawShareFittedText(
+          canvas,
+          data.endlessRankLabel,
+          Rect.fromLTWH(rect.left + 382, rect.top + 32, rect.width - 398, 42),
+          fontSize: 32,
+          minFontSize: 20,
+          color: Colors.white,
+          weight: FontWeight.w900,
+          align: TextAlign.center,
+        );
+      }
+      return;
+    }
+
     const levelRect = Rect.fromLTWH(164, 548, 205, 86);
     final levelRrect =
         RRect.fromRectAndRadius(levelRect, const Radius.circular(18));
@@ -3445,6 +3917,7 @@ class _GameScreenState extends State<GameScreen>
       frameId: participant.frameId,
       size: avatarSize,
       color: participant.sideColor,
+      iconImage: participant.iconImage,
     );
     _drawShareProfileNameText(
       canvas,
@@ -3494,6 +3967,7 @@ class _GameScreenState extends State<GameScreen>
     required String frameId,
     required double size,
     required Color color,
+    ui.Image? iconImage,
   }) {
     final frame = GameItemCatalog.byId(frameId);
     final radius = size / 2;
@@ -3525,15 +3999,31 @@ class _GameScreenState extends State<GameScreen>
     canvas.drawCircle(
       center,
       radius - 8,
-      Paint()..color = const Color(0xFF101827),
+      Paint()
+        ..color = playerIconInnerBackgroundColor(
+          iconId,
+          const Color(0xFF101827),
+          frameId: frameId,
+        ),
     );
-    _drawShareIcon(
-      canvas,
-      _playerIconData(iconId),
-      center,
-      size: 58,
-      color: Colors.white,
-    );
+    if (playerIconAssetPath(iconId) != null && iconImage != null) {
+      _drawShareImageContain(
+        canvas,
+        iconImage,
+        Rect.fromCircle(
+          center: center,
+          radius: (radius - 16) * playerIconImageScale(iconId),
+        ),
+      );
+    } else {
+      _drawShareIcon(
+        canvas,
+        _playerIconData(iconId),
+        center,
+        size: 58,
+        color: Colors.white,
+      );
+    }
   }
 
   void _drawShareBadges(
@@ -3544,7 +4034,7 @@ class _GameScreenState extends State<GameScreen>
     ui.Image? seasonBadgeIcon,
     bool alignLeft = false,
   }) {
-    final ids = badgeIds.take(2).toList();
+    final ids = badgeIds.take(3).toList();
     if (ids.isEmpty) {
       return;
     }
@@ -4284,7 +4774,7 @@ class _GameScreenState extends State<GameScreen>
                 text,
                 key: ValueKey(text),
                 style: TextStyle(
-                  color: isGo ? _battleOpponentColor : Colors.white,
+                  color: isGo ? _readyGoThemeColor : Colors.white,
                   fontSize: isGo ? 56 : 42,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 3,
@@ -4308,6 +4798,8 @@ class _GameScreenState extends State<GameScreen>
     final opponentName =
         _displayNameForRole(_multiplayerManager.opponentRoleId);
     final showAutoStart = widget.isRankedMode || _isFriendMode;
+    final showLobbyTitle =
+        widget.isRankedMode || widget.isArenaMode || !_isFriendMode || !isHost;
 
     if (_onlineGameStarted || room == null) {
       return const SizedBox.shrink();
@@ -4338,37 +4830,38 @@ class _GameScreenState extends State<GameScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    widget.isArenaMode
-                        ? 'アリーナマッチが成立しました'
-                        : widget.isRankedMode
-                            ? 'ランク戦が成立しました'
-                            : isHost
-                                ? 'フレンド対戦の部屋を作成'
-                                : 'フレンド対戦に参加しました',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
+                  if (showLobbyTitle) ...[
+                    Text(
+                      widget.isArenaMode
+                          ? 'アリーナマッチが成立しました'
+                          : widget.isRankedMode
+                              ? 'ランク戦が成立しました'
+                              : 'フレンド対戦に参加しました',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
+                    const SizedBox(height: 20),
+                  ],
                   if (isHost && !widget.isRankedMode) ...[
-                    const Text(
+                    Text(
                       'ルームID',
                       style: TextStyle(
-                        color: Colors.white70,
+                        color: _friendPink.withValues(alpha: 0.86),
                         fontSize: 18,
                         letterSpacing: 2,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       room.roomId,
                       style: const TextStyle(
-                        color: Colors.amberAccent,
+                        color: _friendPink,
                         fontSize: 48,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 8,
@@ -4470,11 +4963,12 @@ class _GameScreenState extends State<GameScreen>
                       ),
                     )
                   else
-                    const SizedBox(
+                    SizedBox(
                       height: 56,
                       child: Center(
                         child: CircularProgressIndicator(
-                          color: Colors.amberAccent,
+                          color: lobbyAccent,
+                          backgroundColor: lobbyAccent.withValues(alpha: 0.12),
                         ),
                       ),
                     ),
@@ -5810,11 +6304,60 @@ class _GameScreenState extends State<GameScreen>
     _cpuGame?.resumeEngine();
     _playerGame.spawnInitialPieceAfterReadyGo();
     _cpuGame?.spawnInitialPieceAfterReadyGo();
+    _startDailyChallengeTimerIfNeeded();
     if (mounted) {
       setState(() {
         _battleIntroLocked = false;
       });
     }
+  }
+
+  void _startDailyChallengeTimerIfNeeded() {
+    if (!widget.isDailyMode || _dailyChallengeTimer != null) {
+      return;
+    }
+    setState(() {
+      _dailyRemainingSeconds = DailyChallengeManager.durationSeconds;
+    });
+    _dailyChallengeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted ||
+          _resultRevealPending ||
+          _battleResultStarted ||
+          _playerGame.gameStateWrapper.value != GameState.playing) {
+        timer.cancel();
+        if (_dailyChallengeTimer == timer) {
+          _dailyChallengeTimer = null;
+        }
+        return;
+      }
+      final next = max(0, _dailyRemainingSeconds - 1);
+      setState(() {
+        _dailyRemainingSeconds = next;
+      });
+      if (next <= 0) {
+        timer.cancel();
+        if (_dailyChallengeTimer == timer) {
+          _dailyChallengeTimer = null;
+        }
+        unawaited(_finishDailyChallenge());
+      }
+    });
+  }
+
+  Future<void> _finishDailyChallenge() async {
+    if (!widget.isDailyMode || _battleResultStarted || _resultRevealPending) {
+      return;
+    }
+    _dailyChallengeTimer?.cancel();
+    _dailyChallengeTimer = null;
+    _playerGame.scoreManager.addDailyEndBonus(
+      noDanger: _playerGame.dailyNoDangerBonusEligible,
+    );
+    _playerGame.gameStateWrapper.value = GameState.gameover;
+    await _presentBattleResult(
+      playerWon: true,
+      opponentCrossedDeathLine: false,
+    );
   }
 
   Future<void> _startRankedBotBattleAfterMatchOverlay(int seed) async {
@@ -5934,6 +6477,7 @@ class _GameScreenState extends State<GameScreen>
       'icon_gamepad' => Icons.sports_esports,
       'icon_sword' => Icons.gavel,
       'icon_hexagon' => Icons.hexagon,
+      'icon_hexagon2' => Icons.hexagon,
       'icon_trophy' => Icons.emoji_events,
       'icon_medal' => Icons.military_tech,
       'icon_crown' => Icons.workspace_premium,
@@ -5967,7 +6511,8 @@ class _GameScreenState extends State<GameScreen>
       'green' => _endlessGreen,
       'blue' => _battlePlayerColor,
       'purple' => Colors.purpleAccent,
-      'black' => Colors.white70,
+      'white' => Colors.white,
+      'black' => const Color(0xFF05070D),
       'rainbow' => const Color(0xFFFFD54A),
       _ => _gameCyan,
     };
@@ -5980,10 +6525,16 @@ class _GameScreenState extends State<GameScreen>
     required double size,
     required double iconSize,
   }) {
-    final icon = Icon(
-      _playerIconData(iconId),
+    final icon = PlayerIconImage(
+      iconId: iconId,
+      fallbackIcon: _playerIconData(iconId),
       color: Colors.white,
       size: iconSize,
+    );
+    final innerBackgroundColor = playerIconInnerBackgroundColor(
+      iconId,
+      const Color(0xFF111827),
+      frameId: frameId,
     );
     if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
       return Container(
@@ -6003,8 +6554,8 @@ class _GameScreenState extends State<GameScreen>
           ),
         ),
         child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF111827),
+          decoration: BoxDecoration(
+            color: innerBackgroundColor,
             shape: BoxShape.circle,
           ),
           child: Center(child: icon),
@@ -6015,7 +6566,11 @@ class _GameScreenState extends State<GameScreen>
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
+        color: playerIconInnerBackgroundColor(
+          iconId,
+          color.withValues(alpha: 0.16),
+          frameId: frameId,
+        ),
         shape: BoxShape.circle,
         border: Border.all(
           color: color.withValues(alpha: 0.92),
@@ -6453,11 +7008,6 @@ class _GameScreenState extends State<GameScreen>
       _showOptimisticRankedRatingChange(isWin: isWin);
       final connected = await _ensureServerConnection();
       if (!connected) {
-        if (mounted) {
-          setState(() {
-            _rankedRatingChange = null;
-          });
-        }
         return;
       }
       final change = await _multiplayerManager.applyRankedResult(
@@ -6490,9 +7040,6 @@ class _GameScreenState extends State<GameScreen>
         return;
       }
       _showRealtimeOfflineMessage();
-      setState(() {
-        _rankedRatingChange = null;
-      });
     }
   }
 
@@ -6513,11 +7060,6 @@ class _GameScreenState extends State<GameScreen>
       );
       final connected = await _ensureServerConnection();
       if (!connected) {
-        if (mounted) {
-          setState(() {
-            _rankedRatingChange = null;
-          });
-        }
         return;
       }
       final change = await _multiplayerManager.applyRankedBotResult(
@@ -6550,9 +7092,6 @@ class _GameScreenState extends State<GameScreen>
         return;
       }
       _showRealtimeOfflineMessage();
-      setState(() {
-        _rankedRatingChange = null;
-      });
     }
   }
 
@@ -6600,6 +7139,7 @@ class _GameScreenState extends State<GameScreen>
     _onlineResultWasForfeit = false;
     _onlineResultWasOfflineForfeit = false;
     _activeResultWasForfeit = false;
+    _battleResultWasOfflineForfeitLoss = false;
     _opponentUnavailableForRematch = false;
     _autoReadyRequested = false;
     _rankedOfflineForfeitStarted = false;
@@ -7009,6 +7549,34 @@ class _GameScreenState extends State<GameScreen>
       isWin: false,
       mode: 'SOLO',
       opponentName: 'エンドレス',
+      wazaCounts: {
+        'straight': _playerWazaCounts[WazaType.straight] ?? 0,
+        'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
+        'hexagon': _playerWazaCounts[WazaType.hexagon] ?? 0,
+      },
+      clearedBalls: _playerGame.scoreManager.state.value.totalClearedBalls,
+      normalClearedBalls: _playerNormalClearedBalls,
+      maxChain: _playerGame.scoreManager.maxChainThisRun,
+      score: _currentPlayerScore,
+    );
+    await _syncPlayerProfileOnline(rating: _playerDataManager.currentRating);
+    _refreshNewlyUnlockedBadgesFromSnapshot();
+  }
+
+  Future<void> _recordDailyChallengeStats() async {
+    if (_dailyResultRecorded) {
+      return;
+    }
+    _dailyResultRecorded = true;
+    await DailyChallengeManager.instance.submitScore(
+      dateKey: widget.dailyDateKey ??
+          DailyChallengeManager.dateKeyFor(DateTime.now().toLocal()),
+      score: _currentPlayerScore,
+    );
+    await _playerDataManager.recordMatchResult(
+      isWin: true,
+      mode: 'DAILY',
+      opponentName: 'デイリー',
       wazaCounts: {
         'straight': _playerWazaCounts[WazaType.straight] ?? 0,
         'pyramid': _playerWazaCounts[WazaType.pyramid] ?? 0,
@@ -8102,9 +8670,15 @@ class _GameScreenState extends State<GameScreen>
       return;
     }
 
+    if (_isStampGridVisible && mounted) {
+      setState(() {
+        _isStampGridVisible = false;
+      });
+    }
     _battleResultStarted = true;
     _resultRevealPending = true;
     _activeResultWasForfeit = resultWasForfeit;
+    _battleResultWasOfflineForfeitLoss = !playerWon && resultWasOfflineForfeit;
     if (widget.isRankedMode && !widget.isArenaMode) {
       _markRankedResultKnownIfNeeded(isWin: playerWon);
     }
@@ -8144,6 +8718,7 @@ class _GameScreenState extends State<GameScreen>
         _resultCoinBaseEarned = 0;
         _matchExpEarned = 0;
         _activeResultWasForfeit = false;
+        _isStampGridVisible = false;
         _resultRevealPending = false;
       });
       return;
@@ -8187,6 +8762,7 @@ class _GameScreenState extends State<GameScreen>
       unawaited(_applyRankedBotRatingResult(isWin: playerWon));
       setState(() {
         _activeResultWasForfeit = false;
+        _isStampGridVisible = false;
         _resultRevealPending = false;
       });
       return;
@@ -8235,6 +8811,19 @@ class _GameScreenState extends State<GameScreen>
         _onlineResultWasForfeit = resultWasForfeit;
         _onlineResultWasOfflineForfeit = resultWasOfflineForfeit;
         _isWaitingForRematch = false;
+        _isStampGridVisible = false;
+        _resultRevealPending = false;
+      });
+      return;
+    }
+
+    if (widget.isDailyMode) {
+      unawaited(_applyBattleCoinReward(isWin: true));
+      unawaited(_applySoloExpReward());
+      unawaited(_recordDailyChallengeStats());
+      setState(() {
+        _activeResultWasForfeit = false;
+        _isStampGridVisible = false;
         _resultRevealPending = false;
       });
       return;
@@ -8254,6 +8843,7 @@ class _GameScreenState extends State<GameScreen>
     unawaited(_recordSoloStats());
     setState(() {
       _activeResultWasForfeit = false;
+      _isStampGridVisible = false;
       _resultRevealPending = false;
     });
   }
@@ -8388,7 +8978,7 @@ class _GameScreenState extends State<GameScreen>
         );
         return Container(
           height: 96,
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
           decoration: BoxDecoration(
             color: const Color(0xEE080A12),
             border: Border(
@@ -8613,25 +9203,15 @@ class _GameScreenState extends State<GameScreen>
   }) {
     final enabled =
         !widget.isTutorialMode || _enabledTutorialActions.contains(action);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTapDown: (_) {
-        if (!enabled) {
-          return;
-        }
+    return GamePressable(
+      enabled: enabled,
+      borderRadius: BorderRadius.circular(14),
+      onTapDown: () {
         _playUiTap();
         onDown();
       },
-      onTapUp: (_) {
-        if (enabled && onUp != null) {
-          onUp();
-        }
-      },
-      onTapCancel: () {
-        if (enabled && onUp != null) {
-          onUp();
-        }
-      },
+      onTapUp: onUp,
+      onTapCancel: onUp,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         decoration: BoxDecoration(
@@ -8707,6 +9287,7 @@ class _ResultShareData {
   const _ResultShareData({
     required this.isRanked,
     required this.isEndless,
+    required this.isDaily,
     required this.seasonLabel,
     required this.modeLabel,
     required this.title,
@@ -8734,6 +9315,7 @@ class _ResultShareData {
 
   final bool isRanked;
   final bool isEndless;
+  final bool isDaily;
   final String seasonLabel;
   final String modeLabel;
   final String title;
@@ -8786,6 +9368,7 @@ class _ShareParticipant {
     required this.badgeIds,
     required this.ratingLabel,
     required this.sideColor,
+    required this.iconImage,
   });
 
   final String name;
@@ -8794,6 +9377,7 @@ class _ShareParticipant {
   final List<String> badgeIds;
   final String ratingLabel;
   final Color sideColor;
+  final ui.Image? iconImage;
 }
 
 class _ControlAction {

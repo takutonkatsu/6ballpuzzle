@@ -56,6 +56,7 @@ class BallComponent extends PositionComponent {
   final double radius;
   final BallColor ballColor;
   final bool isGhost;
+  final bool isGuideGhost;
   final String ballSkinId;
 
   BallState state = BallState.locked;
@@ -82,6 +83,7 @@ class BallComponent extends PositionComponent {
     required this.radius,
     required this.ballColor,
     this.isGhost = false,
+    this.isGuideGhost = false,
     this.ballSkinId = 'default',
   }) : super(
             position: position,
@@ -165,14 +167,27 @@ class BallComponent extends PositionComponent {
     super.render(canvas);
 
     final center = Offset(radius, radius);
-    final alpha = isGhost ? 0.35 : 1.0;
+    final alpha = isGuideGhost
+        ? 0.26
+        : isGhost
+            ? 0.35
+            : 1.0;
 
     if ((glowIntensity > 0.01 || isGhost) && _flashIntensity < 0.9) {
-      final glowAlpha = isGhost ? 0.12 : glowIntensity * 0.5;
+      final glowAlpha = isGuideGhost
+          ? 0.12
+          : isGhost
+              ? 0.12
+              : glowIntensity * 0.5;
       final glowPaint = Paint()
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5)
-        ..color = ballColor.glowColor.withValues(alpha: glowAlpha);
-      canvas.drawCircle(center, radius * 1.3, glowPaint);
+        ..maskFilter = MaskFilter.blur(
+          BlurStyle.normal,
+          isGuideGhost ? 10 : 5,
+        )
+        ..color = (isGuideGhost ? const Color(0xFF66F7FF) : ballColor.glowColor)
+            .withValues(alpha: glowAlpha);
+      canvas.drawCircle(
+          center, radius * (isGuideGhost ? 1.45 : 1.3), glowPaint);
     }
 
     if (ballSkinId == 'skin_luxury_prism' && _flashIntensity < 0.9) {

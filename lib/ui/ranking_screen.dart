@@ -12,12 +12,20 @@ import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
 import '../network/server_time_manager.dart';
 import 'components/hexagon_currency_icons.dart';
+import 'components/game_pressable.dart';
 import 'components/screen_bottom_banner_ad.dart';
 import 'profile_screen.dart';
 import 'theme/game_theme_colors.dart';
 
 class RankingScreen extends StatefulWidget {
-  const RankingScreen({super.key});
+  const RankingScreen({
+    super.key,
+    this.embedded = false,
+    this.active = true,
+  });
+
+  final bool embedded;
+  final bool active;
 
   @override
   State<RankingScreen> createState() => _RankingScreenState();
@@ -98,6 +106,7 @@ class _RankingScreenState extends State<RankingScreen> {
   String _loadedEndlessSeasonId = '';
   String _loadedDailyDateKey = '';
   DateTime? _lastSeasonSyncAt;
+  bool _hasLoadedOnce = false;
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -106,12 +115,20 @@ class _RankingScreenState extends State<RankingScreen> {
   @override
   void initState() {
     super.initState();
-    _remainingTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) => unawaited(_updateServerClockLabels()),
-    );
-    unawaited(_updateServerClockLabels(forceRefresh: true));
-    _loadRankings();
+    if (widget.active) {
+      _activateRankingScreen();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant RankingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) {
+      _activateRankingScreen();
+    } else if (oldWidget.active && !widget.active) {
+      _remainingTimer?.cancel();
+      _remainingTimer = null;
+    }
   }
 
   @override
@@ -120,7 +137,21 @@ class _RankingScreenState extends State<RankingScreen> {
     super.dispose();
   }
 
+  void _activateRankingScreen() {
+    _remainingTimer ??= Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(_updateServerClockLabels()),
+    );
+    unawaited(_updateServerClockLabels(forceRefresh: true));
+    if (!_hasLoadedOnce) {
+      _loadRankings();
+    }
+  }
+
   Future<void> _loadRankings() async {
+    if (!widget.active) {
+      return;
+    }
     final requestTab = _selectedTab;
     final requestSerial = ++_rankingLoadSerial;
     setState(() {
@@ -168,6 +199,7 @@ class _RankingScreenState extends State<RankingScreen> {
           nowJstOverride: nowJst,
         );
         _isLoading = false;
+        _hasLoadedOnce = true;
       });
     } catch (error) {
       if (!mounted) {
@@ -179,6 +211,7 @@ class _RankingScreenState extends State<RankingScreen> {
       setState(() {
         _errorMessage = _rankingLoadErrorMessage(error);
         _isLoading = false;
+        _hasLoadedOnce = true;
       });
     }
   }
@@ -207,11 +240,12 @@ class _RankingScreenState extends State<RankingScreen> {
         _endlessRemainingLabel =
             RankingManager.endlessRemainingLabel(nowJstOverride: nowJst);
       });
-      if (currentSeasonId != _loadedSeasonId ||
-          (_selectedTab == _RankingTab.endless &&
-              currentEndlessSeasonId != _loadedEndlessSeasonId) ||
-          (_selectedTab == _RankingTab.dailyWins &&
-              currentDailyDateKey != _loadedDailyDateKey)) {
+      if (widget.active &&
+          (currentSeasonId != _loadedSeasonId ||
+              (_selectedTab == _RankingTab.endless &&
+                  currentEndlessSeasonId != _loadedEndlessSeasonId) ||
+              (_selectedTab == _RankingTab.dailyWins &&
+                  currentDailyDateKey != _loadedDailyDateKey))) {
         unawaited(_loadRankings());
       }
     } catch (_) {
@@ -301,44 +335,53 @@ class _RankingScreenState extends State<RankingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final content = SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          widget.embedded ? 12 : 16,
+          16,
+          widget.embedded ? 8 : 20,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildHeader(context),
+            const SizedBox(height: 16),
+            _buildModeTabs(),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                    color: const Color(0xFF141421),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: GameThemeColors.cyan.withValues(alpha: 0.45),
+                    )),
+                child: _buildBody(),
+              ),
+            ),
+            if (_selectedTab == _RankingTab.currentSeason ||
+                _selectedTab == _RankingTab.dailyWins ||
+                _selectedTab == _RankingTab.endless) ...[
+              const SizedBox(height: 10),
+              switch (_selectedTab) {
+                _RankingTab.dailyWins => _buildDailyFooter(),
+                _RankingTab.endless => _buildEndlessFooter(),
+                _RankingTab.currentSeason => _buildSeasonFooter(),
+              },
+            ],
+          ],
+        ),
+      ),
+    );
+    if (widget.embedded) {
+      return content;
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF0F0F13),
       bottomNavigationBar: const ScreenBottomBannerAd(),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(context),
-              const SizedBox(height: 16),
-              _buildModeTabs(),
-              const SizedBox(height: 12),
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                      color: const Color(0xFF141421),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: GameThemeColors.cyan.withValues(alpha: 0.45),
-                      )),
-                  child: _buildBody(),
-                ),
-              ),
-              if (_selectedTab == _RankingTab.currentSeason ||
-                  _selectedTab == _RankingTab.dailyWins ||
-                  _selectedTab == _RankingTab.endless) ...[
-                const SizedBox(height: 10),
-                switch (_selectedTab) {
-                  _RankingTab.dailyWins => _buildDailyFooter(),
-                  _RankingTab.endless => _buildEndlessFooter(),
-                  _RankingTab.currentSeason => _buildSeasonFooter(),
-                },
-              ],
-            ],
-          ),
-        ),
-      ),
+      body: content,
     );
   }
 
@@ -350,11 +393,13 @@ class _RankingScreenState extends State<RankingScreen> {
         children: [
           Positioned(
             left: 0,
-            child: SizedBox(
-              width: 44,
-              height: 44,
-              child: _buildBackButton(context),
-            ),
+            child: widget.embedded
+                ? const SizedBox(width: 44, height: 44)
+                : SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: _buildBackButton(context),
+                  ),
           ),
           Positioned(
             right: 0,
@@ -378,18 +423,29 @@ class _RankingScreenState extends State<RankingScreen> {
   }
 
   Widget _buildBackButton(BuildContext context) {
-    return IconButton(
-      onPressed: () {
+    return GamePressable(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
         _playUiTap();
         Navigator.of(context).pop();
       },
-      icon: const Icon(Icons.arrow_back_ios_new),
-      tooltip: '戻る',
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.28),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        ),
+        child: const Icon(
+          Icons.arrow_back_ios_new_rounded,
+          color: Colors.white,
+          size: 20,
+        ),
+      ),
     );
   }
 
   Widget _buildRewardInfoButton() {
-    return InkWell(
+    return GamePressable(
       onTap: () {
         _playUiTap();
         unawaited(_showRankingRewardDialog());
@@ -451,7 +507,8 @@ class _RankingScreenState extends State<RankingScreen> {
                     _RankingRewardRow('2〜3位', 150000),
                     _RankingRewardRow('4〜10位', 80000),
                     _RankingRewardRow('11〜30位', 30000),
-                    _RankingRewardRow('31〜100位', 10000),
+                    _RankingRewardRow('31〜50位', 10000),
+                    _RankingRewardRow('51〜100位', 5000),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -563,9 +620,7 @@ class _RankingScreenState extends State<RankingScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: GameThemeColors.cyan),
-      );
+      return const SizedBox.shrink();
     }
 
     if (_errorMessage != null) {
@@ -612,21 +667,278 @@ class _RankingScreenState extends State<RankingScreen> {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
-      itemCount: _entries.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final entry = _entries[index];
-        final rank = _displayRankAt(index);
-        final isMe = _isCurrentPlayer(entry);
-        return _buildRankingRow(
-          entry,
-          rank,
-          isMe,
-          tab: _selectedTab,
-        );
-      },
+    final myIndex = _entries.indexWhere(_isCurrentPlayer);
+    final myEntry = myIndex == -1 ? null : _entries[myIndex];
+    final myRank = myIndex == -1 ? null : _displayRankAt(myIndex);
+    return Stack(
+      children: [
+        CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                14,
+                12,
+                14,
+                myEntry == null ? 18 : 86,
+              ),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate(
+                  [
+                    _buildCompetitionSummary(myEntry, myRank),
+                    const SizedBox(height: 12),
+                    if (_entries.length >= 3) ...[
+                      _buildTopPodium(),
+                      const SizedBox(height: 12),
+                    ],
+                    for (var index = _entries.length >= 3 ? 3 : 0;
+                        index < _entries.length;
+                        index++) ...[
+                      _buildRankingRow(
+                        _entries[index],
+                        _displayRankAt(index),
+                        _isCurrentPlayer(_entries[index]),
+                        tab: _selectedTab,
+                      ),
+                      if (index != _entries.length - 1)
+                        const SizedBox(height: 8),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (myEntry != null && myRank != null)
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 12,
+            child: _buildMyRankDock(myEntry, myRank),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCompetitionSummary(RankingEntry? myEntry, int? myRank) {
+    final accent = switch (_selectedTab) {
+      _RankingTab.currentSeason => GameThemeColors.ranked,
+      _RankingTab.dailyWins => GameThemeColors.rankedText,
+      _RankingTab.endless => GameThemeColors.endless,
+    };
+    final rewardLine = switch (_selectedTab) {
+      _RankingTab.currentSeason => '報酬対象: 100位まで',
+      _RankingTab.dailyWins => '報酬対象: 10位まで',
+      _RankingTab.endless => '報酬対象: 50位まで',
+    };
+    final primaryLabel = switch (_selectedTab) {
+      _RankingTab.currentSeason => 'シーズンレート',
+      _RankingTab.dailyWins => '今日のランク戦勝利数',
+      _RankingTab.endless => '今週の最高スコア',
+    };
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.30),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: accent.withValues(alpha: 0.48)),
+            ),
+            child: Icon(
+              Icons.emoji_events_rounded,
+              color: accent,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  primaryLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  rewardLine,
+                  style: TextStyle(
+                    color: accent.withValues(alpha: 0.88),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+            ),
+            child: Column(
+              children: [
+                const Text(
+                  'あなた',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  myRank == null ? '圏外' : '$myRank位',
+                  style: TextStyle(
+                    color: myEntry == null ? Colors.white54 : accent,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopPodium() {
+    final first = _entries[0];
+    final second = _entries[1];
+    final third = _entries[2];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: _buildPodiumCard(
+              entry: second,
+              rank: _displayRankAt(1),
+              height: 126,
+              color: const Color(0xFFDCE8FF),
+              maxNameFontSize: 17,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildPodiumCard(
+              entry: first,
+              rank: 1,
+              height: 150,
+              color: const Color(0xFFFFD85A),
+              isChampion: true,
+              maxNameFontSize: 18,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _buildPodiumCard(
+              entry: third,
+              rank: _displayRankAt(2),
+              height: 118,
+              color: const Color(0xFFFFA35A),
+              maxNameFontSize: 17,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPodiumCard({
+    required RankingEntry entry,
+    required int rank,
+    required double height,
+    required Color color,
+    bool isChampion = false,
+    required double maxNameFontSize,
+  }) {
+    return GamePressable(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => unawaited(_openPlayerProfile(entry, rank, _selectedTab)),
+      child: Container(
+        height: height,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: isChampion ? 0.18 : 0.10),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: color.withValues(alpha: isChampion ? 0.92 : 0.62),
+            width: isChampion ? 1.8 : 1.2,
+          ),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$rank位',
+              style: TextStyle(
+                color: color,
+                fontSize: isChampion ? 18 : 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: Center(
+                child: _buildResponsiveRankingNameText(
+                  entry.displayName,
+                  color: Colors.white,
+                  maxFontSize: maxNameFontSize,
+                  alignment: Alignment.center,
+                ),
+              ),
+            ),
+            _buildRankingValue(entry, color, _selectedTab),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMyRankDock(RankingEntry entry, int rank) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF050810).withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: GameThemeColors.cyan.withValues(alpha: 0.82),
+          width: 1.4,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.42),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: _buildRankingRow(
+        entry,
+        rank,
+        true,
+        tab: _selectedTab,
+        dense: true,
+        forceStandardStyle: true,
+      ),
     );
   }
 
@@ -728,7 +1040,7 @@ class _RankingScreenState extends State<RankingScreen> {
     required VoidCallback onTap,
   }) {
     return Expanded(
-      child: InkWell(
+      child: GamePressable(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: AnimatedContainer(
@@ -791,6 +1103,8 @@ class _RankingScreenState extends State<RankingScreen> {
     int rank,
     bool isMe, {
     required _RankingTab tab,
+    bool dense = false,
+    bool forceStandardStyle = false,
   }) {
     final accent = switch (rank) {
       1 => const Color(0xFFFFD85A),
@@ -798,7 +1112,7 @@ class _RankingScreenState extends State<RankingScreen> {
       3 => const Color(0xFFFFA35A),
       _ => GameThemeColors.cyan,
     };
-    final rankIsTop = rank <= 3;
+    final rankIsTop = rank <= 3 && !forceStandardStyle;
     final topFillColor = switch (rank) {
       1 => const Color(0xFF4A3714),
       2 => const Color(0xFF303A4F),
@@ -806,13 +1120,16 @@ class _RankingScreenState extends State<RankingScreen> {
       _ => const Color(0xFF101827),
     };
 
-    return InkWell(
-      onTap: () => unawaited(_openPlayerProfile(entry, rank, tab)),
+    return GamePressable(
       borderRadius: BorderRadius.circular(12),
+      onTap: () => unawaited(_openPlayerProfile(entry, rank, tab)),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        constraints: const BoxConstraints(minHeight: 58),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        constraints: BoxConstraints(minHeight: dense ? 50 : 58),
+        padding: EdgeInsets.symmetric(
+          horizontal: dense ? 8 : 10,
+          vertical: dense ? 7 : 9,
+        ),
         decoration: BoxDecoration(
             color: rankIsTop ? topFillColor.withValues(alpha: 0.98) : null,
             gradient: rankIsTop
@@ -983,18 +1300,21 @@ class _RankingScreenState extends State<RankingScreen> {
     String name, {
     required Color color,
     required double maxFontSize,
+    Alignment alignment = Alignment.centerLeft,
   }) {
     return SizedBox(
       width: double.infinity,
-      height: maxFontSize + 5,
+      height: maxFontSize + 7,
       child: Align(
-        alignment: Alignment.centerLeft,
+        alignment: alignment,
         child: FittedBox(
           fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
+          alignment: alignment,
           child: Text(
             name,
             maxLines: 1,
+            softWrap: false,
+            textAlign: TextAlign.center,
             style: TextStyle(
               color: color,
               fontSize: maxFontSize,
@@ -1014,7 +1334,7 @@ class _RankingScreenState extends State<RankingScreen> {
           onTap: () => unawaited(_showRemainingDetailDialog()),
         ),
         const Spacer(),
-        InkWell(
+        GamePressable(
           onTap: () {
             _playUiTap();
             unawaited(_showPastSeasonsDialog());
@@ -1078,7 +1398,7 @@ class _RankingScreenState extends State<RankingScreen> {
     required String label,
     required VoidCallback onTap,
   }) {
-    return InkWell(
+    return GamePressable(
       onTap: () {
         _playUiTap();
         onTap();
@@ -1105,7 +1425,7 @@ class _RankingScreenState extends State<RankingScreen> {
   }
 
   Widget _buildRemainingPill(String label, {VoidCallback? onTap}) {
-    return InkWell(
+    return GamePressable(
       onTap: onTap == null
           ? null
           : () {
@@ -1184,18 +1504,18 @@ class _RankingScreenState extends State<RankingScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _remainingDetailRow(
-                        '${RankedSeasonManager.seasonName(seasonId)}終了まで',
+                        RankedSeasonManager.seasonName(seasonId),
                         _formatDurationDetail(seasonRemaining),
                       ),
                       const SizedBox(height: 10),
                       _remainingDetailRow(
-                        '今日の勝利数 集計終了まで',
-                        _formatDurationDetail(dailyRemaining),
+                        _endlessWeekLabel(endlessSeasonId),
+                        _formatDurationDetail(endlessRemaining),
                       ),
                       const SizedBox(height: 10),
                       _remainingDetailRow(
-                        '${EndlessSeasonManager.seasonName(endlessSeasonId)}終了まで',
-                        _formatDurationDetail(endlessRemaining),
+                        '今日の勝利数',
+                        _formatDurationDetail(dailyRemaining),
                       ),
                     ],
                   ),
@@ -1272,16 +1592,32 @@ class _RankingScreenState extends State<RankingScreen> {
     final hours = value.inHours.remainder(24);
     final minutes = value.inMinutes.remainder(60);
     final seconds = value.inSeconds.remainder(60);
+    final hourText = hours.toString().padLeft(2, '0');
+    final minuteText = minutes.toString().padLeft(2, '0');
+    final secondText = seconds.toString().padLeft(2, '0');
     if (days > 0) {
-      return '$days日 $hours時間 $minutes分 $seconds秒';
+      return '$days日 $hourText時間 $minuteText分 $secondText秒';
     }
     if (hours > 0) {
-      return '$hours時間 $minutes分 $seconds秒';
+      return '$hourText時間 $minuteText分 $secondText秒';
     }
     if (minutes > 0) {
-      return '$minutes分 $seconds秒';
+      return '$minuteText分 $secondText秒';
     }
-    return '$seconds秒';
+    return '$secondText秒';
+  }
+
+  String _endlessWeekLabel(String seasonId) {
+    final match = RegExp(r'^(\d{4})-W(\d{2})$').firstMatch(seasonId);
+    if (match == null) {
+      return EndlessSeasonManager.seasonName(seasonId);
+    }
+    final year = match.group(1) ?? '';
+    final week = int.tryParse(match.group(2) ?? '') ?? 0;
+    if (year.isEmpty || week <= 0) {
+      return EndlessSeasonManager.seasonName(seasonId);
+    }
+    return '$year年第$week週';
   }
 
   String _formatNumber(int value) {
@@ -1781,10 +2117,11 @@ class _RankingPageTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Text(
           subtitle,
+          textAlign: TextAlign.center,
           style: const TextStyle(
             color: GameThemeColors.cyan,
             fontSize: 10,
@@ -1794,6 +2131,7 @@ class _RankingPageTitle extends StatelessWidget {
         ),
         Text(
           AppSettings.instance.translate(title),
+          textAlign: TextAlign.center,
           style: const TextStyle(
             color: Colors.white,
             fontSize: 18,

@@ -1,0 +1,5355 @@
+{
+  "source": "playerRecordSummaries/*/record/matchHistory recent entries",
+  "note": "RANKED is human-vs-human only when opponentUid exists. Bot ranked matches are excluded.",
+  "rangeJst": "2026-08-03 00:00:00 - 2026-08-03 23:59:59",
+  "generatedAtJst": "2026-08-03 23:45:40",
+  "rawEntries": 178,
+  "estimatedUniqueMatches": 102,
+  "byMode": {
+    "RANKED": 58,
+    "FRIEND": 44
+  },
+  "rawByMode": {
+    "RANKED": 91,
+    "FRIEND": 87
+  },
+  "byHour": {
+    "12": 6,
+    "13": 8,
+    "14": 12,
+    "15": 8,
+    "16": 11,
+    "17": 3,
+    "18": 1,
+    "19": 3,
+    "20": 7,
+    "21": 13,
+    "22": 14,
+    "23": 11,
+    "01": 2,
+    "02": 1,
+    "03": 2
+  },
+  "topPairs": [
+    {
+      "pair": "あーち vs せせな",
+      "count": 11
+    },
+    {
+      "pair": "0806ys vs ウッキッキー",
+      "count": 9
+    },
+    {
+      "pair": "えせけ vs 漢",
+      "count": 7
+    },
+    {
+      "pair": "えっ爺 vs はむちゃん",
+      "count": 7
+    },
+    {
+      "pair": "おちょ vs しゃも",
+      "count": 5
+    },
+    {
+      "pair": "ちんぽこ vs れいぴゃん♪♪¥¥",
+      "count": 4
+    },
+    {
+      "pair": "最強魔剣戦士獣神漢 vs 漢",
+      "count": 4
+    },
+    {
+      "pair": "つよし vs ゆゆゆ",
+      "count": 3
+    },
+    {
+      "pair": "たくとんかつ vs 漢",
+      "count": 3
+    },
+    {
+      "pair": "まやあ vs プレイヤー",
+      "count": 3
+    },
+    {
+      "pair": "えせけ vs 最弱魔剣戦士小動物漢",
+      "count": 3
+    },
+    {
+      "pair": "まやあ vs 漢",
+      "count": 3
+    },
+    {
+      "pair": "だいすけ vs ぴよ",
+      "count": 3
+    },
+    {
+      "pair": "Pad vs たくとんかつ",
+      "count": 3
+    },
+    {
+      "pair": "三角ノ内サディスティ vs 友達がほしい",
+      "count": 2
+    },
+    {
+      "pair": "てぃーと vs 漢",
+      "count": 2
+    },
+    {
+      "pair": "プレイヤー vs 漢",
+      "count": 2
+    },
+    {
+      "pair": "まだっくす vs プレイヤー",
+      "count": 2
+    },
+    {
+      "pair": "かりん vs ジェシカ",
+      "count": 1
+    },
+    {
+      "pair": "り vs 最強魔剣戦士獣神漢",
+      "count": 1
+    }
+  ],
+  "forfeitCount": 6,
+  "latest": [
+    {
+      "noFromLatest": 1,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:42:27",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "はむちゃん",
+          "publicId": "4HZTDD",
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 50,
+          "maxChain": 2
+        },
+        {
+          "name": "えっ爺",
+          "publicId": "UUU2WX",
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 94,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "noFromLatest": 2,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:40:48",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "はむちゃん",
+          "publicId": "4HZTDD",
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 91,
+          "maxChain": 9
+        },
+        {
+          "name": "えっ爺",
+          "publicId": "UUU2WX",
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 3,
+            "straight": 1
+          },
+          "clearedBalls": 131,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "noFromLatest": 3,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:38:04",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "えっ爺",
+          "publicId": "UUU2WX",
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "result": "負け",
+          "opponentName": "はむちゃん",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 38,
+          "maxChain": 2
+        },
+        {
+          "name": "はむちゃん",
+          "publicId": "4HZTDD",
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "result": "勝ち",
+          "opponentName": "えっ爺",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 54,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 4,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:36:27",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "はむちゃん",
+          "publicId": "4HZTDD",
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 38,
+          "maxChain": 1
+        },
+        {
+          "name": "えっ爺",
+          "publicId": "UUU2WX",
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 84,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "noFromLatest": 5,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:33:55",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "はむちゃん",
+          "publicId": "4HZTDD",
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 37,
+          "maxChain": 2
+        },
+        {
+          "name": "えっ爺",
+          "publicId": "UUU2WX",
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 47,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "noFromLatest": 6,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:32:54",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "はむちゃん",
+          "publicId": "4HZTDD",
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 93,
+          "maxChain": 6
+        },
+        {
+          "name": "えっ爺",
+          "publicId": "UUU2WX",
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 66,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 7,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 23:32:33",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "ぶたぶたぶ",
+          "publicId": "J2A8U8",
+          "uid": "rl75sIbHdfbOBWrKq0TS5hfOpYh2",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": -57,
+          "ratingAfter": 2140,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 1
+        },
+        {
+          "name": "たくとんかつ",
+          "publicId": "GDREQS",
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "result": "勝ち",
+          "opponentName": "ぶたぶたぶ",
+          "opponentPublicId": "J2A8U8",
+          "ratingDelta": 57,
+          "ratingAfter": 2205,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 57,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 8,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:31:21",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "はむちゃん",
+          "publicId": "4HZTDD",
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 90,
+          "maxChain": 7
+        },
+        {
+          "name": "えっ爺",
+          "publicId": "UUU2WX",
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 66,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 9,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 23:25:58",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "name": "との",
+          "publicId": "V52P3E",
+          "uid": "uXXThzk9sAbZFBE8OYaTUl6D7N53",
+          "result": "不戦勝",
+          "opponentName": "プレイヤー",
+          "opponentPublicId": "R2PXNZ",
+          "ratingDelta": 50,
+          "ratingAfter": 2859,
+          "wazaCounts": {},
+          "clearedBalls": null,
+          "maxChain": null
+        }
+      ]
+    },
+    {
+      "noFromLatest": 10,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:02:09",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "Pad",
+          "publicId": "4VQRX5",
+          "uid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 0,
+          "maxChain": 0
+        },
+        {
+          "name": "たくとんかつ",
+          "publicId": "GDREQS",
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "result": "勝ち",
+          "opponentName": "Pad",
+          "opponentPublicId": "4VQRX5",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 27,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "noFromLatest": 11,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:00:34",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "Pad",
+          "publicId": "4VQRX5",
+          "uid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 0,
+          "maxChain": 0
+        },
+        {
+          "name": "たくとんかつ",
+          "publicId": "GDREQS",
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "result": "勝ち",
+          "opponentName": "Pad",
+          "opponentPublicId": "4VQRX5",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 32,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "noFromLatest": 12,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:59:07",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 61,
+          "maxChain": 4
+        },
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 115,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "noFromLatest": 13,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:57:24",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "Pad",
+          "publicId": "4VQRX5",
+          "uid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 51,
+          "maxChain": 5
+        },
+        {
+          "name": "たくとんかつ",
+          "publicId": "GDREQS",
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "result": "勝ち",
+          "opponentName": "Pad",
+          "opponentPublicId": "4VQRX5",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 71,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "noFromLatest": 14,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:56:43",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 68,
+          "maxChain": 3
+        },
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 43,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "noFromLatest": 15,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:50:07",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 31,
+          "maxChain": 2
+        },
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 49,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 16,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:48:46",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "ゆゆゆ",
+          "publicId": "JVVX5U",
+          "uid": "DUeVP7ARYvN8MT4b9fSbE6eSgSn2",
+          "result": "負け",
+          "opponentName": "つよし",
+          "opponentPublicId": "6NDPUS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 155,
+          "maxChain": 5
+        },
+        {
+          "name": "つよし",
+          "publicId": "6NDPUS",
+          "uid": "lMqH1tqf44bbFdenkFLAnUHWyBE2",
+          "result": "勝ち",
+          "opponentName": "ゆゆゆ",
+          "opponentPublicId": "JVVX5U",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 226,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "noFromLatest": 17,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:48:06",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 44,
+          "maxChain": 3
+        },
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 30,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "noFromLatest": 18,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:45:01",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 1
+        },
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 39,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "noFromLatest": 19,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:43:11",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 53,
+          "maxChain": 2
+        },
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 66,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 20,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:39:28",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 7,
+          "maxChain": 1
+        },
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 22,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "noFromLatest": 21,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:38:31",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 19,
+          "maxChain": 2
+        },
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 53,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "noFromLatest": 22,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:37:03",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "ウッキッキー",
+          "publicId": "2TW75K",
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 114,
+          "maxChain": 5
+        },
+        {
+          "name": "0806ys",
+          "publicId": "VWN42V",
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 36,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 23,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 22:06:03",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "こごろう",
+          "publicId": "2YEURH",
+          "uid": "oOIocgUdG0X0GkScWIa0UD9eaSi2",
+          "result": "負け",
+          "opponentName": "りんた",
+          "opponentPublicId": "BZNBPJ",
+          "ratingDelta": -78,
+          "ratingAfter": 1361,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 164,
+          "maxChain": 6
+        },
+        {
+          "name": "りんた",
+          "publicId": "BZNBPJ",
+          "uid": "6kCHqWhrYIaimqAkzL9j0TqG8of1",
+          "result": "勝ち",
+          "opponentName": "こごろう",
+          "opponentPublicId": "2YEURH",
+          "ratingDelta": 78,
+          "ratingAfter": 1293,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 148,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "noFromLatest": 24,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 22:04:39",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "まだっくす",
+          "publicId": "FLP77R",
+          "uid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "result": "負け",
+          "opponentName": "プレイヤー",
+          "opponentPublicId": "WSZ738",
+          "ratingDelta": -54,
+          "ratingAfter": 1640,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 19,
+          "maxChain": 3
+        },
+        {
+          "name": "プレイヤー",
+          "publicId": "WSZ738",
+          "uid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "result": "勝ち",
+          "opponentName": "まだっくす",
+          "opponentPublicId": "FLP77R",
+          "ratingDelta": 54,
+          "ratingAfter": 1718,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 72,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "noFromLatest": 25,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 22:02:41",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "プレイヤー",
+          "publicId": "WSZ738",
+          "uid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "result": "負け",
+          "opponentName": "まだっくす",
+          "opponentPublicId": "FLP77R",
+          "ratingDelta": -64,
+          "ratingAfter": 1664,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 153,
+          "maxChain": 6
+        },
+        {
+          "name": "まだっくす",
+          "publicId": "FLP77R",
+          "uid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "result": "勝ち",
+          "opponentName": "プレイヤー",
+          "opponentPublicId": "WSZ738",
+          "ratingDelta": 64,
+          "ratingAfter": 1694,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 2,
+            "straight": 2
+          },
+          "clearedBalls": 168,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "noFromLatest": 26,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:57:11",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "あーち",
+          "publicId": "YZRLWW",
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 2
+          },
+          "clearedBalls": 133,
+          "maxChain": 3
+        },
+        {
+          "name": "せせな",
+          "publicId": "YJVZK8",
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 2
+          },
+          "clearedBalls": 111,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "noFromLatest": 27,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:54:49",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "あーち",
+          "publicId": "YZRLWW",
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 2
+          },
+          "clearedBalls": 279,
+          "maxChain": 6
+        },
+        {
+          "name": "せせな",
+          "publicId": "YJVZK8",
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 4,
+            "straight": 1
+          },
+          "clearedBalls": 184,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "noFromLatest": 28,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:49:29",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "あーち",
+          "publicId": "YZRLWW",
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 4
+          },
+          "clearedBalls": 114,
+          "maxChain": 4
+        },
+        {
+          "name": "せせな",
+          "publicId": "YJVZK8",
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 3
+          },
+          "clearedBalls": 130,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "noFromLatest": 29,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:47:19",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "せせな",
+          "publicId": "YJVZK8",
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "result": "負け",
+          "opponentName": "あーち",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 49,
+          "maxChain": 3
+        },
+        {
+          "name": "あーち",
+          "publicId": "YZRLWW",
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "result": "勝ち",
+          "opponentName": "せせな",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 73,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "noFromLatest": 30,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:44:49",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "name": "あーち",
+          "publicId": "YZRLWW",
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 51,
+          "maxChain": 2
+        },
+        {
+          "name": "せせな",
+          "publicId": "YJVZK8",
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 48,
+          "maxChain": 4
+        }
+      ]
+    }
+  ],
+  "matches": [
+    {
+      "no": 1,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 01:23:35",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "lMqH1tqf44bbFdenkFLAnUHWyBE2",
+          "publicId": "6NDPUS",
+          "name": "つよし",
+          "result": "負け",
+          "opponentName": "ゆゆゆ",
+          "opponentUid": "DUeVP7ARYvN8MT4b9fSbE6eSgSn2",
+          "opponentPublicId": "JVVX5U",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 13,
+          "maxChain": 1
+        },
+        {
+          "uid": "DUeVP7ARYvN8MT4b9fSbE6eSgSn2",
+          "publicId": "JVVX5U",
+          "name": "ゆゆゆ",
+          "result": "勝ち",
+          "opponentName": "つよし",
+          "opponentUid": "lMqH1tqf44bbFdenkFLAnUHWyBE2",
+          "opponentPublicId": "6NDPUS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 26,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 2,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 01:26:54",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "DUeVP7ARYvN8MT4b9fSbE6eSgSn2",
+          "publicId": "JVVX5U",
+          "name": "ゆゆゆ",
+          "result": "負け",
+          "opponentName": "つよし",
+          "opponentUid": "lMqH1tqf44bbFdenkFLAnUHWyBE2",
+          "opponentPublicId": "6NDPUS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 104,
+          "maxChain": 4
+        },
+        {
+          "uid": "lMqH1tqf44bbFdenkFLAnUHWyBE2",
+          "publicId": "6NDPUS",
+          "name": "つよし",
+          "result": "勝ち",
+          "opponentName": "ゆゆゆ",
+          "opponentUid": "DUeVP7ARYvN8MT4b9fSbE6eSgSn2",
+          "opponentPublicId": "JVVX5U",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 2
+          },
+          "clearedBalls": 114,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 3,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 02:54:14",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Yn0ACTtlsNTufne7aswIpdbGFKL2",
+          "publicId": "CR8E3G",
+          "name": "かりん",
+          "result": "負け",
+          "opponentName": "ジェシカ",
+          "opponentUid": "9B4TLVKwJGdEnsVUUGmtu0SEOLI3",
+          "opponentPublicId": "Z2Q6F3",
+          "ratingDelta": -50,
+          "ratingAfter": 950,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 18,
+          "maxChain": 1
+        },
+        {
+          "uid": "9B4TLVKwJGdEnsVUUGmtu0SEOLI3",
+          "publicId": "Z2Q6F3",
+          "name": "ジェシカ",
+          "result": "勝ち",
+          "opponentName": "かりん",
+          "opponentUid": "Yn0ACTtlsNTufne7aswIpdbGFKL2",
+          "opponentPublicId": "CR8E3G",
+          "ratingDelta": 50,
+          "ratingAfter": 1050,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 125,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 4,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 03:28:23",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "9Ln0W7BtZRTq0F3bgEdCgNZz7dl2",
+          "publicId": "J9FXSK",
+          "name": "友達がほしい",
+          "result": "負け",
+          "opponentName": "三角ノ内サディスティ",
+          "opponentUid": "Q6rvO6eOCfd9YEsfSTewYwNG3Y43",
+          "opponentPublicId": "B4TG9P",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 2
+        },
+        {
+          "uid": "Q6rvO6eOCfd9YEsfSTewYwNG3Y43",
+          "publicId": "B4TG9P",
+          "name": "三角ノ内サディスティ",
+          "result": "勝ち",
+          "opponentName": "友達がほしい",
+          "opponentUid": "9Ln0W7BtZRTq0F3bgEdCgNZz7dl2",
+          "opponentPublicId": "J9FXSK",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 74,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 5,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 03:30:15",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Q6rvO6eOCfd9YEsfSTewYwNG3Y43",
+          "publicId": "B4TG9P",
+          "name": "三角ノ内サディスティ",
+          "result": "不戦勝",
+          "opponentName": "友達がほしい",
+          "opponentUid": "9Ln0W7BtZRTq0F3bgEdCgNZz7dl2",
+          "opponentPublicId": "J9FXSK",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {},
+          "clearedBalls": null,
+          "maxChain": null
+        },
+        {
+          "uid": "9Ln0W7BtZRTq0F3bgEdCgNZz7dl2",
+          "publicId": "J9FXSK",
+          "name": "友達がほしい",
+          "result": "負け",
+          "opponentName": "三角ノ内サディスティ",
+          "opponentUid": "Q6rvO6eOCfd9YEsfSTewYwNG3Y43",
+          "opponentPublicId": "B4TG9P",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 0,
+          "maxChain": 0
+        }
+      ]
+    },
+    {
+      "no": 6,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 12:29:00",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "BM4KcoKGoZa5DJPtF2X5GTY4Nal2",
+          "publicId": "ZLLMEQ",
+          "name": "り",
+          "result": "負け",
+          "opponentName": "最強魔剣戦士獣神漢",
+          "opponentUid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "opponentPublicId": "R8UXT7",
+          "ratingDelta": -64,
+          "ratingAfter": 1085,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 6,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 7,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 12:33:27",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -50,
+          "ratingAfter": 994,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 32,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 8,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 12:36:51",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "3UaO6u05G9O93vQ3rqu9yfd8W333",
+          "publicId": "ZGZE69",
+          "name": "てぃーと",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -31,
+          "ratingAfter": 969,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 13,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 9,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 12:39:07",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "3UaO6u05G9O93vQ3rqu9yfd8W333",
+          "publicId": "ZGZE69",
+          "name": "てぃーと",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -24,
+          "ratingAfter": 945,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 18,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 10,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 12:47:48",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "GQ9Lzjp2OrdTChZe3DGpoFsT8uI3",
+          "publicId": "CG8VMC",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -69,
+          "ratingAfter": 1323,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 7,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 11,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 12:49:37",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "GQ9Lzjp2OrdTChZe3DGpoFsT8uI3",
+          "publicId": "CG8VMC",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -50,
+          "ratingAfter": 1273,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 68,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 12,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:08:26",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "publicId": "GDREQS",
+          "name": "たくとんかつ",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 69,
+          "ratingAfter": 1661,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 49,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 13,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:10:25",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "publicId": "GDREQS",
+          "name": "たくとんかつ",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 51,
+          "ratingAfter": 1712,
+          "wazaCounts": {
+            "hexagon": 4,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 144,
+          "maxChain": 9
+        }
+      ]
+    },
+    {
+      "no": 14,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:11:56",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "publicId": "GDREQS",
+          "name": "たくとんかつ",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 36,
+          "ratingAfter": 1748,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 23,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 15,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:41:10",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "GQ9Lzjp2OrdTChZe3DGpoFsT8uI3",
+          "publicId": "CG8VMC",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "まやあ",
+          "opponentUid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "opponentPublicId": "HBJNUZ",
+          "ratingDelta": -79,
+          "ratingAfter": 1350,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 35,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 16,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:43:21",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "GQ9Lzjp2OrdTChZe3DGpoFsT8uI3",
+          "publicId": "CG8VMC",
+          "name": "プレイヤー",
+          "result": "勝ち",
+          "opponentName": "まやあ",
+          "opponentUid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "opponentPublicId": "HBJNUZ",
+          "ratingDelta": 40,
+          "ratingAfter": 1390,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 57,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 17,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:53:03",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "GQ9Lzjp2OrdTChZe3DGpoFsT8uI3",
+          "publicId": "CG8VMC",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "あー",
+          "opponentUid": "UQ6rI1IaapR29OfcFT9urq5dsvy2",
+          "opponentPublicId": "Y624AN",
+          "ratingDelta": -51,
+          "ratingAfter": 1379,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 25,
+          "maxChain": 2
+        },
+        {
+          "uid": "UQ6rI1IaapR29OfcFT9urq5dsvy2",
+          "publicId": "Y624AN",
+          "name": "あー",
+          "result": "勝ち",
+          "opponentName": "プレイヤー",
+          "opponentUid": "GQ9Lzjp2OrdTChZe3DGpoFsT8uI3",
+          "opponentPublicId": "CG8VMC",
+          "ratingDelta": 51,
+          "ratingAfter": 1472,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 32,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 18,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:56:30",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "GQ9Lzjp2OrdTChZe3DGpoFsT8uI3",
+          "publicId": "CG8VMC",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "まやあ",
+          "opponentUid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "opponentPublicId": "HBJNUZ",
+          "ratingDelta": -34,
+          "ratingAfter": 1398,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 23,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 19,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 13:57:23",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "UQ6rI1IaapR29OfcFT9urq5dsvy2",
+          "publicId": "Y624AN",
+          "name": "あー",
+          "result": "勝ち",
+          "opponentName": "まやあ",
+          "opponentUid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "opponentPublicId": "HBJNUZ",
+          "ratingDelta": 56,
+          "ratingAfter": 1601,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 30,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 20,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:05:26",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "publicId": "HBJNUZ",
+          "name": "まやあ",
+          "result": "負け",
+          "opponentName": "最強魔剣戦士獣神漢",
+          "opponentUid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "opponentPublicId": "R8UXT7",
+          "ratingDelta": -53,
+          "ratingAfter": 1595,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 64,
+          "maxChain": 2
+        },
+        {
+          "uid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "publicId": "R8UXT7",
+          "name": "最強魔剣戦士獣神漢",
+          "result": "不戦勝",
+          "opponentName": "まやあ",
+          "opponentUid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "opponentPublicId": "HBJNUZ",
+          "ratingDelta": 50,
+          "ratingAfter": 1727,
+          "wazaCounts": {},
+          "clearedBalls": null,
+          "maxChain": null
+        }
+      ]
+    },
+    {
+      "no": 21,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:08:44",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "HjYgLPCZ2YQEN2d3DxcwScCaLcB2",
+          "publicId": "43VS9F",
+          "name": "最弱魔剣戦士小動物漢",
+          "result": "負け",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": -76,
+          "ratingAfter": 1327,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 64,
+          "maxChain": 3
+        },
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "勝ち",
+          "opponentName": "最弱魔剣戦士小動物漢",
+          "opponentUid": "HjYgLPCZ2YQEN2d3DxcwScCaLcB2",
+          "opponentPublicId": "43VS9F",
+          "ratingDelta": 76,
+          "ratingAfter": 1275,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 130,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 22,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:09:25",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "publicId": "HBJNUZ",
+          "name": "まやあ",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 49,
+          "ratingAfter": 1725,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 75,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 23,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:11:07",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "不戦勝",
+          "opponentName": "最弱魔剣戦士小動物漢",
+          "opponentUid": "HjYgLPCZ2YQEN2d3DxcwScCaLcB2",
+          "opponentPublicId": "43VS9F",
+          "ratingDelta": 50,
+          "ratingAfter": 1372,
+          "wazaCounts": {},
+          "clearedBalls": null,
+          "maxChain": null
+        }
+      ]
+    },
+    {
+      "no": 24,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:12:05",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "publicId": "HBJNUZ",
+          "name": "まやあ",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -63,
+          "ratingAfter": 1694,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 35,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 25,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:13:12",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "RO8RBEBfx0XKOkjeqDSzo6dm84V2",
+          "publicId": "HBJNUZ",
+          "name": "まやあ",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -46,
+          "ratingAfter": 1648,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 18,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 26,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 14:13:44",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "publicId": "9V5ENE",
+          "name": "ちんぽこ",
+          "result": "負け",
+          "opponentName": "れいぴゃん♪♪¥¥",
+          "opponentUid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "opponentPublicId": "ADVRH3",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 55,
+          "maxChain": 3
+        },
+        {
+          "uid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "publicId": "ADVRH3",
+          "name": "れいぴゃん♪♪¥¥",
+          "result": "勝ち",
+          "opponentName": "ちんぽこ",
+          "opponentUid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "opponentPublicId": "9V5ENE",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 42,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 27,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:16:33",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "vJm8OE3Px5gi4mvOJ7nMWsoZ6jg1",
+          "publicId": "AKQBKJ",
+          "name": "プレイ",
+          "result": "負け",
+          "opponentName": "けお",
+          "opponentUid": "86rGFZNlFMfNcvG9jX7nb7TjF4f2",
+          "opponentPublicId": "M8TMVQ",
+          "ratingDelta": -35,
+          "ratingAfter": 1124,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 62,
+          "maxChain": 2
+        },
+        {
+          "uid": "86rGFZNlFMfNcvG9jX7nb7TjF4f2",
+          "publicId": "M8TMVQ",
+          "name": "けお",
+          "result": "勝ち",
+          "opponentName": "プレイ",
+          "opponentUid": "vJm8OE3Px5gi4mvOJ7nMWsoZ6jg1",
+          "opponentPublicId": "AKQBKJ",
+          "ratingDelta": 35,
+          "ratingAfter": 1305,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 71,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 28,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:22:29",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "負け",
+          "opponentName": "最弱魔剣戦士小動物漢",
+          "opponentUid": "HjYgLPCZ2YQEN2d3DxcwScCaLcB2",
+          "opponentPublicId": "43VS9F",
+          "ratingDelta": -62,
+          "ratingAfter": 1431,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 69,
+          "maxChain": 3
+        },
+        {
+          "uid": "HjYgLPCZ2YQEN2d3DxcwScCaLcB2",
+          "publicId": "43VS9F",
+          "name": "最弱魔剣戦士小動物漢",
+          "result": "勝ち",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": 62,
+          "ratingAfter": 1471,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 84,
+          "maxChain": 8
+        }
+      ]
+    },
+    {
+      "no": 29,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:24:34",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "publicId": "R8UXT7",
+          "name": "最強魔剣戦士獣神漢",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 50,
+          "ratingAfter": 1850,
+          "wazaCounts": {
+            "hexagon": 4,
+            "pyramid": 2,
+            "straight": 3
+          },
+          "clearedBalls": 241,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 30,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:32:09",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "publicId": "R8UXT7",
+          "name": "最強魔剣戦士獣神漢",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -53,
+          "ratingAfter": 1799,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 20,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 31,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 14:48:24",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "負け",
+          "opponentName": "最強魔剣戦士獣神漢",
+          "opponentUid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "opponentPublicId": "R8UXT7",
+          "ratingDelta": -71,
+          "ratingAfter": 1935,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 51,
+          "maxChain": 4
+        },
+        {
+          "uid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "publicId": "R8UXT7",
+          "name": "最強魔剣戦士獣神漢",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 71,
+          "ratingAfter": 1925,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 89,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 32,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 15:01:46",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "publicId": "9V5ENE",
+          "name": "ちんぽこ",
+          "result": "負け",
+          "opponentName": "れいぴゃん♪♪¥¥",
+          "opponentUid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "opponentPublicId": "ADVRH3",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 24,
+          "maxChain": 3
+        },
+        {
+          "uid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "publicId": "ADVRH3",
+          "name": "れいぴゃん♪♪¥¥",
+          "result": "勝ち",
+          "opponentName": "ちんぽこ",
+          "opponentUid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "opponentPublicId": "9V5ENE",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 40,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 33,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 15:05:37",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "publicId": "ADVRH3",
+          "name": "れいぴゃん♪♪¥¥",
+          "result": "負け",
+          "opponentName": "ちんぽこ",
+          "opponentUid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "opponentPublicId": "9V5ENE",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 87,
+          "maxChain": 4
+        },
+        {
+          "uid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "publicId": "9V5ENE",
+          "name": "ちんぽこ",
+          "result": "勝ち",
+          "opponentName": "れいぴゃん♪♪¥¥",
+          "opponentUid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "opponentPublicId": "ADVRH3",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 128,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 34,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 15:07:57",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "publicId": "9V5ENE",
+          "name": "ちんぽこ",
+          "result": "負け",
+          "opponentName": "れいぴゃん♪♪¥¥",
+          "opponentUid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "opponentPublicId": "ADVRH3",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 118,
+          "maxChain": 6
+        },
+        {
+          "uid": "9SMqEe9BWOUJ4VBQyqQHwAC1IpS2",
+          "publicId": "ADVRH3",
+          "name": "れいぴゃん♪♪¥¥",
+          "result": "勝ち",
+          "opponentName": "ちんぽこ",
+          "opponentUid": "td19kLKpgfRulXO9jB8X91XyLpu2",
+          "opponentPublicId": "9V5ENE",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 47,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 35,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 15:21:21",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "wH8OG3x9hjdy7nQXwy8SeSsVSZu1",
+          "publicId": "DEMH39",
+          "name": "はる",
+          "result": "勝ち",
+          "opponentName": "えいと",
+          "opponentUid": "U9XoWawCx1TLtUormDKLQOGrwzz2",
+          "opponentPublicId": "7W4935",
+          "ratingDelta": 36,
+          "ratingAfter": 1133,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 230,
+          "maxChain": 8
+        }
+      ]
+    },
+    {
+      "no": 36,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 15:50:50",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "負け",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": -72,
+          "ratingAfter": 1621,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 46,
+          "maxChain": 2
+        },
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 72,
+          "ratingAfter": 1604,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 48,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 37,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 15:52:10",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -48,
+          "ratingAfter": 1556,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 13,
+          "maxChain": 2
+        },
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "勝ち",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": 48,
+          "ratingAfter": 1669,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 68,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 38,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 15:53:37",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -34,
+          "ratingAfter": 1522,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 50,
+          "maxChain": 3
+        },
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "勝ち",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": 34,
+          "ratingAfter": 1703,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 65,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 39,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 15:56:07",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "9x0LSEJ4afaLGmMGCFuJRsBFHiO2",
+          "publicId": "USB278",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "まみ",
+          "opponentUid": "dvcIrZzA0lWK2Y52qggO2VJuYGH3",
+          "opponentPublicId": "F8NNJ9",
+          "ratingDelta": -50,
+          "ratingAfter": 950,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 77,
+          "maxChain": 4
+        },
+        {
+          "uid": "dvcIrZzA0lWK2Y52qggO2VJuYGH3",
+          "publicId": "F8NNJ9",
+          "name": "まみ",
+          "result": "勝ち",
+          "opponentName": "プレイヤー",
+          "opponentUid": "9x0LSEJ4afaLGmMGCFuJRsBFHiO2",
+          "opponentPublicId": "USB278",
+          "ratingDelta": 50,
+          "ratingAfter": 1050,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 87,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 40,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:04:50",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "負け",
+          "opponentName": "との",
+          "opponentUid": "uXXThzk9sAbZFBE8OYaTUl6D7N53",
+          "opponentPublicId": "V52P3E",
+          "ratingDelta": -15,
+          "ratingAfter": 1686,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 28,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 41,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:07:07",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "負け",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": -67,
+          "ratingAfter": 1619,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 82,
+          "maxChain": 4
+        },
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "勝ち",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": 67,
+          "ratingAfter": 1630,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 3
+          },
+          "clearedBalls": 140,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 42,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:08:51",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -52,
+          "ratingAfter": 1578,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 32,
+          "maxChain": 2
+        },
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "勝ち",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": 52,
+          "ratingAfter": 1671,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 87,
+          "maxChain": 5
+        }
+      ]
+    },
+    {
+      "no": 43,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:10:22",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "publicId": "7BAHE9",
+          "name": "えせけ",
+          "result": "負け",
+          "opponentName": "漢",
+          "opponentUid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "opponentPublicId": "ZCTPJ3",
+          "ratingDelta": -37,
+          "ratingAfter": 1541,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 1
+        },
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "勝ち",
+          "opponentName": "えせけ",
+          "opponentUid": "ZUM664b7eIa4WgxvUuYdxva65hN2",
+          "opponentPublicId": "7BAHE9",
+          "ratingDelta": 37,
+          "ratingAfter": 1708,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 40,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 44,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:11:52",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "publicId": "R8UXT7",
+          "name": "最強魔剣戦士獣神漢",
+          "result": "勝ち",
+          "opponentName": "との",
+          "opponentUid": "uXXThzk9sAbZFBE8OYaTUl6D7N53",
+          "opponentPublicId": "V52P3E",
+          "ratingDelta": 72,
+          "ratingAfter": 1945,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 101,
+          "maxChain": 8
+        }
+      ]
+    },
+    {
+      "no": 45,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:13:26",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "dvcIrZzA0lWK2Y52qggO2VJuYGH3",
+          "publicId": "F8NNJ9",
+          "name": "まみ",
+          "result": "負け",
+          "opponentName": "まだっくす",
+          "opponentUid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "opponentPublicId": "FLP77R",
+          "ratingDelta": -26,
+          "ratingAfter": 1288,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 71,
+          "maxChain": 7
+        },
+        {
+          "uid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "publicId": "FLP77R",
+          "name": "まだっくす",
+          "result": "勝ち",
+          "opponentName": "まみ",
+          "opponentUid": "dvcIrZzA0lWK2Y52qggO2VJuYGH3",
+          "opponentPublicId": "F8NNJ9",
+          "ratingDelta": 26,
+          "ratingAfter": 1522,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 71,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 46,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:14:13",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "9x0LSEJ4afaLGmMGCFuJRsBFHiO2",
+          "publicId": "USB278",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "プレイヤー",
+          "opponentUid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "opponentPublicId": "WSZ738",
+          "ratingDelta": -44,
+          "ratingAfter": 961,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 113,
+          "maxChain": 3
+        },
+        {
+          "uid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "publicId": "WSZ738",
+          "name": "プレイヤー",
+          "result": "勝ち",
+          "opponentName": "プレイヤー",
+          "opponentUid": "9x0LSEJ4afaLGmMGCFuJRsBFHiO2",
+          "opponentPublicId": "USB278",
+          "ratingDelta": 44,
+          "ratingAfter": 1094,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 6,
+            "straight": 1
+          },
+          "clearedBalls": 149,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 47,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:15:40",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "URaheKsfHphjlY7wjSRqUu660iy1",
+          "publicId": "9UWQNC",
+          "name": "おにぎり",
+          "result": "負け",
+          "opponentName": "まだっくす",
+          "opponentUid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "opponentPublicId": "FLP77R",
+          "ratingDelta": -25,
+          "ratingAfter": 1302,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 6,
+          "maxChain": 1
+        },
+        {
+          "uid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "publicId": "FLP77R",
+          "name": "まだっくす",
+          "result": "勝ち",
+          "opponentName": "おにぎり",
+          "opponentUid": "URaheKsfHphjlY7wjSRqUu660iy1",
+          "opponentPublicId": "9UWQNC",
+          "ratingDelta": 25,
+          "ratingAfter": 1547,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 55,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 48,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:16:03",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "VPwmAHJbNQOsTs1GCmGKZgUksKl1",
+          "publicId": "ZCTPJ3",
+          "name": "漢",
+          "result": "不戦勝",
+          "opponentName": "最強魔剣戦士獣神漢",
+          "opponentUid": "l34gCXp1daUqnxrk41UYOwQxSc33",
+          "opponentPublicId": "R8UXT7",
+          "ratingDelta": 60,
+          "ratingAfter": 1878,
+          "wazaCounts": {},
+          "clearedBalls": null,
+          "maxChain": null
+        }
+      ]
+    },
+    {
+      "no": 49,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:18:59",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "yAV5bfHSv8VcdxrGwJB8oJbRlHD3",
+          "publicId": "6ACEYJ",
+          "name": "37",
+          "result": "負け",
+          "opponentName": "ヒデなんです",
+          "opponentUid": "Ftd9cNmEL4c67p7OUjVLSi76ILO2",
+          "opponentPublicId": "Y93CND",
+          "ratingDelta": -41,
+          "ratingAfter": 1110,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 46,
+          "maxChain": 1
+        },
+        {
+          "uid": "Ftd9cNmEL4c67p7OUjVLSi76ILO2",
+          "publicId": "Y93CND",
+          "name": "ヒデなんです",
+          "result": "勝ち",
+          "opponentName": "37",
+          "opponentUid": "yAV5bfHSv8VcdxrGwJB8oJbRlHD3",
+          "opponentPublicId": "6ACEYJ",
+          "ratingDelta": 41,
+          "ratingAfter": 1253,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 89,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 50,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 16:21:28",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "tKS5IDh7smZOodEC66Ibb54U3Js2",
+          "publicId": "3KXLPV",
+          "name": "プリキュア",
+          "result": "負け",
+          "opponentName": "プレイヤー",
+          "opponentUid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "opponentPublicId": "WSZ738",
+          "ratingDelta": -80,
+          "ratingAfter": 1388,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 13,
+          "maxChain": 1
+        },
+        {
+          "uid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "publicId": "WSZ738",
+          "name": "プレイヤー",
+          "result": "勝ち",
+          "opponentName": "プリキュア",
+          "opponentUid": "tKS5IDh7smZOodEC66Ibb54U3Js2",
+          "opponentPublicId": "3KXLPV",
+          "ratingDelta": 80,
+          "ratingAfter": 1306,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 3,
+            "straight": 1
+          },
+          "clearedBalls": 40,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 51,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 17:47:45",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "VhDhXX6xqubQ6KGz35HIQhyVtLk2",
+          "publicId": "JHKRDL",
+          "name": "だいすけ",
+          "result": "勝ち",
+          "opponentName": "ぴよ",
+          "opponentUid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "opponentPublicId": "WVD8J9",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 24,
+          "maxChain": 1
+        },
+        {
+          "uid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "publicId": "WVD8J9",
+          "name": "ぴよ",
+          "result": "負け",
+          "opponentName": "だいすけ",
+          "opponentUid": "VhDhXX6xqubQ6KGz35HIQhyVtLk2",
+          "opponentPublicId": "JHKRDL",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 6,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 52,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 17:49:18",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "VhDhXX6xqubQ6KGz35HIQhyVtLk2",
+          "publicId": "JHKRDL",
+          "name": "だいすけ",
+          "result": "負け",
+          "opponentName": "ぴよ",
+          "opponentUid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "opponentPublicId": "WVD8J9",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 103,
+          "maxChain": 4
+        },
+        {
+          "uid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "publicId": "WVD8J9",
+          "name": "ぴよ",
+          "result": "勝ち",
+          "opponentName": "だいすけ",
+          "opponentUid": "VhDhXX6xqubQ6KGz35HIQhyVtLk2",
+          "opponentPublicId": "JHKRDL",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 83,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 53,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 17:51:05",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "VhDhXX6xqubQ6KGz35HIQhyVtLk2",
+          "publicId": "JHKRDL",
+          "name": "だいすけ",
+          "result": "負け",
+          "opponentName": "ぴよ",
+          "opponentUid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "opponentPublicId": "WVD8J9",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 2
+          },
+          "clearedBalls": 103,
+          "maxChain": 5
+        },
+        {
+          "uid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "publicId": "WVD8J9",
+          "name": "ぴよ",
+          "result": "勝ち",
+          "opponentName": "だいすけ",
+          "opponentUid": "VhDhXX6xqubQ6KGz35HIQhyVtLk2",
+          "opponentPublicId": "JHKRDL",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 3,
+            "straight": 2
+          },
+          "clearedBalls": 151,
+          "maxChain": 5
+        }
+      ]
+    },
+    {
+      "no": 54,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 18:46:44",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "69rinOVfGnTKaeD29VS6ArRWIKK2",
+          "publicId": "QC2VW2",
+          "name": "mm",
+          "result": "勝ち",
+          "opponentName": "プレイ",
+          "opponentUid": "vJm8OE3Px5gi4mvOJ7nMWsoZ6jg1",
+          "opponentPublicId": "AKQBKJ",
+          "ratingDelta": 52,
+          "ratingAfter": 1160,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 90,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 55,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 19:16:17",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Ftd9cNmEL4c67p7OUjVLSi76ILO2",
+          "publicId": "Y93CND",
+          "name": "ヒデなんです",
+          "result": "負け",
+          "opponentName": "ぴよ",
+          "opponentUid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "opponentPublicId": "WVD8J9",
+          "ratingDelta": -44,
+          "ratingAfter": 1257,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 58,
+          "maxChain": 4
+        },
+        {
+          "uid": "dprGBMQfeuU6eFWL3xo4mpTi5x82",
+          "publicId": "WVD8J9",
+          "name": "ぴよ",
+          "result": "勝ち",
+          "opponentName": "ヒデなんです",
+          "opponentUid": "Ftd9cNmEL4c67p7OUjVLSi76ILO2",
+          "opponentPublicId": "Y93CND",
+          "ratingDelta": 44,
+          "ratingAfter": 1390,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 74,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 56,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 19:19:18",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Ftd9cNmEL4c67p7OUjVLSi76ILO2",
+          "publicId": "Y93CND",
+          "name": "ヒデなんです",
+          "result": "負け",
+          "opponentName": "プレイヤー",
+          "opponentUid": "K3IK3T5jmMTeXdRzbNxAQbQEOTA3",
+          "opponentPublicId": "ERQEKM",
+          "ratingDelta": -28,
+          "ratingAfter": 1281,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 37,
+          "maxChain": 2
+        },
+        {
+          "uid": "K3IK3T5jmMTeXdRzbNxAQbQEOTA3",
+          "publicId": "ERQEKM",
+          "name": "プレイヤー",
+          "result": "勝ち",
+          "opponentName": "ヒデなんです",
+          "opponentUid": "Ftd9cNmEL4c67p7OUjVLSi76ILO2",
+          "opponentPublicId": "Y93CND",
+          "ratingDelta": 28,
+          "ratingAfter": 1497,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 31,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 57,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 19:46:55",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "69rinOVfGnTKaeD29VS6ArRWIKK2",
+          "publicId": "QC2VW2",
+          "name": "mm",
+          "result": "負け",
+          "opponentName": "RIN",
+          "opponentUid": "dgB4UcN3dKQYj4kS1lw7snxmHAn2",
+          "opponentPublicId": "L66ST2",
+          "ratingDelta": -76,
+          "ratingAfter": 1178,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 35,
+          "maxChain": 1
+        },
+        {
+          "uid": "dgB4UcN3dKQYj4kS1lw7snxmHAn2",
+          "publicId": "L66ST2",
+          "name": "RIN",
+          "result": "勝ち",
+          "opponentName": "mm",
+          "opponentUid": "69rinOVfGnTKaeD29VS6ArRWIKK2",
+          "opponentPublicId": "QC2VW2",
+          "ratingDelta": 76,
+          "ratingAfter": 1134,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 4,
+            "straight": 0
+          },
+          "clearedBalls": 63,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 58,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 20:22:24",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "jQBB2QaH8FPQvHd8Zt2VMgbojeh1",
+          "publicId": "XXPGD8",
+          "name": "にこ",
+          "result": "負け",
+          "opponentName": "プレイ",
+          "opponentUid": "vJm8OE3Px5gi4mvOJ7nMWsoZ6jg1",
+          "opponentPublicId": "AKQBKJ",
+          "ratingDelta": -17,
+          "ratingAfter": 1028,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 113,
+          "maxChain": 4
+        },
+        {
+          "uid": "vJm8OE3Px5gi4mvOJ7nMWsoZ6jg1",
+          "publicId": "AKQBKJ",
+          "name": "プレイ",
+          "result": "勝ち",
+          "opponentName": "にこ",
+          "opponentUid": "jQBB2QaH8FPQvHd8Zt2VMgbojeh1",
+          "opponentPublicId": "XXPGD8",
+          "ratingDelta": 17,
+          "ratingAfter": 1337,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 138,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 59,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 20:29:53",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "vJm8OE3Px5gi4mvOJ7nMWsoZ6jg1",
+          "publicId": "AKQBKJ",
+          "name": "プレイ",
+          "result": "負け",
+          "opponentName": "東の春",
+          "opponentUid": "MIC7EdVxokS09O74Jgd0JrIUNWd2",
+          "opponentPublicId": "9RBYUN",
+          "ratingDelta": -65,
+          "ratingAfter": 1324,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 48,
+          "maxChain": 5
+        },
+        {
+          "uid": "MIC7EdVxokS09O74Jgd0JrIUNWd2",
+          "publicId": "9RBYUN",
+          "name": "東の春",
+          "result": "勝ち",
+          "opponentName": "プレイ",
+          "opponentUid": "vJm8OE3Px5gi4mvOJ7nMWsoZ6jg1",
+          "opponentPublicId": "AKQBKJ",
+          "ratingDelta": 65,
+          "ratingAfter": 1350,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 94,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 60,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 20:33:15",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "publicId": "969959",
+          "name": "しゃも",
+          "result": "負け",
+          "opponentName": "おちょ",
+          "opponentUid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "opponentPublicId": "WJW3WH",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 118,
+          "maxChain": 3
+        },
+        {
+          "uid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "publicId": "WJW3WH",
+          "name": "おちょ",
+          "result": "勝ち",
+          "opponentName": "しゃも",
+          "opponentUid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "opponentPublicId": "969959",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 198,
+          "maxChain": 5
+        }
+      ]
+    },
+    {
+      "no": 61,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 20:36:39",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "publicId": "969959",
+          "name": "しゃも",
+          "result": "負け",
+          "opponentName": "おちょ",
+          "opponentUid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "opponentPublicId": "WJW3WH",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 74,
+          "maxChain": 3
+        },
+        {
+          "uid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "publicId": "WJW3WH",
+          "name": "おちょ",
+          "result": "勝ち",
+          "opponentName": "しゃも",
+          "opponentUid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "opponentPublicId": "969959",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 123,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 62,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 20:41:26",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "publicId": "WJW3WH",
+          "name": "おちょ",
+          "result": "負け",
+          "opponentName": "しゃも",
+          "opponentUid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "opponentPublicId": "969959",
+          "ratingDelta": -50,
+          "ratingAfter": 950,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 172,
+          "maxChain": 4
+        },
+        {
+          "uid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "publicId": "969959",
+          "name": "しゃも",
+          "result": "勝ち",
+          "opponentName": "おちょ",
+          "opponentUid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "opponentPublicId": "WJW3WH",
+          "ratingDelta": 50,
+          "ratingAfter": 1050,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 2
+          },
+          "clearedBalls": 160,
+          "maxChain": 7
+        }
+      ]
+    },
+    {
+      "no": 63,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 20:44:31",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "publicId": "969959",
+          "name": "しゃも",
+          "result": "負け",
+          "opponentName": "おちょ",
+          "opponentUid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "opponentPublicId": "WJW3WH",
+          "ratingDelta": -64,
+          "ratingAfter": 986,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 81,
+          "maxChain": 2
+        },
+        {
+          "uid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "publicId": "WJW3WH",
+          "name": "おちょ",
+          "result": "勝ち",
+          "opponentName": "しゃも",
+          "opponentUid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "opponentPublicId": "969959",
+          "ratingDelta": 64,
+          "ratingAfter": 1014,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 99,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 64,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 20:47:30",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "publicId": "969959",
+          "name": "しゃも",
+          "result": "負け",
+          "opponentName": "おちょ",
+          "opponentUid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "opponentPublicId": "WJW3WH",
+          "ratingDelta": -46,
+          "ratingAfter": 940,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 14,
+          "maxChain": 1
+        },
+        {
+          "uid": "Lo7WGlgYlaYkLxApVDu7oWWkjat2",
+          "publicId": "WJW3WH",
+          "name": "おちょ",
+          "result": "勝ち",
+          "opponentName": "しゃも",
+          "opponentUid": "BXxb0ouQAgVQzLETaobkydStIOP2",
+          "opponentPublicId": "969959",
+          "ratingDelta": 46,
+          "ratingAfter": 1060,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 111,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 65,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 21:07:25",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "SZMb72vRS3eOkm4RKUMyoGRpikA3",
+          "publicId": "Q27HVP",
+          "name": "ノムさん",
+          "result": "負け",
+          "opponentName": "ジェシカ",
+          "opponentUid": "9B4TLVKwJGdEnsVUUGmtu0SEOLI3",
+          "opponentPublicId": "Z2Q6F3",
+          "ratingDelta": -20,
+          "ratingAfter": 1039,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 1
+        },
+        {
+          "uid": "9B4TLVKwJGdEnsVUUGmtu0SEOLI3",
+          "publicId": "Z2Q6F3",
+          "name": "ジェシカ",
+          "result": "勝ち",
+          "opponentName": "ノムさん",
+          "opponentUid": "SZMb72vRS3eOkm4RKUMyoGRpikA3",
+          "opponentPublicId": "Q27HVP",
+          "ratingDelta": 20,
+          "ratingAfter": 1320,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 51,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 66,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 21:16:19",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "fi46jUeIJ1Nm29ytChKifZq7Pi63",
+          "publicId": "M5LUM2",
+          "name": "ギル",
+          "result": "負け",
+          "opponentName": "taka",
+          "opponentUid": "RBX3COgdd2V6Bvvev5xnmGPwA9p2",
+          "opponentPublicId": "3ULCW2",
+          "ratingDelta": -57,
+          "ratingAfter": 1042,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 77,
+          "maxChain": 4
+        },
+        {
+          "uid": "RBX3COgdd2V6Bvvev5xnmGPwA9p2",
+          "publicId": "3ULCW2",
+          "name": "taka",
+          "result": "勝ち",
+          "opponentName": "ギル",
+          "opponentUid": "fi46jUeIJ1Nm29ytChKifZq7Pi63",
+          "opponentPublicId": "M5LUM2",
+          "ratingDelta": 57,
+          "ratingAfter": 1105,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 100,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 67,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:33:54",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "負け",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 1
+        },
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "勝ち",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 116,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 68,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:35:29",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "負け",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 44,
+          "maxChain": 2
+        },
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "勝ち",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 4
+          },
+          "clearedBalls": 127,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 69,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:37:07",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 82,
+          "maxChain": 3
+        },
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 97,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 70,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:38:55",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "不戦勝",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {},
+          "clearedBalls": null,
+          "maxChain": null
+        }
+      ]
+    },
+    {
+      "no": 71,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:41:09",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 51,
+          "maxChain": 2
+        },
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 2
+          },
+          "clearedBalls": 55,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 72,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:43:28",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 30,
+          "maxChain": 1
+        },
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 19,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 73,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:44:49",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 51,
+          "maxChain": 2
+        },
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 48,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 74,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:47:19",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "負け",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 49,
+          "maxChain": 3
+        },
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "勝ち",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 73,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 75,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:49:29",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 4
+          },
+          "clearedBalls": 114,
+          "maxChain": 4
+        },
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 3
+          },
+          "clearedBalls": 130,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 76,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:54:49",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 2
+          },
+          "clearedBalls": 279,
+          "maxChain": 6
+        },
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 4,
+            "straight": 1
+          },
+          "clearedBalls": 184,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 77,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 21:57:11",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "publicId": "YZRLWW",
+          "name": "あーち",
+          "result": "負け",
+          "opponentName": "せせな",
+          "opponentUid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "opponentPublicId": "YJVZK8",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 2
+          },
+          "clearedBalls": 133,
+          "maxChain": 3
+        },
+        {
+          "uid": "9C9JNTKYJVh43vbkF7NvCr1bdc63",
+          "publicId": "YJVZK8",
+          "name": "せせな",
+          "result": "勝ち",
+          "opponentName": "あーち",
+          "opponentUid": "JV7liKHgNIV4g9ymdBwzi4xfOug1",
+          "opponentPublicId": "YZRLWW",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 2
+          },
+          "clearedBalls": 111,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 78,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 22:02:41",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "publicId": "WSZ738",
+          "name": "プレイヤー",
+          "result": "負け",
+          "opponentName": "まだっくす",
+          "opponentUid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "opponentPublicId": "FLP77R",
+          "ratingDelta": -64,
+          "ratingAfter": 1664,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 153,
+          "maxChain": 6
+        },
+        {
+          "uid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "publicId": "FLP77R",
+          "name": "まだっくす",
+          "result": "勝ち",
+          "opponentName": "プレイヤー",
+          "opponentUid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "opponentPublicId": "WSZ738",
+          "ratingDelta": 64,
+          "ratingAfter": 1694,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 2,
+            "straight": 2
+          },
+          "clearedBalls": 168,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 79,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 22:04:39",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "publicId": "FLP77R",
+          "name": "まだっくす",
+          "result": "負け",
+          "opponentName": "プレイヤー",
+          "opponentUid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "opponentPublicId": "WSZ738",
+          "ratingDelta": -54,
+          "ratingAfter": 1640,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 19,
+          "maxChain": 3
+        },
+        {
+          "uid": "oN3wBcBBpPR6ojKlHSxwkWhEgRp1",
+          "publicId": "WSZ738",
+          "name": "プレイヤー",
+          "result": "勝ち",
+          "opponentName": "まだっくす",
+          "opponentUid": "hQxUtSZYkLV2BpTqmI4poy16GMS2",
+          "opponentPublicId": "FLP77R",
+          "ratingDelta": 54,
+          "ratingAfter": 1718,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 1
+          },
+          "clearedBalls": 72,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 80,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 22:06:03",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "oOIocgUdG0X0GkScWIa0UD9eaSi2",
+          "publicId": "2YEURH",
+          "name": "こごろう",
+          "result": "負け",
+          "opponentName": "りんた",
+          "opponentUid": "6kCHqWhrYIaimqAkzL9j0TqG8of1",
+          "opponentPublicId": "BZNBPJ",
+          "ratingDelta": -78,
+          "ratingAfter": 1361,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 164,
+          "maxChain": 6
+        },
+        {
+          "uid": "6kCHqWhrYIaimqAkzL9j0TqG8of1",
+          "publicId": "BZNBPJ",
+          "name": "りんた",
+          "result": "勝ち",
+          "opponentName": "こごろう",
+          "opponentUid": "oOIocgUdG0X0GkScWIa0UD9eaSi2",
+          "opponentPublicId": "2YEURH",
+          "ratingDelta": 78,
+          "ratingAfter": 1293,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 148,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 81,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:37:03",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 114,
+          "maxChain": 5
+        },
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 36,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 82,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:38:31",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 19,
+          "maxChain": 2
+        },
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 53,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 83,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:39:28",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 7,
+          "maxChain": 1
+        },
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 3,
+            "straight": 0
+          },
+          "clearedBalls": 22,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 84,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:43:11",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 53,
+          "maxChain": 2
+        },
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 66,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 85,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:45:01",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 1
+        },
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 39,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 86,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:48:06",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 44,
+          "maxChain": 3
+        },
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 30,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 87,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:48:46",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "DUeVP7ARYvN8MT4b9fSbE6eSgSn2",
+          "publicId": "JVVX5U",
+          "name": "ゆゆゆ",
+          "result": "負け",
+          "opponentName": "つよし",
+          "opponentUid": "lMqH1tqf44bbFdenkFLAnUHWyBE2",
+          "opponentPublicId": "6NDPUS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 2
+          },
+          "clearedBalls": 155,
+          "maxChain": 5
+        },
+        {
+          "uid": "lMqH1tqf44bbFdenkFLAnUHWyBE2",
+          "publicId": "6NDPUS",
+          "name": "つよし",
+          "result": "勝ち",
+          "opponentName": "ゆゆゆ",
+          "opponentUid": "DUeVP7ARYvN8MT4b9fSbE6eSgSn2",
+          "opponentPublicId": "JVVX5U",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 226,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 88,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:50:07",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "負け",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 31,
+          "maxChain": 2
+        },
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "勝ち",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 49,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 89,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:56:43",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 68,
+          "maxChain": 3
+        },
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 43,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 90,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:57:24",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "publicId": "4VQRX5",
+          "name": "Pad",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentUid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 51,
+          "maxChain": 5
+        },
+        {
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "publicId": "GDREQS",
+          "name": "たくとんかつ",
+          "result": "勝ち",
+          "opponentName": "Pad",
+          "opponentUid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "opponentPublicId": "4VQRX5",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 71,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 91,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 22:59:07",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "publicId": "2TW75K",
+          "name": "ウッキッキー",
+          "result": "負け",
+          "opponentName": "0806ys",
+          "opponentUid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "opponentPublicId": "VWN42V",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 61,
+          "maxChain": 4
+        },
+        {
+          "uid": "jr35bFgMiWZ1EPXXlxrXavO2yXv2",
+          "publicId": "VWN42V",
+          "name": "0806ys",
+          "result": "勝ち",
+          "opponentName": "ウッキッキー",
+          "opponentUid": "yxw2ueHuKsVwouNUgNqnL2Qmguo2",
+          "opponentPublicId": "2TW75K",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 115,
+          "maxChain": 4
+        }
+      ]
+    },
+    {
+      "no": 92,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:00:34",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "publicId": "4VQRX5",
+          "name": "Pad",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentUid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 0,
+          "maxChain": 0
+        },
+        {
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "publicId": "GDREQS",
+          "name": "たくとんかつ",
+          "result": "勝ち",
+          "opponentName": "Pad",
+          "opponentUid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "opponentPublicId": "4VQRX5",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 3,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 32,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 93,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:02:09",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "publicId": "4VQRX5",
+          "name": "Pad",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentUid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 0,
+          "maxChain": 0
+        },
+        {
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "publicId": "GDREQS",
+          "name": "たくとんかつ",
+          "result": "勝ち",
+          "opponentName": "Pad",
+          "opponentUid": "Kkkkks17yUTvwi6CCGi7NDPYJ063",
+          "opponentPublicId": "4VQRX5",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 27,
+          "maxChain": 1
+        }
+      ]
+    },
+    {
+      "no": 94,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 23:25:58",
+      "missingCounterpart": true,
+      "players": [
+        {
+          "uid": "uXXThzk9sAbZFBE8OYaTUl6D7N53",
+          "publicId": "V52P3E",
+          "name": "との",
+          "result": "不戦勝",
+          "opponentName": "プレイヤー",
+          "opponentUid": "hkiTQQsaXXMtmZ1qG8eON8jWe3u2",
+          "opponentPublicId": "R2PXNZ",
+          "ratingDelta": 50,
+          "ratingAfter": 2859,
+          "wazaCounts": {},
+          "clearedBalls": null,
+          "maxChain": null
+        }
+      ]
+    },
+    {
+      "no": 95,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:31:21",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "publicId": "4HZTDD",
+          "name": "はむちゃん",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentUid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 90,
+          "maxChain": 7
+        },
+        {
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "publicId": "UUU2WX",
+          "name": "えっ爺",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentUid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 66,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 96,
+      "mode": "RANKED",
+      "playedAtJst": "2026-08-03 23:32:33",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "rl75sIbHdfbOBWrKq0TS5hfOpYh2",
+          "publicId": "J2A8U8",
+          "name": "ぶたぶたぶ",
+          "result": "負け",
+          "opponentName": "たくとんかつ",
+          "opponentUid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "opponentPublicId": "GDREQS",
+          "ratingDelta": -57,
+          "ratingAfter": 2140,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 12,
+          "maxChain": 1
+        },
+        {
+          "uid": "Vtowc4HSbyYd8u9AFuHhJkup12p1",
+          "publicId": "GDREQS",
+          "name": "たくとんかつ",
+          "result": "勝ち",
+          "opponentName": "ぶたぶたぶ",
+          "opponentUid": "rl75sIbHdfbOBWrKq0TS5hfOpYh2",
+          "opponentPublicId": "J2A8U8",
+          "ratingDelta": 57,
+          "ratingAfter": 2205,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 57,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 97,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:32:54",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "publicId": "4HZTDD",
+          "name": "はむちゃん",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentUid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 0,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 93,
+          "maxChain": 6
+        },
+        {
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "publicId": "UUU2WX",
+          "name": "えっ爺",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentUid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 2,
+            "straight": 0
+          },
+          "clearedBalls": 66,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 98,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:33:55",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "publicId": "4HZTDD",
+          "name": "はむちゃん",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentUid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 37,
+          "maxChain": 2
+        },
+        {
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "publicId": "UUU2WX",
+          "name": "えっ爺",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentUid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 47,
+          "maxChain": 3
+        }
+      ]
+    },
+    {
+      "no": 99,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:36:27",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "publicId": "4HZTDD",
+          "name": "はむちゃん",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentUid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 38,
+          "maxChain": 1
+        },
+        {
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "publicId": "UUU2WX",
+          "name": "えっ爺",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentUid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 84,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 100,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:38:04",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "publicId": "UUU2WX",
+          "name": "えっ爺",
+          "result": "負け",
+          "opponentName": "はむちゃん",
+          "opponentUid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 38,
+          "maxChain": 2
+        },
+        {
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "publicId": "4HZTDD",
+          "name": "はむちゃん",
+          "result": "勝ち",
+          "opponentName": "えっ爺",
+          "opponentUid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 0
+          },
+          "clearedBalls": 54,
+          "maxChain": 2
+        }
+      ]
+    },
+    {
+      "no": 101,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:40:48",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "publicId": "4HZTDD",
+          "name": "はむちゃん",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentUid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 0,
+            "straight": 1
+          },
+          "clearedBalls": 91,
+          "maxChain": 9
+        },
+        {
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "publicId": "UUU2WX",
+          "name": "えっ爺",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentUid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 3,
+            "straight": 1
+          },
+          "clearedBalls": 131,
+          "maxChain": 6
+        }
+      ]
+    },
+    {
+      "no": 102,
+      "mode": "FRIEND",
+      "playedAtJst": "2026-08-03 23:42:27",
+      "missingCounterpart": false,
+      "players": [
+        {
+          "uid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "publicId": "4HZTDD",
+          "name": "はむちゃん",
+          "result": "負け",
+          "opponentName": "えっ爺",
+          "opponentUid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "opponentPublicId": "UUU2WX",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 2,
+            "pyramid": 0,
+            "straight": 0
+          },
+          "clearedBalls": 50,
+          "maxChain": 2
+        },
+        {
+          "uid": "IpsjqGm65PPzNrs1VbFz3tK9Pyl1",
+          "publicId": "UUU2WX",
+          "name": "えっ爺",
+          "result": "勝ち",
+          "opponentName": "はむちゃん",
+          "opponentUid": "uUCcvyoXvIUwJB9GmPo8hVx2dxQ2",
+          "opponentPublicId": "4HZTDD",
+          "ratingDelta": null,
+          "ratingAfter": null,
+          "wazaCounts": {
+            "hexagon": 1,
+            "pyramid": 1,
+            "straight": 1
+          },
+          "clearedBalls": 94,
+          "maxChain": 3
+        }
+      ]
+    }
+  ]
+}

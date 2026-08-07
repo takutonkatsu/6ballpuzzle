@@ -104,6 +104,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final bool useConstantFallSpeed;
   final bool manualPieceSpawning;
   final bool renderDetectedFormationEffects;
+  final bool hintGuideEnabled;
+  final ScoreMode scoreMode;
   String ballSkinId;
   late Random _rng;
   Random? syncDropRng;
@@ -112,6 +114,8 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   late GridSystem grid;
   ActivePieceComponent? activePiece;
   ActivePieceComponent? ghostPiece;
+  ActivePieceComponent? hintGuidePiece;
+  PositionComponent? hintGuideCellLayer;
 
   bool _isSpawning = false;
   bool _isRemoved = false;
@@ -194,6 +198,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   double _remoteTransformBlendElapsed = 0.0;
   double _wallBlockedSlideTime = 0.0;
   bool _ghostPositionDirty = true;
+  bool _hintGuidePositionDirty = false;
   int _boardVersion = 0;
   int _lastGhostBoardVersion = -1;
   double? _lastGhostPieceX;
@@ -205,10 +210,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Map<HexCoordinate, _RemoteBoardCell>? _pendingSpectatorBoardState;
   async.Timer? _deferredRemoteBoardTimer;
   Map<String, dynamic>? _deferredRemoteBoardState;
+  async.Timer? _hintGuideRevealTimer;
   final Map<String, DateTime> _lastHapticAtByKey = {};
+  CpuMoveHint? _pendingHintGuide;
+  int _pendingHintGuideBoardVersion = -1;
+  int _pendingHintGuidePieceId = -1;
+  int _hintGuideRequestId = 0;
   int _remoteAttackFormationGeneration = 0;
   static const Duration _minimumRemoteOjamaVisibleDuration =
       Duration(milliseconds: 180);
+  static const Duration _hintGuideRevealDelay = Duration(milliseconds: 2600);
   static const Duration _deathLineTransitionDuration =
       Duration(milliseconds: 650);
   static const double _defaultDeathLineProgress = 0.0;
@@ -300,10 +311,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void _markBoardChanged() {
     _boardVersion++;
     _markGhostPositionDirty();
+    _clearHintGuide();
   }
 
   void _markGhostPositionDirty() {
     _ghostPositionDirty = true;
+    _hintGuidePositionDirty = true;
   }
 
   void refreshGhostPositionForCurrentPiece() {
@@ -519,6 +532,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   void gameOver() {
     gameStateWrapper.value = GameState.gameover;
     if (activePiece != null) activePiece!.isLocked = true;
+    _clearHintGuide();
     onGameOverTriggered?.call();
   }
 
@@ -547,6 +561,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _deferredRemoteBoardState = null;
     _deathLineTransitionTimer?.cancel();
     _deathLineTransitionTimer = null;
+    _clearHintGuide();
     _deathLineDangerProgress = _defaultDeathLineProgress;
     incomingOjama.clear();
     pendingOjamaSpawns = 0;
@@ -558,8 +573,12 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (ghostPiece?.parent != null) {
       ghostPiece!.removeFromParent();
     }
+    if (hintGuidePiece?.parent != null) {
+      hintGuidePiece!.removeFromParent();
+    }
     activePiece = null;
     ghostPiece = null;
+    hintGuidePiece = null;
     _remotePieceAwaitingTerminalLock = false;
 
     for (final block in List<OjamaBlockComponent>.from(activeOjamaBlocks)) {
@@ -673,11 +692,14 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     this.useConstantFallSpeed = false,
     this.manualPieceSpawning = false,
     this.renderDetectedFormationEffects = true,
+    this.hintGuideEnabled = false,
+    this.scoreMode = ScoreMode.endless,
     this.wallColor,
     this.ballSkinId = 'default',
   }) {
     _rng = seed != null ? Random(seed) : Random();
     grid = GridSystem(ballRadius: _ballRadius);
+    scoreManager = ScoreManager(mode: scoreMode);
     if (isCpuMode && !isRemotePlayerMode) {
       cpuAgent = CPUAgent(this, difficulty: CPUDifficulty.hard);
     }
@@ -753,6 +775,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       if (ghostPiece!.parent != null) remove(ghostPiece!);
       ghostPiece = null;
     }
+    _clearHintGuide();
 
     scoreManager.endChain();
 
@@ -800,6 +823,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       _playSfx(_spawnSfx, volume: 0.53);
     }
     _notifyActivePieceState(force: true, action: 'spawn');
+    _scheduleHintGuideForCurrentPiece();
   }
 
   void spawnInitialPieceAfterReadyGo() {
@@ -822,6 +846,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (ghostPiece?.parent != null) {
       ghostPiece!.removeFromParent();
     }
+    _clearHintGuide();
     activePiece = null;
     ghostPiece = null;
 
@@ -1115,6 +1140,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
     _applyRemoteTransformBlend(dt);
     _updateGhostPosition();
+    _updateHintGuidePosition();
     _checkActivePieceCollision(dt);
   }
 
@@ -1134,27 +1160,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     ghostPiece!.setRotationIndex(rotation);
     ghostPiece!.position = activePiece!.position.clone();
 
-    double minGy = grid.floorY + 1000;
-
-    final positions = activePiece!.absoluteBallPositions;
-    for (var pos in positions) {
-      double relX = pos.x - activePiece!.position.x;
-      double relY = pos.y - activePiece!.position.y;
-
-      double hitY = grid.floorY - 15.0 - relY;
-      if (hitY < minGy) minGy = hitY;
-
-      double ballAx = activePiece!.position.x + relX;
-      for (var locked in grid.lockedBalls.values) {
-        double dx = ballAx - locked.position.x;
-        if (dx.abs() <= 30.0) {
-          double dy = sqrt(900.0 - dx * dx);
-          double hitLockedY = locked.position.y - dy - relY;
-          if (hitLockedY < minGy) minGy = hitLockedY;
-        }
-      }
-    }
-
+    double minGy = _dropYForPiece(ghostPiece!);
     if (minGy < activePiece!.position.y) {
       minGy = activePiece!.position.y;
     }
@@ -1167,6 +1173,162 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (stopwatch != null) {
       PerfMonitor.logDuration('ghost.update', stopwatch, warnMs: 3);
     }
+  }
+
+  double _dropYForPiece(ActivePieceComponent piece) {
+    double minGy = grid.floorY + 1000;
+    final positions = piece.absoluteBallPositions;
+    for (var pos in positions) {
+      final relX = pos.x - piece.position.x;
+      final relY = pos.y - piece.position.y;
+
+      final hitY = grid.floorY - 15.0 - relY;
+      if (hitY < minGy) minGy = hitY;
+
+      final ballAx = piece.position.x + relX;
+      for (var locked in grid.lockedBalls.values) {
+        final dx = ballAx - locked.position.x;
+        if (dx.abs() <= 30.0) {
+          final dy = sqrt(900.0 - dx * dx);
+          final hitLockedY = locked.position.y - dy - relY;
+          if (hitLockedY < minGy) minGy = hitLockedY;
+        }
+      }
+    }
+    return minGy;
+  }
+
+  void _scheduleHintGuideForCurrentPiece() {
+    if (!hintGuideEnabled ||
+        isCpuMode ||
+        isRemotePlayerMode ||
+        manualPieceSpawning ||
+        activePiece == null ||
+        activePiece!.isLocked) {
+      return;
+    }
+    final requestId = ++_hintGuideRequestId;
+    final boardVersion = _boardVersion;
+    final pieceId = _currentPieceSyncId;
+    _pendingHintGuide = null;
+    _pendingHintGuideBoardVersion = boardVersion;
+    _pendingHintGuidePieceId = pieceId;
+    _hintGuideRevealTimer?.cancel();
+    unawaited(
+      _computeHintGuideForCurrentPiece(
+        requestId,
+        boardVersion: boardVersion,
+        pieceId: pieceId,
+      ),
+    );
+    _hintGuideRevealTimer = async.Timer(_hintGuideRevealDelay, () {
+      _revealHintGuide(requestId);
+    });
+  }
+
+  Future<void> _computeHintGuideForCurrentPiece(
+    int requestId, {
+    required int boardVersion,
+    required int pieceId,
+  }) async {
+    final hint = await CPUAgent.computeOniMoveHint(this);
+    if (_isRemoved ||
+        requestId != _hintGuideRequestId ||
+        boardVersion != _boardVersion ||
+        pieceId != _currentPieceSyncId) {
+      return;
+    }
+    _pendingHintGuide = hint;
+  }
+
+  void _revealHintGuide(int requestId) {
+    if (_isRemoved ||
+        requestId != _hintGuideRequestId ||
+        !hintGuideEnabled ||
+        gameStateWrapper.value != GameState.playing ||
+        activePiece == null ||
+        activePiece!.isLocked ||
+        _pendingHintGuideBoardVersion != _boardVersion ||
+        _pendingHintGuidePieceId != _currentPieceSyncId ||
+        _pendingHintGuide == null) {
+      return;
+    }
+    final hint = _pendingHintGuide!;
+    if (_revealHintGuideCells(hint)) {
+      return;
+    }
+    final piece = ActivePieceComponent(
+      position: Vector2(hint.x, activePiece!.position.y),
+      ballRadius: _ballRadius,
+      isGhost: true,
+      isGuideGhost: true,
+      fallSpeed: currentFallSpeed,
+      presetColors: activePiece!.colors,
+      ballSkinId: ballSkinId,
+    )..priority = -1;
+    piece.setRotationIndex(hint.rotation);
+    piece.position.y = _dropYForPiece(piece);
+    _clearHintGuide(removeTimer: false);
+    hintGuidePiece = piece;
+    _hintGuidePositionDirty = false;
+    add(piece);
+  }
+
+  bool _revealHintGuideCells(CpuMoveHint hint) {
+    final piece = activePiece;
+    if (piece == null || hint.targetHexes.length != piece.colors.length) {
+      return false;
+    }
+    final layer = PositionComponent(priority: -1);
+    for (var i = 0; i < hint.targetHexes.length; i++) {
+      final hex = hint.targetHexes[i];
+      if (grid.isOutOfBounds(hex)) {
+        return false;
+      }
+      layer.add(
+        BallComponent(
+          position: grid.hexToPixel(hex),
+          radius: _ballRadius,
+          ballColor: piece.colors[i],
+          isGhost: true,
+          isGuideGhost: true,
+          ballSkinId: ballSkinId,
+        )..state = BallState.locked,
+      );
+    }
+    _clearHintGuide(removeTimer: false);
+    hintGuideCellLayer = layer;
+    hintGuidePiece = null;
+    _hintGuidePositionDirty = false;
+    add(layer);
+    return true;
+  }
+
+  void _updateHintGuidePosition() {
+    final piece = hintGuidePiece;
+    if (piece == null || !_hintGuidePositionDirty) {
+      return;
+    }
+    piece.position.y = _dropYForPiece(piece);
+    _hintGuidePositionDirty = false;
+  }
+
+  void _clearHintGuide({bool removeTimer = true}) {
+    if (removeTimer) {
+      _hintGuideRevealTimer?.cancel();
+      _hintGuideRevealTimer = null;
+      _hintGuideRequestId++;
+      _pendingHintGuide = null;
+    }
+    if (hintGuidePiece?.parent != null) {
+      hintGuidePiece!.removeFromParent();
+    }
+    if (hintGuideCellLayer?.parent != null) {
+      hintGuideCellLayer!.removeFromParent();
+    }
+    hintGuidePiece = null;
+    hintGuideCellLayer = null;
+    _hintGuidePositionDirty = false;
   }
 
   void _checkActivePieceCollision(double dt) {
@@ -1284,6 +1446,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       final oldGhost = ghostPiece;
 
       _notifyActivePieceState(force: true, action: 'lock');
+      _clearHintGuide();
 
       oldActive.isLocked = true;
       remove(oldActive);
@@ -1381,7 +1544,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     return hash.abs() % 2 == 0;
   }
 
-  final ScoreManager scoreManager = ScoreManager();
+  late final ScoreManager scoreManager;
   final List<Component> _hintComponents = [];
 
   void _clearHints() {
@@ -1434,6 +1597,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       grid.lockedBalls[cell.hex] = newBall;
     }
     _markBoardChanged();
+    scoreManager.recordPlacement();
 
     if (_playsBoardSfx && !_suppressNextLandingSfx) {
       _playSfx(_landingSfx, volume: 0.33);
@@ -1444,6 +1608,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (isRemotePlayerMode && _autonomousRemotePreviewEnabled) {
       _scheduleRemotePreviewRespawn();
     }
+  }
+
+  bool get dailyNoDangerBonusEligible {
+    return !grid.lockedBalls.keys.any((hex) => hex.row <= 1);
   }
 
   List<_ResolvedDropCell> _resolveDropCells(
@@ -2824,6 +2992,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         'row': hex.row,
         'col': hex.col,
         'hitOffsetX': double.parse(hitOffsetX.toStringAsFixed(4)),
+        'impactY': double.parse(collisionY.toStringAsFixed(4)),
       });
     }
     return cells;
@@ -3192,6 +3361,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   void hardDrop() {
     if (activePiece == null || activePiece!.isLocked) return;
+    _clearHintGuide();
     _markGhostPositionDirty();
     _updateGhostPosition();
     if (ghostPiece != null) {

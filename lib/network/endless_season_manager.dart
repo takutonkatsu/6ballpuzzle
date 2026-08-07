@@ -70,7 +70,7 @@ class EndlessSeasonManager {
     if (value.inMinutes >= 1) {
       return '残り${value.inMinutes}分';
     }
-    return '残り${value.inSeconds}秒';
+    return '残り${value.inSeconds.toString().padLeft(2, '0')}秒';
   }
 
   static bool isTransitionLocked({DateTime? nowJstOverride}) {
