@@ -23,6 +23,11 @@ class RewardedAdManager {
   bool get isLoading => _isLoading;
 
   Future<void> warmUp() async {
+    if (!AppAdService.instance.canRequestRewardedAds) {
+      _retryTimer?.cancel();
+      _disposeCachedAd();
+      return;
+    }
     try {
       await _ensureLoaded();
     } catch (error, stackTrace) {
@@ -33,6 +38,11 @@ class RewardedAdManager {
   }
 
   Future<bool> showDoubleRewardAd() async {
+    if (!AppAdService.instance.canRequestRewardedAds) {
+      _retryTimer?.cancel();
+      _disposeCachedAd();
+      return false;
+    }
     try {
       if (_cachedAd == null) {
         await _ensureLoaded().timeout(_loadTimeout);
@@ -105,7 +115,7 @@ class RewardedAdManager {
       await loadingCompleter.future;
       return;
     }
-    if (!AppAdService.instance.canRequestAds) {
+    if (!AppAdService.instance.canRequestRewardedAds) {
       return;
     }
     final adUnitId = AppAdService.instance.rewardedAdUnitId;
@@ -118,7 +128,7 @@ class RewardedAdManager {
     final loadCompleter = Completer<void>();
     try {
       final initialized = await AppAdService.instance.ensureInitialized();
-      if (!initialized || !AppAdService.instance.canRequestAds) {
+      if (!initialized || !AppAdService.instance.canRequestRewardedAds) {
         _scheduleRetry();
         return;
       }
@@ -167,7 +177,7 @@ class RewardedAdManager {
   }
 
   void _scheduleRetry() {
-    if (!AppAdService.instance.canRequestAds) {
+    if (!AppAdService.instance.canRequestRewardedAds) {
       return;
     }
     _retryTimer?.cancel();

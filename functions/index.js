@@ -8,6 +8,8 @@ admin.initializeApp();
 const PLAYER_COUNTS_PATH = 'adminStats/playerCounts';
 const PLAYER_SUMMARY_SOURCE_PATH = 'playerRecordSummaries';
 const DAILY_WIN_FINALIZATION_PATH = 'adminStats/dailyWinRankFinalizations';
+const DAILY_CHALLENGE_FINALIZATION_PATH =
+  'adminStats/dailyChallengeRankFinalizations';
 const DAILY_STATS_PATH = 'adminStats/dailyStats';
 const DAILY_RAW_STATS_PATH = 'adminStats/dailyRawStats';
 const LEGACY_DAILY_GLOBAL_STATS_SOURCE_PATH = 'dailyGlobalStats';
@@ -25,6 +27,7 @@ const ENDLESS_FINAL_TOP_SCHEMA_VERSION = 1;
 const RANKED_REWARD_LIMIT = 100;
 const ENDLESS_REWARD_LIMIT = 50;
 const DAILY_WIN_REWARD_LIMIT = 10;
+const DAILY_CHALLENGE_REWARD_LIMIT = 10;
 const ROOM_CLEANUP_FINISHED_MAX_AGE_MS = 30 * 60 * 1000;
 const ROOM_CLEANUP_WAITING_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ROOM_CLEANUP_PLAYING_MAX_AGE_MS = 12 * 60 * 60 * 1000;
@@ -111,63 +114,107 @@ exports.finalizeDailyWinRankPlacements = onSchedule(
     region: 'asia-southeast1',
   },
   async () => {
-    const targetDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const dateKey = jstDateKey(targetDate);
-    const finalizationRef = admin
-      .database()
-      .ref(`${DAILY_WIN_FINALIZATION_PATH}/${dateKey}`);
-    const finalizationSnapshot = await finalizationRef.get();
-    if (finalizationSnapshot.exists()) {
-      logger.info('Daily win rank placements already finalized.', {dateKey});
-      return;
-    }
-
-    const entries = await dailyWinEntriesForDate(dateKey);
-    const rankedEntries = entries
-      .filter((entry) => entry.dailyWins > 0 && entry.rating > 0)
-      .sort((a, b) => {
-        if (b.dailyWins !== a.dailyWins) return b.dailyWins - a.dailyWins;
-        return b.rating - a.rating;
-      });
-
-    if (rankedEntries.length === 0) {
-      await finalizationRef.set({
-        finalizedAt: admin.database.ServerValue.TIMESTAMP,
-        targetDate: dateKey,
-        winnerCount: 0,
-      });
-      logger.info('No daily win rankings to finalize.', {dateKey});
-      return;
-    }
-
-    const updates = {};
-    let winnerCount = 0;
-    let previousWins = null;
-    let displayRank = 0;
-    for (let i = 0; i < rankedEntries.length && i < 100; i++) {
-      const entry = rankedEntries[i];
-      if (previousWins === null || entry.dailyWins !== previousWins) {
-        displayRank = i + 1;
-        previousWins = entry.dailyWins;
+    const checkedDateKeys = [];
+    let finalizedCount = 0;
+    for (const daysAgo of [1, 2, 3]) {
+      const targetDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+      const dateKey = jstDateKey(targetDate);
+      checkedDateKeys.push(dateKey);
+      if (await finalizeDailyWinRankPlacementsForDate(dateKey)) {
+        finalizedCount++;
       }
-      const rankLabel = `${displayRank}位`;
-      updates[
-        `playerRecordSummaries/${entry.uid}/ranked/dailyWinRankPlacements/${rankLabel}`
-      ] = admin.database.ServerValue.increment(1);
-      updates[`playerRecordSummaries/${entry.uid}/updatedAt`] =
-        admin.database.ServerValue.TIMESTAMP;
-      if (displayRank === 1) {
-        winnerCount++;
+    }
+    logger.info('Daily win rank placement sweep complete.', {
+      checkedDateKeys,
+      finalizedCount,
+    });
+  },
+);
+
+exports.finalizeDailyChallengeRankRewards = onSchedule(
+  {
+    schedule: '8 0 * * *',
+    timeZone: 'Asia/Tokyo',
+    region: 'asia-southeast1',
+  },
+  async () => {
+    const checkedDateKeys = [];
+    let finalizedCount = 0;
+    for (const daysAgo of [1, 2, 3]) {
+      const targetDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+      const dateKey = jstDateKey(targetDate);
+      checkedDateKeys.push(dateKey);
+      if (await finalizeDailyChallengeRankRewardsForDate(dateKey)) {
+        finalizedCount++;
       }
-      if (displayRank <= DAILY_WIN_REWARD_LIMIT) {
-        const coins = dailyWinRankingRewardCoins(displayRank);
-        if (coins > 0) {
-          Object.assign(
-            updates,
-            adminGrantWriteUpdates(
-              entry.uid,
-              `daily_win_${dateKey}`,
-              rankingRewardGrant({
+    }
+    logger.info('Daily challenge rank reward sweep complete.', {
+      checkedDateKeys,
+      finalizedCount,
+    });
+  },
+);
+
+async function finalizeDailyWinRankPlacementsForDate(dateKey) {
+  const finalizationRef = admin
+    .database()
+    .ref(`${DAILY_WIN_FINALIZATION_PATH}/${dateKey}`);
+  const finalizationSnapshot = await finalizationRef.get();
+  if (finalizationSnapshot.exists()) {
+    logger.info('Daily win rank placements already finalized.', {dateKey});
+    return false;
+  }
+
+  const entries = await dailyWinEntriesForDate(dateKey);
+  const rankedEntries = entries
+    .filter((entry) => entry.dailyWins > 0)
+    .sort((a, b) => {
+      if (b.dailyWins !== a.dailyWins) return b.dailyWins - a.dailyWins;
+      return b.rating - a.rating;
+    });
+
+  if (rankedEntries.length === 0) {
+    logger.info('No daily win rankings to finalize yet.', {dateKey});
+    return false;
+  }
+
+  const updates = {};
+  let winnerCount = 0;
+  let previousWins = null;
+  let displayRank = 0;
+  const rewardCandidates = [];
+  for (let i = 0; i < rankedEntries.length && i < 100; i++) {
+    const entry = rankedEntries[i];
+    if (previousWins === null || entry.dailyWins !== previousWins) {
+      displayRank = i + 1;
+      previousWins = entry.dailyWins;
+    }
+    const rankLabel = `${displayRank}位`;
+    updates[
+      `playerRecordSummaries/${entry.uid}/ranked/dailyWinRankPlacements/${rankLabel}`
+    ] = admin.database.ServerValue.increment(1);
+    updates[`playerRecordSummaries/${entry.uid}/updatedAt`] =
+      admin.database.ServerValue.TIMESTAMP;
+    if (displayRank === 1) {
+      winnerCount++;
+    }
+    if (displayRank <= DAILY_WIN_REWARD_LIMIT) {
+      const coins = dailyWinRankingRewardCoins(displayRank);
+      if (coins > 0) {
+        rewardCandidates.push({
+          uid: entry.uid,
+          publicId: entry.publicId,
+          displayName: entry.displayName,
+          rank: displayRank,
+          dailyWins: entry.dailyWins,
+          coins,
+        });
+        Object.assign(
+          updates,
+          adminGrantWriteUpdates(
+            entry.uid,
+            `daily_win_${dateKey}`,
+            rankingRewardGrant({
               type: 'daily_win_ranking_reward',
               title: '今日の勝利数ランキング報酬',
               message:
@@ -178,27 +225,117 @@ exports.finalizeDailyWinRankPlacements = onSchedule(
               rank: displayRank,
               seasonId: dateKey,
               expiresAt: dailyWinRewardExpiresAt(dateKey),
-              }),
-            ),
-          );
-        }
+            }),
+          ),
+        );
       }
     }
+  }
 
-    updates[`${DAILY_WIN_FINALIZATION_PATH}/${dateKey}`] = {
-      finalizedAt: admin.database.ServerValue.TIMESTAMP,
-      targetDate: dateKey,
-      entryCount: Math.min(rankedEntries.length, 100),
-      winnerCount,
-    };
-    await admin.database().ref().update(updates);
-    logger.info('Daily win rank placements finalized.', {
-      dateKey,
-      entryCount: Math.min(rankedEntries.length, 100),
-      winnerCount,
+  updates[`${DAILY_WIN_FINALIZATION_PATH}/${dateKey}`] = {
+    finalizedAt: admin.database.ServerValue.TIMESTAMP,
+    targetDate: dateKey,
+    entryCount: Math.min(rankedEntries.length, 100),
+    winnerCount,
+    rewardCandidates,
+  };
+  await admin.database().ref().update(updates);
+  logger.info('Daily win rank placements finalized.', {
+    dateKey,
+    entryCount: Math.min(rankedEntries.length, 100),
+    winnerCount,
+  });
+  return true;
+}
+
+async function finalizeDailyChallengeRankRewardsForDate(dateKey) {
+  const finalizationRef = admin
+    .database()
+    .ref(`${DAILY_CHALLENGE_FINALIZATION_PATH}/${dateKey}`);
+  const finalizationSnapshot = await finalizationRef.get();
+  if (finalizationSnapshot.exists()) {
+    logger.info('Daily challenge rewards already finalized.', {dateKey});
+    return false;
+  }
+
+  const rankingsSnapshot = await admin
+    .database()
+    .ref(`dailyChallengeRankings/${dateKey}`)
+    .orderByChild('score')
+    .limitToLast(100)
+    .get();
+  const entries = dailyChallengeEntriesFromMap(rankingsSnapshot.val())
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.updatedAt - b.updatedAt;
     });
-  },
-);
+
+  if (entries.length === 0) {
+    logger.info('No daily challenge rankings to finalize yet.', {dateKey});
+    return false;
+  }
+
+  const updates = {};
+  let previousScore = null;
+  let displayRank = 0;
+  const rewardCandidates = [];
+  for (let i = 0; i < entries.length && i < 100; i++) {
+    const entry = entries[i];
+    if (previousScore === null || entry.score !== previousScore) {
+      displayRank = i + 1;
+      previousScore = entry.score;
+    }
+    if (displayRank > DAILY_CHALLENGE_REWARD_LIMIT) {
+      continue;
+    }
+    const coins = dailyWinRankingRewardCoins(displayRank);
+    if (coins <= 0 || !entry.uid) {
+      continue;
+    }
+    rewardCandidates.push({
+      uid: entry.uid,
+      publicId: entry.publicId,
+      displayName: entry.displayName,
+      rank: displayRank,
+      score: entry.score,
+      coins,
+    });
+    Object.assign(
+      updates,
+      adminGrantWriteUpdates(
+        entry.uid,
+        `daily_challenge_${dateKey}`,
+        rankingRewardGrant({
+          type: 'daily_challenge_ranking_reward',
+          title: 'デイリーランキング報酬',
+          message:
+            `デイリーランキング ${japaneseDateLabel(dateKey)} ` +
+            `${displayRank}位報酬として ` +
+            `${coins.toLocaleString('ja-JP')} コインを受け取れます。`,
+          coins,
+          rank: displayRank,
+          seasonId: dateKey,
+          expiresAt: dailyWinRewardExpiresAt(dateKey),
+        }),
+      ),
+    );
+  }
+
+  updates[`${DAILY_CHALLENGE_FINALIZATION_PATH}/${dateKey}`] = {
+    finalizedAt: admin.database.ServerValue.TIMESTAMP,
+    targetDate: dateKey,
+    entryCount: Math.min(entries.length, 100),
+    rewardCandidates,
+  };
+  await admin.database().ref().update(updates);
+  logger.info('Daily challenge rank rewards finalized.', {
+    dateKey,
+    entryCount: Math.min(entries.length, 100),
+    rewardCount: rewardCandidates.length,
+  });
+  return true;
+}
 
 exports.aggregateDailyPlayerStats = onSchedule(
   {
@@ -289,11 +426,32 @@ exports.cleanupExpiredAdminGrants = onSchedule(
         ? numberValue(grant.expiresAt)
         : indexedExpiresAt;
       if (!isObject(grant) || (expiresAt > 0 && expiresAt <= now)) {
+        if (isObject(grant)) {
+          updates[`expiredAdminGrants/${uid}/${grantId}`] = {
+            grantId,
+            uid,
+            type: typeof grant.type === 'string' ? grant.type : '',
+            title: typeof grant.title === 'string' ? grant.title : '',
+            message: typeof grant.message === 'string' ? grant.message : '',
+            coins: numberValue(grant.coins),
+            rank: numberValue(grant.rank),
+            seasonId: typeof grant.seasonId === 'string' ? grant.seasonId : '',
+            createdAt: numberValue(grant.createdAt),
+            expiresAt,
+            expiredAt: admin.database.ServerValue.TIMESTAMP,
+            expiredAtTextJst: jstDateTimeText(new Date(now)),
+          };
+        }
         updates[`adminGrants/${uid}/${grantId}`] = null;
         updates[`${ADMIN_GRANT_EXPIRATIONS_PATH}/${indexKey}`] = null;
         expiredCount++;
       }
     }
+    updates[`adminStats/adminGrantExpirationCleanups/${jstDateKey(new Date(now))}`] = {
+      cleanedAt: admin.database.ServerValue.TIMESTAMP,
+      checkedCount,
+      expiredCount,
+    };
     if (Object.keys(updates).length > 0) {
       await admin.database().ref().update(updates);
     }
@@ -834,6 +992,22 @@ function dailyWinRankingEntriesFromMap(raw, dateKey) {
     .map(([uid, value]) => normalizedRankingEntry(uid, value, value.dailyWins, dateKey));
 }
 
+function dailyChallengeEntriesFromMap(raw) {
+  if (!isObject(raw)) return [];
+  return Object.entries(raw)
+    .filter(([, value]) => isObject(value) && numberValue(value.score) > 0)
+    .map(([uid, value]) => ({
+      uid: typeof value.uid === 'string' && value.uid.trim() ? value.uid : uid,
+      publicId: typeof value.publicId === 'string' ? value.publicId : '',
+      displayName:
+        typeof value.displayName === 'string' && value.displayName.trim()
+          ? value.displayName.trim()
+          : 'Player',
+      score: numberValue(value.score),
+      updatedAt: numberValue(value.updatedAt),
+    }));
+}
+
 async function finalizeRankedSeason(seasonId) {
   const seasonRef = admin.database().ref(`rankedSeasons/seasons/${seasonId}`);
   const snapshot = await seasonRef.get();
@@ -892,6 +1066,20 @@ async function finalizeRankedSeason(seasonId) {
     [`rankedSeasons/seasons/${seasonId}/finalized`]: true,
     [`rankedSeasons/seasons/${seasonId}/finalizedAt`]:
       admin.database.ServerValue.TIMESTAMP,
+    [`adminStats/rankedSeasonFinalizations/${seasonId}`]: {
+      seasonId,
+      finalizedAt: admin.database.ServerValue.TIMESTAMP,
+      entryCount: entries.length,
+      topSample: entries.slice(0, 10).map((entry, index) => ({
+        uid: entry.uid,
+        publicId: entry.publicId,
+        displayName: entry.displayName,
+        rank: index + 1,
+        rating: entry.rating,
+        seasonWins: entry.seasonWins,
+        seasonLosses: entry.seasonLosses,
+      })),
+    },
     [`rankedSeasons/archivedSeasonIds/${seasonId}`]: true,
   });
   return finalTop100;
@@ -1077,7 +1265,20 @@ async function sanitizeImpossibleCurrentSeasonRatings(currentSeasonId) {
   }
 
   const updates = {};
+  const sanitizedSamples = [];
   for (const uid of staleUids) {
+    const raw = rankings[uid];
+    if (sanitizedSamples.length < 30 && isObject(raw)) {
+      sanitizedSamples.push({
+        uid,
+        publicId: typeof raw.publicId === 'string' ? raw.publicId : '',
+        displayName: typeof raw.displayName === 'string' ? raw.displayName : '',
+        previousRating: numberValue(raw.rating),
+        previousSeasonWins: numberValue(raw.seasonWins),
+        previousSeasonLosses: numberValue(raw.seasonLosses),
+        correctedRating: RANKED_INITIAL_RATING,
+      });
+    }
     updates[
       `rankedSeasons/seasons/${currentSeasonId}/rankings/${uid}/rating`
     ] = RANKED_INITIAL_RATING;
@@ -1100,6 +1301,12 @@ async function sanitizeImpossibleCurrentSeasonRatings(currentSeasonId) {
     updates[`${PLAYER_SUMMARY_SOURCE_PATH}/${uid}/updatedAt`] =
       admin.database.ServerValue.TIMESTAMP;
   }
+  updates[`adminStats/rankedSeasonSanitizations/${currentSeasonId}`] = {
+    seasonId: currentSeasonId,
+    sanitizedAt: admin.database.ServerValue.TIMESTAMP,
+    sanitizedEntries: staleUids.length,
+    samples: sanitizedSamples,
+  };
   await admin.database().ref().update(updates);
   return {sanitizedEntries: staleUids.length};
 }
@@ -1283,6 +1490,9 @@ function rewardExpiresAt({type, seasonId}) {
     return endlessRewardExpiresAt(seasonId);
   }
   if (type === 'daily_win_ranking_reward') {
+    return dailyWinRewardExpiresAt(seasonId);
+  }
+  if (type === 'daily_challenge_ranking_reward') {
     return dailyWinRewardExpiresAt(seasonId);
   }
   return 0;

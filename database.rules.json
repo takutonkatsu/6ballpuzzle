@@ -187,6 +187,32 @@
       ".write": false,
       ".indexOn": ["expiresAt"]
     },
+    "claimedAdminGrants": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$grantId": {
+          ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.child('grantId').val() === $grantId"
+        }
+      }
+    },
+    "expiredAdminGrants": {
+      ".read": false,
+      ".write": false
+    },
+    "rankedResultSyncLogs": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$logId": {
+          ".write": "auth != null && auth.uid === $uid && !data.exists() && newData.child('uid').val() === auth.uid"
+        }
+      }
+    },
+    "rankedResultSyncLatest": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid && newData.child('uid').val() === auth.uid"
+      }
+    },
     "inviteCodes": {
       ".read": "auth != null",
       ".indexOn": ["uid", "updatedAt", "expiresAt"],

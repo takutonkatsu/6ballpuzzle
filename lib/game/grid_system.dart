@@ -6,7 +6,7 @@ import 'game_models.dart';
 import 'game_logic.dart';
 
 class GridSystem {
-  final int numRows = 12;
+  final int numRows;
   final double ballRadius;
 
   final Map<HexCoordinate, BallComponent> lockedBalls = {};
@@ -18,8 +18,9 @@ class GridSystem {
 
   GridSystem({
     this.ballRadius = 15.0,
+    int numRows = 12,
     Vector2? offset,
-  }) {
+  }) : numRows = numRows.clamp(3, 12).toInt() {
     this.offset = offset ?? Vector2.zero();
     updateBounds();
   }
@@ -52,11 +53,15 @@ class GridSystem {
   }
 
   int getColumnsForRow(int row) {
-    return row.isOdd ? 10 : 9;
+    return _effectiveRow(row).isOdd ? 10 : 9;
+  }
+
+  int _effectiveRow(int row) {
+    return row + (12 - numRows);
   }
 
   Vector2 hexToPixel(HexCoordinate hex) {
-    double xOffset = hex.row.isEven ? ballRadius : 0.0;
+    double xOffset = _effectiveRow(hex.row).isEven ? ballRadius : 0.0;
     double x = offset.x + xOffset + hex.col * (ballRadius * 2);
     double rowHeight = ballRadius * sqrt(3);
     double y = offset.y + hex.row * rowHeight;
@@ -68,7 +73,7 @@ class GridSystem {
     int closestRow = ((point.y - offset.y) / rowHeight).round();
     closestRow = min(closestRow, numRows - 1);
 
-    double xOffset = closestRow.isEven ? ballRadius : 0.0;
+    double xOffset = _effectiveRow(closestRow).isEven ? ballRadius : 0.0;
     int closestCol =
         ((point.x - offset.x - xOffset) / (ballRadius * 2)).round();
     int maxCols = getColumnsForRow(closestRow);
@@ -78,11 +83,16 @@ class GridSystem {
   }
 
   bool isOutOfBounds(HexCoordinate? hex) {
-    if (hex == null) return true;
+    if (hex == null) {
+      return true;
+    }
     // 12段目を超える分（上空への積み上がり）はエラーとせず行を許可し、後でゲームオーバー判定に使う
-    if (hex.row >= numRows) return true; // 下は突き抜けない
-    if (hex.col < 0 || hex.col >= getColumnsForRow(hex.row))
+    if (hex.row >= numRows) {
+      return true;
+    } // 下は突き抜けない
+    if (hex.col < 0 || hex.col >= getColumnsForRow(hex.row)) {
       return true; // 左右は突き抜けない
+    }
     return false;
   }
 
@@ -98,27 +108,37 @@ class GridSystem {
   HexCoordinate? getNeighbor(HexCoordinate hex, String dir) {
     int r = hex.row;
     int c = hex.col;
-    bool isEven = r.isEven;
+    bool isEven = _effectiveRow(r).isEven;
 
-    if (dir == 'a') return HexCoordinate(c - 1, r); // 左
-    if (dir == 'd') return HexCoordinate(c + 1, r); // 右
-    if (dir == 'b')
+    if (dir == 'a') {
+      return HexCoordinate(c - 1, r); // 左
+    }
+    if (dir == 'd') {
+      return HexCoordinate(c + 1, r); // 右
+    }
+    if (dir == 'b') {
       return isEven
           ? HexCoordinate(c, r + 1)
           : HexCoordinate(c - 1, r + 1); // 左下
-    if (dir == 'c')
+    }
+    if (dir == 'c') {
       return isEven
           ? HexCoordinate(c + 1, r + 1)
           : HexCoordinate(c, r + 1); // 右下
-    if (dir == 'e') return HexCoordinate(c, r + 2); // 真下(2段下)
-    if (dir == 'f')
+    }
+    if (dir == 'e') {
+      return HexCoordinate(c, r + 2); // 真下(2段下)
+    }
+    if (dir == 'f') {
       return isEven
           ? HexCoordinate(c, r - 1)
           : HexCoordinate(c - 1, r - 1); // 左上
-    if (dir == 'g')
+    }
+    if (dir == 'g') {
       return isEven
           ? HexCoordinate(c + 1, r - 1)
           : HexCoordinate(c, r - 1); // 右上
+    }
 
     return null;
   }
@@ -212,13 +232,17 @@ class GridSystem {
 
   _WazaResult _checkWazaWithPattern(Set<HexCoordinate> group) {
     var hexResult = _checkHexagonWithPattern(group);
-    if (hexResult != null) return _WazaResult(WazaType.hexagon, hexResult);
+    if (hexResult != null) {
+      return _WazaResult(WazaType.hexagon, hexResult);
+    }
     var pyramidResult = _checkPyramidWithPattern(group);
-    if (pyramidResult != null)
+    if (pyramidResult != null) {
       return _WazaResult(WazaType.pyramid, pyramidResult);
+    }
     var straightResult = _checkStraightWithPattern(group);
-    if (straightResult != null)
+    if (straightResult != null) {
       return _WazaResult(WazaType.straight, straightResult);
+    }
     return _WazaResult(WazaType.none, []);
   }
 
@@ -480,12 +504,15 @@ class GridSystem {
 
         if (invalid ||
             colorCount != targetFilled ||
-            emptySpots.length != 6 - targetFilled) continue;
+            emptySpots.length != 6 - targetFilled) {
+          continue;
+        }
 
         // Simulate dropping into these specific empty spots
         Map<HexCoordinate, BallColor> boardCopy = {};
-        for (var entry in lockedBalls.entries)
+        for (var entry in lockedBalls.entries) {
           boardCopy[entry.key] = entry.value.ballColor;
+        }
         SimGrid sim = SimGrid(numRows, boardCopy);
 
         var sortedEmpty = List<HexCoordinate>.from(emptySpots)
@@ -530,25 +557,6 @@ class GridSystem {
       }
     }
     return false;
-  }
-
-  bool _areHexesContiguous(List<HexCoordinate> hexes) {
-    if (hexes.isEmpty) return true;
-    final Set<HexCoordinate> hexSet = hexes.toSet();
-    final Set<HexCoordinate> visited = {hexes.first};
-    final List<HexCoordinate> queue = [hexes.first];
-
-    while (queue.isNotEmpty) {
-      final curr = queue.removeAt(0);
-      for (var dir in ['a', 'b', 'c', 'd', 'f', 'g']) {
-        final n = getNeighbor(curr, dir);
-        if (n != null && hexSet.contains(n) && !visited.contains(n)) {
-          visited.add(n);
-          queue.add(n);
-        }
-      }
-    }
-    return visited.length == hexes.length;
   }
 
   /// あるマスが上空（最上段）から到達可能かどうか（埋もれていないか）を判定する

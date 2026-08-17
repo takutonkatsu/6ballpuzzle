@@ -1,16 +1,17 @@
 import 'dart:async';
 
 import '../app_settings.dart';
+import 'audio_selection_manager.dart';
 import 'sfx_player.dart';
 
 class AppSfx {
   AppSfx._();
   static const double _boostMultiplier = 1.3;
 
-  static const String win = 'jingle_22_勝利時01.mp3';
-  static const String lose = 'jingle_24_敗北時.mp3';
-  static const String uiTap = '決定ボタンを押す44_ボタン音01.mp3';
-  static const String matched = '完了1_マッチング01.mp3';
+  static const String win = 'winner01_jingle_22.mp3';
+  static const String lose = 'loser01_jingle_24.mp3';
+  static const String uiTap = 'buttonTap01_決定ボタンを押す44.mp3';
+  static const String matched = 'matching01_完了1.mp3';
 
   static Future<void> play(
     String fileName, {
@@ -28,18 +29,30 @@ class AppSfx {
   }
 
   static void playUiTap({double volume = 1.44}) {
-    unawaited(play(uiTap, volume: volume));
+    unawaited(_playSelected('button', uiTap, volume: volume));
   }
 
   static void playMatched({double volume = 0.85}) {
-    unawaited(play(matched, volume: volume));
+    unawaited(_playSelected('matching', matched, volume: volume));
   }
 
   static void playWin({double volume = 0.92}) {
-    unawaited(play(win, volume: volume));
+    unawaited(_playSelected('winner', win, volume: volume));
   }
 
   static void playLose({double volume = 0.92}) {
-    unawaited(play(lose, volume: volume));
+    unawaited(_playSelected('loser', lose, volume: volume));
+  }
+
+  static Future<void> _playSelected(
+    String sectionId,
+    String defaultFileName, {
+    double volume = 1.0,
+  }) async {
+    final fileName = await AudioSelectionManager.selectedSfxFile(
+      sectionId,
+      defaultFileName,
+    );
+    await play(fileName, volume: volume);
   }
 }

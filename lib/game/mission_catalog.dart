@@ -60,7 +60,7 @@ class MissionCatalog {
 
   static const List<String> rewardedAdMissionIds = ['watch_rewarded_ad_1'];
   static const List<String> loginRewardMissionIds = ['login_bonus_1'];
-  static const String requiredEndlessMissionId = 'score_endless_10000';
+  static const String requiredDailyMissionId = 'play_daily_1';
   static const List<String> temporarilyDisabledMissionIds = [
     'win_arena_match_1',
     'regular_daily_win_rank_first',
@@ -96,7 +96,7 @@ class MissionCatalog {
       'use_waza_5' => '対戦中にフォーメーションを累計5回決める',
       'play_matches_5' => '対戦を累計5回プレイする',
       'win_arena_match_1' => 'アリーナで1勝する',
-      'score_endless_10000' => 'エンドレスモードで10000点を達成する',
+      'play_daily_1' => 'デイリーを1回プレイする',
       'roll_gacha_1' => 'ガチャを1回引く',
       'watch_rewarded_ad_1' => '動画広告を見る',
       'login_bonus_1' => 'ログイン報酬を受け取る',
@@ -194,10 +194,10 @@ class MissionCatalog {
       rewardCoins: 500,
     ),
     MissionDefinition(
-      id: 'score_endless_10000',
-      title: 'エンドレスモードで10000点を達成する',
-      description: 'エンドレスモードで10000点を達成する',
-      eventKey: 'score_endless_10000',
+      id: 'play_daily_1',
+      title: 'デイリーを1回プレイする',
+      description: 'デイリーを1回プレイする',
+      eventKey: 'play_daily',
       target: 1,
       rewardCoins: 500,
     ),

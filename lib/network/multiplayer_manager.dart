@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../audio/audio_selection_manager.dart';
 import '../auth/auth_manager.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
@@ -54,6 +55,10 @@ class MultiplayerPlayer {
     this.playerIconId = 'default',
     this.playerIconFrameId = 'default',
     this.ballSkinId = 'default',
+    this.formationEffectId = 'effect_formation_default',
+    this.ojamaEffectId = 'effect_ojama_default',
+    this.readySfxId = 'ready_01',
+    this.sfxSelectionIds = const {},
   });
 
   final String status;
@@ -65,6 +70,10 @@ class MultiplayerPlayer {
   final String playerIconId;
   final String playerIconFrameId;
   final String ballSkinId;
+  final String formationEffectId;
+  final String ojamaEffectId;
+  final String readySfxId;
+  final Map<String, String> sfxSelectionIds;
 
   factory MultiplayerPlayer.fromMap(Map<dynamic, dynamic>? data) {
     return MultiplayerPlayer(
@@ -85,6 +94,18 @@ class MultiplayerPlayer {
       ballSkinId: ((data?['ballSkinId']?.toString() ?? '').trim()).isNotEmpty
           ? data!['ballSkinId'].toString().trim()
           : 'default',
+      formationEffectId:
+          ((data?['formationEffectId']?.toString() ?? '').trim()).isNotEmpty
+              ? data!['formationEffectId'].toString().trim()
+              : 'effect_formation_default',
+      ojamaEffectId:
+          ((data?['ojamaEffectId']?.toString() ?? '').trim()).isNotEmpty
+              ? data!['ojamaEffectId'].toString().trim()
+              : 'effect_ojama_default',
+      readySfxId: ((data?['readySfxId']?.toString() ?? '').trim()).isNotEmpty
+          ? data!['readySfxId'].toString().trim()
+          : 'ready_01',
+      sfxSelectionIds: _stringMap(data?['sfxSelectionIds']),
     );
   }
 
@@ -114,6 +135,18 @@ class MultiplayerPlayer {
     }
     return const [];
   }
+
+  static Map<String, String> _stringMap(Object? value) {
+    if (value is! Map) {
+      return const {};
+    }
+    return {
+      for (final entry in value.entries)
+        if (entry.key.toString().trim().isNotEmpty &&
+            entry.value.toString().trim().isNotEmpty)
+          entry.key.toString().trim(): entry.value.toString().trim(),
+    };
+  }
 }
 
 class MultiplayerRoom {
@@ -125,6 +158,8 @@ class MultiplayerRoom {
     this.isRanked = false,
     this.seasonId,
     this.seasonEndsAt,
+    this.hostBoardRows = 12,
+    this.guestBoardRows = 12,
   });
 
   final String roomId;
@@ -134,6 +169,8 @@ class MultiplayerRoom {
   final bool isRanked;
   final String? seasonId;
   final int? seasonEndsAt;
+  final int hostBoardRows;
+  final int guestBoardRows;
 
   bool get hasHost => players.containsKey('host');
   bool get hasGuest => players.containsKey('guest');
@@ -144,10 +181,18 @@ class MultiplayerRoom {
       players['host']?.status == 'rematch_ready' &&
       players['guest']?.status == 'rematch_ready';
   String? statusFor(String roleId) => players[roleId]?.status;
+  int boardRowsForRole(String roleId) =>
+      roleId == 'guest' ? guestBoardRows : hostBoardRows;
 
   factory MultiplayerRoom.fromSnapshot(String roomId, Object? value) {
     final map = value is Map<dynamic, dynamic> ? value : <dynamic, dynamic>{};
     final playersRaw = map['players'] as Map<dynamic, dynamic>? ?? {};
+    final handicapRowsRaw =
+        map['handicapRows'] as Map<dynamic, dynamic>? ?? const {};
+    int parseBoardRows(Object? raw) {
+      final value = _globalIntValue(raw) ?? 12;
+      return value.clamp(3, 12).toInt();
+    }
 
     return MultiplayerRoom(
       roomId: roomId,
@@ -159,6 +204,8 @@ class MultiplayerRoom {
           map['ranked'] == true,
       seasonId: map['seasonId']?.toString(),
       seasonEndsAt: _globalIntValue(map['seasonEndsAt']),
+      hostBoardRows: parseBoardRows(handicapRowsRaw['host']),
+      guestBoardRows: parseBoardRows(handicapRowsRaw['guest']),
       players: {
         for (final entry in playersRaw.entries)
           entry.key.toString(): MultiplayerPlayer.fromMap(
@@ -416,6 +463,30 @@ class MultiplayerManager {
     return skinId.isEmpty ? 'default' : skinId;
   }
 
+  Future<String> _currentEquippedFormationEffectId() async {
+    await PlayerDataManager.instance.load();
+    final effectId =
+        PlayerDataManager.instance.equippedFormationEffectId.trim();
+    return effectId.isEmpty ? 'effect_formation_default' : effectId;
+  }
+
+  Future<String> _currentEquippedOjamaEffectId() async {
+    await PlayerDataManager.instance.load();
+    final effectId = PlayerDataManager.instance.equippedOjamaEffectId.trim();
+    return effectId.isEmpty ? 'effect_ojama_default' : effectId;
+  }
+
+  Future<String> _currentReadySfxId() {
+    return AudioSelectionManager.selectedSfxId('ready', 'ready_01');
+  }
+
+  Future<Map<String, String>> _currentSfxSelectionIds() async {
+    await PlayerDataManager.instance.load();
+    return AudioSelectionManager.loadSyncedSfxSelections(
+      playerName: PlayerDataManager.instance.displayPlayerName,
+    );
+  }
+
   Future<Map<String, Object?>> _buildPlayerPayload({
     required String status,
     int? rating,
@@ -424,6 +495,10 @@ class MultiplayerManager {
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
     final ballSkinId = await _currentEquippedBallSkinId();
+    final formationEffectId = await _currentEquippedFormationEffectId();
+    final ojamaEffectId = await _currentEquippedOjamaEffectId();
+    final readySfxId = await _currentReadySfxId();
+    final sfxSelectionIds = await _currentSfxSelectionIds();
     return {
       'status': status,
       'name': displayPlayerName,
@@ -434,6 +509,10 @@ class MultiplayerManager {
       'playerIconId': playerIconId,
       'playerIconFrameId': playerIconFrameId,
       'ballSkinId': ballSkinId,
+      'formationEffectId': formationEffectId,
+      'ojamaEffectId': ojamaEffectId,
+      'readySfxId': readySfxId,
+      'sfxSelectionIds': sfxSelectionIds,
     };
   }
 
@@ -447,9 +526,16 @@ class MultiplayerManager {
     myUid = uid;
     await PlayerDataManager.instance.load();
     final localRating = PlayerDataManager.instance.currentRating;
-    final hasLocalSeason =
-        PlayerDataManager.instance.rankedSeasonId.trim().isNotEmpty;
-    currentRating = localRating;
+    final localSeasonId = PlayerDataManager.instance.rankedSeasonId.trim();
+    String currentSeasonId = '';
+    try {
+      currentSeasonId = await _currentSeasonId(forceRefresh: true);
+    } catch (_) {
+      // サーバー時刻の取得に失敗した場合は、後続の必須シーズン同期で補正する。
+    }
+    final canTrustLocalSeason =
+        currentSeasonId.isEmpty || localSeasonId == currentSeasonId;
+    currentRating = canTrustLocalSeason ? localRating : initialRating;
 
     try {
       final userRef = _db.child('users/$uid');
@@ -457,8 +543,11 @@ class MultiplayerManager {
           await userRef.get().timeout(matchmakingDatabaseOperationTimeout);
       final userData = snapshot.value is Map ? snapshot.value as Map : null;
       final remoteRating = _intValue(userData?['rating']);
-      final syncedRating =
-          hasLocalSeason ? localRating : (remoteRating ?? localRating);
+      final syncedRating = canTrustLocalSeason
+          ? localRating
+          : (currentSeasonId.isEmpty
+              ? (remoteRating ?? initialRating)
+              : initialRating);
       currentRating = syncedRating;
       final hasSavedName =
           PlayerDataManager.instance.playerName.trim().isNotEmpty;
@@ -488,6 +577,10 @@ class MultiplayerManager {
     final playerIconId = await _currentEquippedPlayerIconId();
     final playerIconFrameId = await _currentEquippedIconFrameId();
     final ballSkinId = await _currentEquippedBallSkinId();
+    final formationEffectId = await _currentEquippedFormationEffectId();
+    final ojamaEffectId = await _currentEquippedOjamaEffectId();
+    final readySfxId = await _currentReadySfxId();
+    final sfxSelectionIds = await _currentSfxSelectionIds();
     await _db.child('users/$uid').update({
       'name': displayPlayerName,
       'publicId': PlayerDataManager.instance.playerId,
@@ -504,6 +597,10 @@ class MultiplayerManager {
           'playerIconId': playerIconId,
           'playerIconFrameId': playerIconFrameId,
           'ballSkinId': ballSkinId,
+          'formationEffectId': formationEffectId,
+          'ojamaEffectId': ojamaEffectId,
+          'readySfxId': readySfxId,
+          'sfxSelectionIds': sfxSelectionIds,
           'updatedAt': ServerValue.timestamp,
         }).timeout(matchmakingDatabaseOperationTimeout);
       } catch (_) {
@@ -708,6 +805,10 @@ class MultiplayerManager {
           'seed': seed,
           'createdAt': ServerValue.timestamp,
           'updatedAt': ServerValue.timestamp,
+          'handicapRows': {
+            'host': 12,
+            'guest': 12,
+          },
           'players': {
             'host': hostData,
           },
@@ -721,6 +822,8 @@ class MultiplayerManager {
           status: 'waiting',
           seed: seed,
           isRanked: false,
+          hostBoardRows: 12,
+          guestBoardRows: 12,
           players: {
             'host': MultiplayerPlayer.fromMap(hostData),
           },
@@ -776,6 +879,8 @@ class MultiplayerManager {
         status: room.status,
         seed: room.seed,
         isRanked: room.isRanked,
+        hostBoardRows: room.hostBoardRows,
+        guestBoardRows: room.guestBoardRows,
         players: {
           ...room.players,
           'guest': MultiplayerPlayer.fromMap(guestData),
@@ -2603,6 +2708,10 @@ class MultiplayerManager {
       'playerIconId': await _currentEquippedPlayerIconId(),
       'playerIconFrameId': await _currentEquippedIconFrameId(),
       'ballSkinId': await _currentEquippedBallSkinId(),
+      'formationEffectId': await _currentEquippedFormationEffectId(),
+      'ojamaEffectId': await _currentEquippedOjamaEffectId(),
+      'readySfxId': await _currentReadySfxId(),
+      'sfxSelectionIds': await _currentSfxSelectionIds(),
       if (restoredStatus != null) 'status': restoredStatus,
       'reconnectedAt': ServerValue.timestamp,
     });
@@ -2640,7 +2749,7 @@ class MultiplayerManager {
           MultiplayerRoom.fromSnapshot(roomId, refreshedSnapshot.value);
       currentRoom = refreshedRoom;
 
-      if (refreshedRoom.bothPlayersReady) {
+      if (refreshedRoom.isRanked && refreshedRoom.bothPlayersReady) {
         await _db.child('rooms/$roomId').update({
           'status': 'playing',
           'startedAt': ServerValue.timestamp,
@@ -2649,6 +2758,98 @@ class MultiplayerManager {
       }
     } on FirebaseException catch (error) {
       throw StateError(_firebaseErrorMessage('READY送信', error));
+    }
+  }
+
+  Future<void> updateFriendHandicapRows({
+    required int hostRows,
+    required int guestRows,
+  }) async {
+    final roomId = currentRoomId;
+    if (roomId == null || !isHost) {
+      throw StateError('ホストのみハンデを設定できます。');
+    }
+    final normalizedHostRows = hostRows.clamp(3, 12).toInt();
+    final normalizedGuestRows = guestRows.clamp(3, 12).toInt();
+    try {
+      await _db.child('rooms/$roomId').update({
+        'handicapRows/host': normalizedHostRows,
+        'handicapRows/guest': normalizedGuestRows,
+        'updatedAt': ServerValue.timestamp,
+      });
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('ハンデ設定', error));
+    }
+  }
+
+  Future<void> startFriendMatchFromLobby() async {
+    final roomId = currentRoomId;
+    if (roomId == null || !isHost) {
+      throw StateError('ホストのみゲームを開始できます。');
+    }
+    try {
+      final snapshot = await _db.child('rooms/$roomId').get();
+      if (!snapshot.exists) {
+        throw StateError('ルームが見つかりません。');
+      }
+      final room = MultiplayerRoom.fromSnapshot(roomId, snapshot.value);
+      currentRoom = room;
+      if (room.isRanked) {
+        throw StateError('このルームでは使用できません。');
+      }
+      if (room.status != 'waiting') {
+        throw StateError('相手がロビーに戻るまでお待ちください。');
+      }
+      if (!room.hasGuest) {
+        throw StateError('相手の入室を待っています。');
+      }
+      if (room.players['guest']?.status != 'ready') {
+        throw StateError('相手の準備完了を待っています。');
+      }
+      final newSeed = DateTime.now().microsecondsSinceEpoch;
+      await _db.child('rooms/$roomId').update({
+        'seed': newSeed,
+        'status': 'playing',
+        'startedAt': ServerValue.timestamp,
+        'updatedAt': ServerValue.timestamp,
+        'players/host/status': 'playing',
+        'players/guest/status': 'playing',
+        'players/host/board': null,
+        'players/guest/board': null,
+        'players/host/activePiece': null,
+        'players/guest/activePiece': null,
+        'players/host/attacks': null,
+        'players/guest/attacks': null,
+        'players/host/ojamaSpawns': null,
+        'players/guest/ojamaSpawns': null,
+      });
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('ゲーム開始', error));
+    }
+  }
+
+  Future<void> returnFriendRoomToLobby() async {
+    final roomId = currentRoomId;
+    final roleId = myRoleId;
+    if (roomId == null || roleId == null) {
+      throw StateError('参加中のルームがありません。');
+    }
+    try {
+      await _db.child('rooms/$roomId').update({
+        'status': 'waiting',
+        'players/$roleId/status': 'waiting',
+        'players/host/board': null,
+        'players/guest/board': null,
+        'players/host/activePiece': null,
+        'players/guest/activePiece': null,
+        'players/host/attacks': null,
+        'players/guest/attacks': null,
+        'players/host/ojamaSpawns': null,
+        'players/guest/ojamaSpawns': null,
+        'updatedAt': ServerValue.timestamp,
+      });
+    } on FirebaseException catch (error) {
+      throw StateError(_firebaseErrorMessage('ロビー復帰', error));
     }
   }
 
@@ -3463,6 +3664,8 @@ class MultiplayerManager {
       isRanked: room.isRanked,
       seasonId: room.seasonId,
       seasonEndsAt: room.seasonEndsAt,
+      hostBoardRows: room.hostBoardRows,
+      guestBoardRows: room.guestBoardRows,
     );
     currentRoom = nextRoom;
     _lastRoomStatus = status;
@@ -3500,6 +3703,10 @@ class MultiplayerManager {
       playerIconId: previousPlayer.playerIconId,
       playerIconFrameId: previousPlayer.playerIconFrameId,
       ballSkinId: previousPlayer.ballSkinId,
+      formationEffectId: previousPlayer.formationEffectId,
+      ojamaEffectId: previousPlayer.ojamaEffectId,
+      readySfxId: previousPlayer.readySfxId,
+      sfxSelectionIds: previousPlayer.sfxSelectionIds,
     );
     final nextRoom = MultiplayerRoom(
       roomId: room.roomId,
@@ -3509,6 +3716,8 @@ class MultiplayerManager {
       isRanked: room.isRanked,
       seasonId: room.seasonId,
       seasonEndsAt: room.seasonEndsAt,
+      hostBoardRows: room.hostBoardRows,
+      guestBoardRows: room.guestBoardRows,
     );
     currentRoom = nextRoom;
     final opponentPresent = nextRoom.players.containsKey(opponentRoleId);
@@ -3551,6 +3760,8 @@ class MultiplayerManager {
           isRanked: room.isRanked,
           seasonId: room.seasonId,
           seasonEndsAt: room.seasonEndsAt,
+          hostBoardRows: room.hostBoardRows,
+          guestBoardRows: room.guestBoardRows,
         );
       }
       onRematchStarted?.call(seed);
@@ -3571,7 +3782,11 @@ class MultiplayerManager {
       ..write('|')
       ..write(room.seasonId ?? '')
       ..write('|')
-      ..write(room.seasonEndsAt ?? '');
+      ..write(room.seasonEndsAt ?? '')
+      ..write('|')
+      ..write(room.hostBoardRows)
+      ..write('|')
+      ..write(room.guestBoardRows);
 
     final roles = room.players.keys.toList()..sort();
     for (final role in roles) {
@@ -3593,6 +3808,16 @@ class MultiplayerManager {
         ..write(player.playerIconFrameId)
         ..write(':')
         ..write(player.ballSkinId)
+        ..write(':')
+        ..write(player.formationEffectId)
+        ..write(':')
+        ..write(player.ojamaEffectId)
+        ..write(':')
+        ..write(player.readySfxId)
+        ..write(':')
+        ..write(player.sfxSelectionIds.entries
+            .map((entry) => '${entry.key}=${entry.value}')
+            .join(','))
         ..write(':')
         ..write(player.badgeIds.join(','));
     }
@@ -4127,8 +4352,8 @@ class MultiplayerManager {
       await _db.child('rooms/$roomId').update({
         'seed': newSeed,
         'status': 'playing',
-        'players/host/status': 'waiting',
-        'players/guest/status': 'waiting',
+        'players/host/status': 'playing',
+        'players/guest/status': 'playing',
         'players/host/board': null,
         'players/guest/board': null,
         'players/host/activePiece': null,

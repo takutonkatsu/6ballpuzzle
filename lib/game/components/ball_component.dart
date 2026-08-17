@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../game_models.dart';
 
 extension BallColorExtension on BallColor {
@@ -86,9 +89,12 @@ class BallComponent extends PositionComponent {
     this.isGuideGhost = false,
     this.ballSkinId = 'default',
   }) : super(
-            position: position,
-            anchor: Anchor.center,
-            size: Vector2.all(radius * 2));
+          position: position,
+          anchor: Anchor.center,
+          size: Vector2.all(radius * 2),
+        ) {
+    _warmUpBallSkinImage(ballSkinId, ballColor);
+  }
 
   /// フォーメーション演出のコアフラッシュ（白く塗りつぶされる）
   void flashGlow() {
@@ -107,7 +113,7 @@ class BallComponent extends PositionComponent {
   @override
   void update(double dt) {
     super.update(dt);
-    if (ballSkinId == 'skin_luxury_prism') {
+    if (_isAnimatedBallSkin(ballSkinId)) {
       _skinEffectTime = (_skinEffectTime + dt) % 1000;
     }
 
@@ -217,15 +223,26 @@ class BallComponent extends PositionComponent {
       canvas.drawCircle(center, radius + 5, rimPaint2);
     }
 
-    drawCyberSphere(
+    final imageDrawn = _drawBallSkinImage(
       canvas,
       center,
       radius,
       ballColor,
+      ballSkinId,
       alpha: alpha,
-      skinId: ballSkinId,
-      effectTime: _skinEffectTime,
+      showOuterGlow: true,
     );
+    if (!imageDrawn) {
+      drawCyberSphere(
+        canvas,
+        center,
+        radius,
+        ballColor,
+        alpha: alpha,
+        skinId: ballSkinId,
+        effectTime: _skinEffectTime,
+      );
+    }
 
     if (glowIntensity > 0.3 && _flashIntensity < 0.5) {
       final ringPaint = Paint()
@@ -418,7 +435,229 @@ void drawCyberSphere(
       compact,
       effectTime,
     );
+  } else if (skinId.startsWith('skin_hexa_orbit_')) {
+    _drawHexaOrbitSkinDetails(
+      canvas,
+      center,
+      radius,
+      _hexaOrbitAccentFor(skinId, palette),
+      alpha,
+      compact,
+      effectTime,
+    );
   }
+}
+
+bool _isAnimatedBallSkin(String skinId) =>
+    skinId == 'skin_luxury_prism' || skinId.startsWith('skin_hexa_orbit_');
+
+const Set<String> _imageBallSkinIds = {
+  'skin_orbit',
+  'skin_arcade',
+  'skin_hexacore',
+  'skin_element',
+  'skin_cosmic',
+};
+
+final Map<String, ui.Image> _ballSkinImageCache = {};
+final Set<String> _ballSkinImageLoading = {};
+
+String _normalizedBallSkinId(String skinId) {
+  if (skinId.startsWith('skin_hexa_orbit_')) {
+    return 'skin_orbit';
+  }
+  return skinId;
+}
+
+String _ballColorAssetSuffix(BallColor color) => switch (color) {
+      BallColor.blue => 'blue',
+      BallColor.green => 'green',
+      BallColor.red => 'red',
+      BallColor.yellow => 'yellow',
+      BallColor.purple => 'purple',
+    };
+
+String? _ballSkinAssetPath(String skinId, BallColor color) {
+  final normalized = _normalizedBallSkinId(skinId);
+  final suffix = _ballColorAssetSuffix(color);
+  final prefix = switch (normalized) {
+    'skin_orbit' => 'ball_skin_hexa_orbit',
+    'skin_arcade' => 'ball_skin_arcade',
+    'skin_hexacore' => 'ball_hexacore',
+    'skin_element' => 'ball_element',
+    'skin_cosmic' => 'ball_cosmic',
+    _ => null,
+  };
+  if (prefix == null) {
+    return null;
+  }
+  return 'assets/images/BallSkins/${prefix}_$suffix.png';
+}
+
+void _warmUpBallSkinImage(String skinId, BallColor color) {
+  final assetPath = _ballSkinAssetPath(skinId, color);
+  if (assetPath == null ||
+      _ballSkinImageCache.containsKey(assetPath) ||
+      _ballSkinImageLoading.contains(assetPath)) {
+    return;
+  }
+  _ballSkinImageLoading.add(assetPath);
+  unawaited(() async {
+    try {
+      final data = await rootBundle.load(assetPath);
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List());
+      final frame = await codec.getNextFrame();
+      _ballSkinImageCache[assetPath] = frame.image;
+    } catch (_) {
+      // 画像読み込みに失敗した場合は標準描画へフォールバックする。
+    } finally {
+      _ballSkinImageLoading.remove(assetPath);
+    }
+  }());
+}
+
+bool _drawBallSkinImage(
+  Canvas canvas,
+  Offset center,
+  double radius,
+  BallColor color,
+  String skinId, {
+  double alpha = 1,
+  bool showOuterGlow = true,
+}) {
+  final normalized = _normalizedBallSkinId(skinId);
+  if (!_imageBallSkinIds.contains(normalized)) {
+    return false;
+  }
+  final assetPath = _ballSkinAssetPath(normalized, color);
+  if (assetPath == null) {
+    return false;
+  }
+  final image = _ballSkinImageCache[assetPath];
+  if (image == null) {
+    _warmUpBallSkinImage(normalized, color);
+    return false;
+  }
+  if (showOuterGlow) {
+    canvas.drawCircle(
+      center,
+      radius * 1.22,
+      Paint()
+        ..color = color.glowColor.withValues(alpha: 0.22 * alpha)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+    canvas.drawCircle(
+      center.translate(-radius * 0.24, -radius * 0.28),
+      radius * 0.54,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.12 * alpha)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
+  }
+  final src = Rect.fromLTWH(
+    0,
+    0,
+    image.width.toDouble(),
+    image.height.toDouble(),
+  );
+  final dst = Rect.fromCircle(center: center, radius: radius * 1.18);
+  canvas.drawImageRect(
+    image,
+    src,
+    dst,
+    Paint()
+      ..filterQuality = FilterQuality.high
+      ..color = Colors.white.withValues(alpha: alpha),
+  );
+  return true;
+}
+
+Color _hexaOrbitAccentFor(String skinId, _SpherePalette palette) {
+  if (skinId.endsWith('_red')) {
+    return const Color(0xFFFF4C55);
+  }
+  if (skinId.endsWith('_blue')) {
+    return const Color(0xFF38D8FF);
+  }
+  if (skinId.endsWith('_green')) {
+    return const Color(0xFF42FF9A);
+  }
+  if (skinId.endsWith('_purple')) {
+    return const Color(0xFFD85BFF);
+  }
+  if (skinId.endsWith('_yellow')) {
+    return const Color(0xFFFFE24A);
+  }
+  return palette.rim;
+}
+
+void _drawHexaOrbitSkinDetails(
+  Canvas canvas,
+  Offset center,
+  double radius,
+  Color accent,
+  double alpha,
+  bool compact,
+  double effectTime,
+) {
+  final orbitPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeCap = StrokeCap.round
+    ..strokeWidth = max(1.0, radius * (compact ? 0.065 : 0.08))
+    ..color = accent.withValues(alpha: 0.90 * alpha);
+  final glowPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = max(1.4, radius * 0.12)
+    ..color = accent.withValues(alpha: 0.24 * alpha)
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+
+  final orbitRect = Rect.fromCircle(center: center, radius: radius * 0.88);
+  canvas.save();
+  canvas.translate(center.dx, center.dy);
+  canvas.rotate(compact ? -0.28 : effectTime * 1.1 - 0.35);
+  canvas.translate(-center.dx, -center.dy);
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: center,
+      width: orbitRect.width * 1.10,
+      height: orbitRect.height * 0.48,
+    ),
+    glowPaint,
+  );
+  canvas.drawOval(
+    Rect.fromCenter(
+      center: center,
+      width: orbitRect.width * 1.10,
+      height: orbitRect.height * 0.48,
+    ),
+    orbitPaint,
+  );
+  canvas.restore();
+
+  final hexPaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = max(1.0, radius * (compact ? 0.045 : 0.055))
+    ..color = Colors.white.withValues(alpha: 0.48 * alpha);
+  final hexPath = Path();
+  for (var i = 0; i < 6; i++) {
+    final angle = -pi / 2 + i * pi / 3;
+    final point = Offset(
+      center.dx + cos(angle) * radius * 0.54,
+      center.dy + sin(angle) * radius * 0.54,
+    );
+    if (i == 0) {
+      hexPath.moveTo(point.dx, point.dy);
+    } else {
+      hexPath.lineTo(point.dx, point.dy);
+    }
+  }
+  hexPath.close();
+  canvas.drawPath(hexPath, hexPaint);
+
+  final corePaint = Paint()
+    ..color = accent.withValues(alpha: 0.80 * alpha)
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2);
+  canvas.drawCircle(center, radius * 0.12, corePaint);
 }
 
 void _drawFresnelRim(
@@ -752,15 +991,25 @@ class _MiniBallPainter extends CustomPainter {
     final r = canvasSize.width / 2;
     final center = Offset(r, r);
 
-    drawCyberSphere(
+    final imageDrawn = _drawBallSkinImage(
       canvas,
       center,
       r,
       ballColor,
-      compact: true,
+      ballSkinId,
       showOuterGlow: showOuterGlow,
-      skinId: ballSkinId,
     );
+    if (!imageDrawn) {
+      drawCyberSphere(
+        canvas,
+        center,
+        r,
+        ballColor,
+        compact: true,
+        showOuterGlow: showOuterGlow,
+        skinId: ballSkinId,
+      );
+    }
   }
 
   @override

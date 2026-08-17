@@ -4,6 +4,7 @@ import 'package:flame/effects.dart';
 import 'package:flutter/material.dart';
 import '../puzzle_game.dart';
 import '../game_models.dart';
+import '../effect_skin.dart';
 import 'ball_component.dart';
 
 class OjamaBlockComponent extends PositionComponent
@@ -160,7 +161,7 @@ class OjamaBlockComponent extends PositionComponent
   @override
   void update(double dt) {
     super.update(dt);
-    if (effectSkinId == 'skin_luxury_prism') {
+    if (_usesCustomEffect) {
       _effectTime = (_effectTime + dt) % 1000;
     }
     if (game.gameStateWrapper.value != GameState.playing) return;
@@ -186,10 +187,159 @@ class OjamaBlockComponent extends PositionComponent
 
   @override
   void render(Canvas canvas) {
-    if (effectSkinId == 'skin_luxury_prism' && innerBalls.isNotEmpty) {
-      _drawPrismOjamaAura(canvas);
+    if (_usesCustomEffect && innerBalls.isNotEmpty) {
+      _drawOjamaAura(canvas);
     }
     super.render(canvas);
+    if (_usesCustomEffect && innerBalls.isNotEmpty) {
+      _drawOjamaForegroundEffect(canvas);
+    }
+  }
+
+  bool get _usesCustomEffect =>
+      effectSkinId == 'skin_luxury_prism' ||
+      effectSkinId != EffectSkinCatalog.defaultOjamaId &&
+          effectSkinId.startsWith('effect_ojama_');
+
+  void _drawOjamaAura(Canvas canvas) {
+    if (effectSkinId == 'skin_luxury_prism') {
+      _drawPrismOjamaAura(canvas);
+      return;
+    }
+    final bounds = _innerBallBounds();
+    final skin = EffectSkinCatalog.byId(effectSkinId);
+    final pulse = (sin(_effectTime * 5.0) + 1) * 0.5;
+    final glowPaint = Paint()
+      ..color = skin.color.withValues(alpha: 0.16 + pulse * 0.08)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+          bounds.inflate(14 + pulse * 4), const Radius.circular(22)),
+      glowPaint,
+    );
+
+    final strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..color = skin.color.withValues(alpha: 0.72);
+    if (effectSkinId == 'effect_ojama_meteor') {
+      final heatPaint = Paint()
+        ..color = const Color(0xFFFF8A2A).withValues(alpha: 0.18 + pulse * 0.1)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+      canvas.drawOval(bounds.inflate(24 + pulse * 8), heatPaint);
+      return;
+    }
+    if (effectSkinId == 'effect_ojama_thunder') {
+      for (var i = 0; i < 3; i++) {
+        final y = bounds.top + (i + 1) * bounds.height / 4;
+        final shift = sin(_effectTime * 9 + i) * 8;
+        final path = Path()
+          ..moveTo(bounds.left - 10, y)
+          ..lineTo(bounds.center.dx - 12 + shift, y + 8)
+          ..lineTo(bounds.center.dx + 10 - shift, y - 6)
+          ..lineTo(bounds.right + 10, y + 4);
+        canvas.drawPath(path, strokePaint);
+      }
+      return;
+    }
+
+    if (effectSkinId == 'effect_ojama_crystal') {
+      final crystalPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..strokeCap = StrokeCap.round
+        ..color = const Color(0xFFA7F7FF).withValues(alpha: 0.64)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+      for (var i = 0; i < innerBalls.length; i++) {
+        final center =
+            Offset(innerBalls[i].position.x, innerBalls[i].position.y);
+        final r = innerBalls[i].radius + 5 + pulse * 3;
+        final path = Path()
+          ..moveTo(center.dx, center.dy - r)
+          ..lineTo(center.dx + r * 0.75, center.dy)
+          ..lineTo(center.dx, center.dy + r)
+          ..lineTo(center.dx - r * 0.75, center.dy)
+          ..close();
+        canvas.drawPath(path, crystalPaint);
+      }
+    }
+  }
+
+  void _drawOjamaForegroundEffect(Canvas canvas) {
+    if (effectSkinId == 'skin_luxury_prism') {
+      return;
+    }
+    final bounds = _innerBallBounds();
+    final skin = EffectSkinCatalog.byId(effectSkinId);
+    final pulse = (sin(_effectTime * 7.0) + 1) * 0.5;
+    if (effectSkinId == 'effect_ojama_meteor') {
+      final emberPaint = Paint()
+        ..color = const Color(0xFFFFE082).withValues(alpha: 0.72)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+      for (var i = 0; i < innerBalls.length; i++) {
+        final center =
+            Offset(innerBalls[i].position.x, innerBalls[i].position.y);
+        final angle = _effectTime * 4.2 + i * 1.7;
+        canvas.drawCircle(
+          center + Offset(cos(angle), sin(angle)) * (innerBalls[i].radius + 5),
+          2.2 + pulse * 1.4,
+          emberPaint,
+        );
+      }
+      return;
+    }
+    if (effectSkinId == 'effect_ojama_thunder') {
+      final boltPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.4
+        ..strokeCap = StrokeCap.round
+        ..color = const Color(0xFFFFF59D).withValues(alpha: 0.90)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.5);
+      for (var i = 0; i < 2; i++) {
+        final x = bounds.left + bounds.width * (i + 1) / 3;
+        final phase = sin(_effectTime * 11 + i) * 6;
+        final path = Path()
+          ..moveTo(x - 14, bounds.top - 4)
+          ..lineTo(x + phase, bounds.center.dy - 8)
+          ..lineTo(x - phase * 0.5, bounds.center.dy + 4)
+          ..lineTo(x + 15, bounds.bottom + 4);
+        canvas.drawPath(path, boltPaint);
+      }
+      return;
+    }
+    if (effectSkinId == 'effect_ojama_crystal') {
+      final shardPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round
+        ..color = const Color(0xFFE0FBFF).withValues(alpha: 0.82);
+      final glintPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.8
+        ..strokeCap = StrokeCap.round
+        ..color = skin.color.withValues(alpha: 0.66)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2);
+      for (var i = 0; i < innerBalls.length; i++) {
+        final center =
+            Offset(innerBalls[i].position.x, innerBalls[i].position.y);
+        final r = innerBalls[i].radius + 4 + pulse * 2;
+        final path = Path()
+          ..moveTo(center.dx, center.dy - r)
+          ..lineTo(center.dx + r * 0.68, center.dy)
+          ..lineTo(center.dx, center.dy + r)
+          ..lineTo(center.dx - r * 0.68, center.dy)
+          ..close();
+        canvas.drawPath(path, shardPaint);
+        if (i.isEven) {
+          canvas.drawLine(
+            center + Offset(-r * 0.45, -r * 0.45),
+            center + Offset(r * 0.45, r * 0.45),
+            glintPaint,
+          );
+        }
+      }
+    }
   }
 
   void _drawPrismOjamaAura(Canvas canvas) {

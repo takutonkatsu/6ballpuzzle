@@ -24,7 +24,7 @@ class RankedInterstitialDebtManager {
   Future<bool> hasPending({
     InterstitialDebtKind kind = InterstitialDebtKind.rankedHuman,
   }) async {
-    if (AppSettings.instance.adsRemoved.value ||
+    if (AppSettings.instance.adRemovalBenefitsEnabled ||
         AppSettings.instance.isInterstitialSkipActive) {
       return false;
     }
@@ -44,7 +44,7 @@ class RankedInterstitialDebtManager {
 
   Future<void> recordMatchCompleted(InterstitialDebtKind kind) async {
     final prefs = await SharedPreferences.getInstance();
-    if (AppSettings.instance.adsRemoved.value) {
+    if (AppSettings.instance.adRemovalBenefitsEnabled) {
       await clearPending(kind: kind);
       await prefs.remove(_completedCountKeyFor(kind));
       return;

@@ -730,6 +730,11 @@ class _RankingScreenState extends State<RankingScreen> {
       _RankingTab.dailyWins => '報酬対象: 10位まで',
       _RankingTab.endless => '報酬対象: 50位まで',
     };
+    final rewardDeadlineLine = switch (_selectedTab) {
+      _RankingTab.currentSeason => '受け取り期限: 次回シーズン切替まで',
+      _RankingTab.dailyWins => '受け取り期限: 翌日24:00 JST',
+      _RankingTab.endless => '受け取り期限: 次回週間切替まで',
+    };
     final primaryLabel = switch (_selectedTab) {
       _RankingTab.currentSeason => 'シーズンレート',
       _RankingTab.dailyWins => '今日のランク戦勝利数',
@@ -782,6 +787,19 @@ class _RankingScreenState extends State<RankingScreen> {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+                if (rewardDeadlineLine.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    rewardDeadlineLine,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.64),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1387,6 +1405,11 @@ class _RankingScreenState extends State<RankingScreen> {
         ),
         const Spacer(),
         _buildFooterActionButton(
+          label: '先週のランキング',
+          onTap: _showPreviousEndlessRankingDialog,
+        ),
+        const SizedBox(width: 8),
+        _buildFooterActionButton(
           label: '全期間ランキング',
           onTap: _showAllTimeEndlessRankingDialog,
         ),
@@ -1709,27 +1732,45 @@ class _RankingScreenState extends State<RankingScreen> {
             width: 390,
             child: SizedBox(
               height: 420,
-              child: entries.isEmpty
-                  ? Center(
-                      child: Text(
-                        '$dateLabel のランキングデータがありません',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: entries.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final entry = entries[index];
-                        return _buildRankingRow(
-                          entry,
-                          _displayDailyRankForEntries(entries, index),
-                          _isCurrentPlayer(entry),
-                          tab: _RankingTab.dailyWins,
-                        );
-                      },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    '報酬受け取り期限: 翌日24:00 JST',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: GameThemeColors.rankedText.withValues(alpha: 0.9),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
                     ),
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: entries.isEmpty
+                        ? Center(
+                            child: Text(
+                              '$dateLabel のランキングデータがありません',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: entries.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final entry = entries[index];
+                              return _buildRankingRow(
+                                entry,
+                                _displayDailyRankForEntries(entries, index),
+                                _isCurrentPlayer(entry),
+                                tab: _RankingTab.dailyWins,
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
             ),
             actions: [
               _buildSeasonDialogButton(
@@ -1778,6 +1819,85 @@ class _RankingScreenState extends State<RankingScreen> {
                           _displayEndlessRankForEntries(entries, index),
                         );
                       },
+                    ),
+            ),
+            actions: [
+              _buildSeasonDialogButton(
+                label: '閉じる',
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showPreviousEndlessRankingDialog() async {
+    final nowJst = await ServerTimeManager.instance.nowJst();
+    final currentSeasonId =
+        EndlessSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+    final previousSeasonId =
+        EndlessSeasonManager.previousSeasonId(currentSeasonId);
+    final entries = previousSeasonId.isEmpty
+        ? const <RankingEntry>[]
+        : await _rankingManager
+            .fetchEndlessSeasonRankings(previousSeasonId)
+            .timeout(_rankingOperationTimeout);
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: _buildSeasonDialogFrame(
+            title: '先週のランキング',
+            width: 390,
+            child: SizedBox(
+              height: 420,
+              child: entries.isEmpty
+                  ? Center(
+                      child: Text(
+                        previousSeasonId.isEmpty
+                            ? 'ランキングデータがありません'
+                            : '${_endlessWeekLabel(previousSeasonId)} のランキングデータがありません',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          _endlessWeekLabel(previousSeasonId),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color:
+                                GameThemeColors.endless.withValues(alpha: 0.9),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: entries.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final entry = entries[index];
+                              return _buildCompactEndlessRankingRow(
+                                entry,
+                                _displayEndlessRankForEntries(entries, index),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
             ),
             actions: [

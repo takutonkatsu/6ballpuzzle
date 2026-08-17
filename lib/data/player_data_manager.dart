@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_manager.dart';
 import '../app_settings.dart';
+import '../audio/audio_selection_manager.dart';
+import '../game/effect_skin.dart';
 import '../game/mission_catalog.dart';
 import '../moderation/moderation_manager.dart';
 import '../network/ranked_season_manager.dart';
@@ -23,6 +25,7 @@ class ItemGrantResult {
     required this.leveledUp,
     required this.convertedToScrap,
     required this.cyberScrapAdded,
+    required this.collectionMedalsAdded,
   });
 
   final GameItem item;
@@ -30,6 +33,7 @@ class ItemGrantResult {
   final bool leveledUp;
   final bool convertedToScrap;
   final int cyberScrapAdded;
+  final int collectionMedalsAdded;
 }
 
 class MatchHistoryEntry {
@@ -147,6 +151,7 @@ class PlayerDataManager {
   static const String _expKey = 'player_exp';
   static const String _gachaTicketsKey = 'player_gacha_tickets';
   static const String _cyberScrapKey = 'player_cyber_scrap';
+  static const String _collectionMedalsKey = 'player_collection_medals';
   static const String _itemsKey = 'player_owned_items_json';
   static const String _lastDailyResetKey = 'player_last_daily_reset';
   static const String _currentMissionsKey = 'player_current_missions_json';
@@ -173,9 +178,15 @@ class PlayerDataManager {
       'player_pending_ranked_season_result_log';
   static const String _currentRatingKey = 'player_current_rating';
   static const String _equippedBallSkinIdKey = 'player_equipped_ball_skin_id';
+  static const String _equippedFormationEffectIdKey =
+      'player_equipped_formation_effect_id';
+  static const String _equippedOjamaEffectIdKey =
+      'player_equipped_ojama_effect_id';
   static const String _equippedPlayerIconIdKey =
       'player_equipped_player_icon_id';
   static const String _equippedIconFrameIdKey = 'player_equipped_icon_frame_id';
+  static const String _equippedProfileBannerIdKey =
+      'player_equipped_profile_banner_id';
   static const String _highestRatingKey = 'player_highest_rating';
   static const String _maxArenaWinsKey = 'player_max_arena_wins';
   static const String _arenaChallengeCountKey = 'player_arena_challenge_count';
@@ -250,7 +261,6 @@ class PlayerDataManager {
   static const int _recordSummarySchemaVersion = 4;
   static const int _currentInventoryRevision = 4;
   static const int _currentRecordResetVersion = 1;
-  static const int _debugBuildCoins = 1000000;
 
   final Random _random = Random();
   bool _loaded = false;
@@ -259,6 +269,7 @@ class PlayerDataManager {
   int _exp = 0;
   int _gachaTickets = 0;
   int _cyberScrap = 0;
+  int _collectionMedals = 0;
   List<GameItem> _ownedItems = [];
   String _lastDailyReset = '';
   List<Map<String, dynamic>> _currentMissions = [];
@@ -279,8 +290,11 @@ class PlayerDataManager {
   int _seasonRankedMaxWinStreak = 0;
   int _currentRating = 1000;
   String _equippedBallSkinId = 'default';
+  String _equippedFormationEffectId = EffectSkinCatalog.defaultFormationId;
+  String _equippedOjamaEffectId = EffectSkinCatalog.defaultOjamaId;
   String _equippedPlayerIconId = 'default';
   String _equippedIconFrameId = 'default';
+  String _equippedProfileBannerId = 'default';
   int _highestRating = 1000;
   int _maxArenaWins = 0;
   int _arenaChallengeCount = 0;
@@ -383,8 +397,12 @@ class PlayerDataManager {
   int get seasonRankedMaxWinStreak => _seasonRankedMaxWinStreak;
   int get currentRating => _currentRating;
   String get equippedBallSkinId => _equippedBallSkinId;
+  String get equippedFormationEffectId => _equippedFormationEffectId;
+  String get equippedOjamaEffectId => _equippedOjamaEffectId;
   String get equippedPlayerIconId => _equippedPlayerIconId;
   String get equippedIconFrameId => _equippedIconFrameId;
+  String get equippedProfileBannerId => _equippedProfileBannerId;
+  int get collectionMedals => _collectionMedals;
   int get highestRating => _highestRating;
   int get maxArenaWins => _maxArenaWins;
   int get arenaChallengeCount => _arenaChallengeCount;
@@ -404,6 +422,7 @@ class PlayerDataManager {
   int get rankedWins => _rankedWins;
   int get rankedCurrentWinStreak => _rankedCurrentWinStreak;
   int get rankedMaxWinStreak => _rankedMaxWinStreak;
+  int get todayRankedWins => _todayRankedWins;
   int get bestRankedRank => _bestRankedRank;
   Map<String, int> get dailyWinRankPlacements =>
       Map.unmodifiable(_dailyWinRankPlacements);
@@ -451,6 +470,7 @@ class PlayerDataManager {
     _exp = prefs.getInt(_expKey) ?? 0;
     _gachaTickets = prefs.getInt(_gachaTicketsKey) ?? 0;
     _cyberScrap = prefs.getInt(_cyberScrapKey) ?? 0;
+    _collectionMedals = max(0, prefs.getInt(_collectionMedalsKey) ?? 0);
     _lastDailyReset = prefs.getString(_lastDailyResetKey) ?? '';
 
     final rawItems = prefs.getString(_itemsKey);
@@ -525,10 +545,17 @@ class PlayerDataManager {
       _currentRating,
     );
     _equippedBallSkinId = prefs.getString(_equippedBallSkinIdKey) ?? 'default';
+    _equippedFormationEffectId =
+        prefs.getString(_equippedFormationEffectIdKey) ??
+            EffectSkinCatalog.defaultFormationId;
+    _equippedOjamaEffectId = prefs.getString(_equippedOjamaEffectIdKey) ??
+        EffectSkinCatalog.defaultOjamaId;
     _equippedPlayerIconId =
         prefs.getString(_equippedPlayerIconIdKey) ?? 'default';
     _equippedIconFrameId =
         prefs.getString(_equippedIconFrameIdKey) ?? 'default';
+    _equippedProfileBannerId =
+        prefs.getString(_equippedProfileBannerIdKey) ?? 'default';
 
     final createdAtRaw = prefs.getString(_accountCreatedAtKey);
     final parsedCreatedAt = DateTime.tryParse(createdAtRaw ?? '');
@@ -642,6 +669,10 @@ class PlayerDataManager {
     }
 
     _loaded = true;
+    await AudioSelectionManager.setOwnedAudioItemIds(
+      _ownedItems.where((item) => item.isAudio).map((item) => item.id),
+    );
+    await AudioSelectionManager.restrictSelectionsForPlayer(displayPlayerName);
 
     if (await _claimAdminGrants(uid)) {
       shouldSaveProfile = true;
@@ -690,6 +721,14 @@ class PlayerDataManager {
       _equippedBallSkinId = 'default';
       shouldSaveProfile = true;
     }
+    if (!EffectSkinCatalog.isFormation(_equippedFormationEffectId)) {
+      _equippedFormationEffectId = EffectSkinCatalog.defaultFormationId;
+      shouldSaveProfile = true;
+    }
+    if (!EffectSkinCatalog.isOjama(_equippedOjamaEffectId)) {
+      _equippedOjamaEffectId = EffectSkinCatalog.defaultOjamaId;
+      shouldSaveProfile = true;
+    }
     if (!_ownsEquippableItem(_equippedPlayerIconId, ItemType.icon)) {
       _equippedPlayerIconId = 'default';
       shouldSaveProfile = true;
@@ -698,11 +737,11 @@ class PlayerDataManager {
       _equippedIconFrameId = 'default';
       shouldSaveProfile = true;
     }
-
-    if (_debugControlsEnabled && _coins != _debugBuildCoins) {
-      _coins = _debugBuildCoins;
-      await _saveEconomy();
+    if (!_ownsEquippableItem(_equippedProfileBannerId, ItemType.banner)) {
+      _equippedProfileBannerId = 'default';
+      shouldSaveProfile = true;
     }
+
     if (shouldSaveItems || inventoryRevision < _currentInventoryRevision) {
       await _saveItems();
       await prefs.setInt(_inventoryRevisionKey, _currentInventoryRevision);
@@ -731,6 +770,7 @@ class PlayerDataManager {
       var totalCoins = 0;
       final rewardLogs = <String>[];
       final processedGrantIds = <String>[];
+      final claimedGrantLogs = <Map<String, Object?>>[];
       var completedOwnInvite = false;
       var grantedAdRemoval = false;
       var grantedItem = false;
@@ -748,6 +788,13 @@ class PlayerDataManager {
           final message =
               grant['message']?.toString().trim() ?? '広告削除を有効にしました。';
           rewardLogs.add('$title\n$message');
+          claimedGrantLogs.add(_claimedAdminGrantLog(
+            grantId: grantId,
+            grantType: grantType,
+            title: title,
+            message: message,
+            coins: 0,
+          ));
           continue;
         }
         if (grantType == 'item') {
@@ -765,6 +812,13 @@ class PlayerDataManager {
           final message =
               grant['message']?.toString().trim() ?? '${item.name}を受け取りました。';
           rewardLogs.add('$title\n$message');
+          claimedGrantLogs.add(_claimedAdminGrantLog(
+            grantId: grantId,
+            grantType: grantType,
+            title: title,
+            message: message,
+            coins: 0,
+          ));
           continue;
         }
         if (grantType == 'items') {
@@ -798,6 +852,13 @@ class PlayerDataManager {
           final message =
               grant['message']?.toString().trim() ?? 'アイテムを受け取りました。';
           rewardLogs.add('$title\n$message');
+          claimedGrantLogs.add(_claimedAdminGrantLog(
+            grantId: grantId,
+            grantType: grantType,
+            title: title,
+            message: message,
+            coins: 0,
+          ));
           continue;
         }
         final coins = _intValue(grant['coins']);
@@ -810,7 +871,8 @@ class PlayerDataManager {
           completedOwnInvite = true;
         }
         final title = grant['title']?.toString().trim() ?? '';
-        final message = grant['message']?.toString().trim() ?? '';
+        final rawMessage = grant['message']?.toString().trim() ?? '';
+        final message = _claimedAdminGrantDisplayMessage(rawMessage);
         if (title.isNotEmpty || message.isNotEmpty) {
           rewardLogs.add([
             if (title.isNotEmpty) title,
@@ -820,6 +882,13 @@ class PlayerDataManager {
         } else {
           rewardLogs.add('$coinsコインを受け取りました。');
         }
+        claimedGrantLogs.add(_claimedAdminGrantLog(
+          grantId: grantId,
+          grantType: grantType,
+          title: title,
+          message: message,
+          coins: coins,
+        ));
       }
 
       if ((totalCoins <= 0 && !grantedAdRemoval && !grantedItem) ||
@@ -840,6 +909,10 @@ class PlayerDataManager {
       await grantsRef.update({
         for (final grantId in processedGrantIds) grantId: null,
       });
+      unawaited(_writeClaimedAdminGrantLogs(
+        uid: uid,
+        claimedGrantLogs: claimedGrantLogs,
+      ));
       await _storePendingAdminGrantLogs(rewardLogs);
       if (completedOwnInvite) {
         await InviteManager.instance.markCompletedLocally();
@@ -847,6 +920,59 @@ class PlayerDataManager {
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  String _claimedAdminGrantDisplayMessage(String message) {
+    if (message.isEmpty) {
+      return message;
+    }
+    return message
+        .replaceAll('コインを受け取れます。', 'コインを受け取りました。')
+        .replaceAll('コインを受け取れます', 'コインを受け取りました');
+  }
+
+  Map<String, Object?> _claimedAdminGrantLog({
+    required String grantId,
+    required String grantType,
+    required String title,
+    required String message,
+    required int coins,
+  }) {
+    return {
+      'grantId': grantId,
+      'type': grantType.isEmpty ? 'coin' : grantType,
+      if (title.isNotEmpty) 'title': title,
+      if (message.isNotEmpty) 'message': message,
+      if (coins > 0) 'coins': coins,
+      'claimedAt': ServerValue.timestamp,
+      'claimedAtText': DateTime.now().toIso8601String(),
+    };
+  }
+
+  Future<void> _writeClaimedAdminGrantLogs({
+    required String uid,
+    required List<Map<String, Object?>> claimedGrantLogs,
+  }) async {
+    if (claimedGrantLogs.isEmpty) {
+      return;
+    }
+    try {
+      final updates = <String, Object?>{};
+      for (final log in claimedGrantLogs) {
+        final grantId = log['grantId']?.toString().trim() ?? '';
+        if (grantId.isEmpty) {
+          continue;
+        }
+        updates['claimedAdminGrants/$uid/$grantId'] = log;
+      }
+      if (updates.isNotEmpty) {
+        await AppFirebaseDatabase.ref()
+            .update(updates)
+            .timeout(const Duration(seconds: 3));
+      }
+    } catch (_) {
+      // 受取済みログの保存失敗で報酬付与自体は巻き戻さない。
     }
   }
 
@@ -899,15 +1025,15 @@ class PlayerDataManager {
         missionIds.any(MissionCatalog.isRewardedAdMissionId);
     final hasRetiredLoginMission =
         missionIds.any(MissionCatalog.isLoginRewardMissionId);
-    final hasRequiredEndlessMission =
-        missionIds.contains(MissionCatalog.requiredEndlessMissionId);
+    final hasRequiredDailyMission =
+        missionIds.contains(MissionCatalog.requiredDailyMissionId);
     final hasTemporarilyDisabledMissions =
         missionIds.any(MissionCatalog.isTemporarilyDisabledMissionId);
 
     if (_lastDailyReset != today ||
         _currentMissions.length != 4 ||
         !hasSpecialDailyMission ||
-        !hasRequiredEndlessMission ||
+        !hasRequiredDailyMission ||
         hasRetiredLoginMission ||
         hasTemporarilyDisabledMissions ||
         _dailyShopItems.length != 3) {
@@ -1031,6 +1157,27 @@ class PlayerDataManager {
     await _saveEconomy();
   }
 
+  Future<void> addCollectionMedals(int amount) async {
+    await load();
+    if (amount <= 0) {
+      return;
+    }
+    _collectionMedals += amount;
+    await _saveEconomy();
+  }
+
+  Future<void> spendCollectionMedals(int amount) async {
+    await load();
+    if (amount <= 0) {
+      return;
+    }
+    if (_collectionMedals < amount) {
+      throw StateError('コレクションメダルが不足しています。');
+    }
+    _collectionMedals -= amount;
+    await _saveEconomy();
+  }
+
   Future<ItemGrantResult> addOrUpgradeItem(GameItem item) async {
     await load();
 
@@ -1039,9 +1186,39 @@ class PlayerDataManager {
     );
 
     if (existingIndex == -1) {
+      if (_isImplicitlyUnlockedCollectionItem(item)) {
+        final storedItem = item.isStamp ? item.copyWith(level: 1) : item;
+        _ownedItems.add(storedItem);
+        final medalReward = _collectionMedalsForDuplicate(storedItem);
+        _collectionMedals += medalReward;
+        await _saveEconomy();
+        await _saveItems();
+        if (storedItem.isAudio) {
+          await AudioSelectionManager.setOwnedAudioItemIds(
+            _ownedItems.where((ownedItem) => ownedItem.isAudio).map(
+                  (ownedItem) => ownedItem.id,
+                ),
+          );
+        }
+        return ItemGrantResult(
+          item: storedItem,
+          isDuplicate: true,
+          leveledUp: false,
+          convertedToScrap: false,
+          cyberScrapAdded: 0,
+          collectionMedalsAdded: medalReward,
+        );
+      }
       final storedItem = item.isStamp ? item.copyWith(level: 1) : item;
       _ownedItems.add(storedItem);
       await _saveItems();
+      if (storedItem.isAudio) {
+        await AudioSelectionManager.setOwnedAudioItemIds(
+          _ownedItems.where((ownedItem) => ownedItem.isAudio).map(
+                (ownedItem) => ownedItem.id,
+              ),
+        );
+      }
       await _markCollectionItemUnseen(storedItem.id);
       return ItemGrantResult(
         item: storedItem,
@@ -1049,6 +1226,7 @@ class PlayerDataManager {
         leveledUp: false,
         convertedToScrap: false,
         cyberScrapAdded: 0,
+        collectionMedalsAdded: 0,
       );
     }
 
@@ -1063,9 +1241,13 @@ class PlayerDataManager {
         leveledUp: true,
         convertedToScrap: false,
         cyberScrapAdded: 0,
+        collectionMedalsAdded: 0,
       );
     }
 
+    final medalReward = _collectionMedalsForDuplicate(existing);
+    _collectionMedals += medalReward;
+    await _saveEconomy();
     await _saveItems();
     return ItemGrantResult(
       item: existing,
@@ -1073,7 +1255,43 @@ class PlayerDataManager {
       leveledUp: false,
       convertedToScrap: false,
       cyberScrapAdded: 0,
+      collectionMedalsAdded: medalReward,
     );
+  }
+
+  bool _isImplicitlyUnlockedCollectionItem(GameItem item) {
+    if (item.isAudio) {
+      return AudioSelectionManager.isAudioUnlocked(
+        playerName: displayPlayerName,
+        itemId: item.id,
+      );
+    }
+    if (item.isEffect) {
+      return _ownsEffectSkin(item.id);
+    }
+    if (item.isIcon || item.isFrame || item.isBanner || item.isSkin) {
+      return _ownsEquippableItem(item.id, item.type);
+    }
+    return false;
+  }
+
+  int _collectionMedalsForDuplicate(GameItem item) {
+    if (item.rarity == ItemRarity.legendary || item.colorName == 'rainbow') {
+      return 100;
+    }
+    switch (item.type) {
+      case ItemType.stamp:
+        return 5;
+      case ItemType.icon:
+      case ItemType.frame:
+      case ItemType.banner:
+        return 10;
+      case ItemType.vfx:
+      case ItemType.audio:
+        return 50;
+      case ItemType.skin:
+        return 100;
+    }
   }
 
   Future<void> saveCurrentMissions(List<Map<String, dynamic>> missions) async {
@@ -1249,11 +1467,43 @@ class PlayerDataManager {
 
   Future<void> setEquippedBallSkinId(String skinId) async {
     await load();
-    final normalized = skinId.trim().isEmpty ? 'default' : skinId.trim();
+    final normalized = _normalizeBallSkinId(skinId);
     if (!_ownsEquippableItem(normalized, ItemType.skin)) {
       return;
     }
     _equippedBallSkinId = normalized;
+    await _savePublicProfile();
+    await _syncRecordSummarySafely(force: true);
+  }
+
+  Future<void> setEquippedFormationEffectId(String effectId) async {
+    await load();
+    final normalized = effectId.trim().isEmpty
+        ? EffectSkinCatalog.defaultFormationId
+        : effectId.trim();
+    if (!EffectSkinCatalog.isFormation(normalized)) {
+      return;
+    }
+    if (!_ownsEffectSkin(normalized)) {
+      return;
+    }
+    _equippedFormationEffectId = normalized;
+    await _savePublicProfile();
+    await _syncRecordSummarySafely(force: true);
+  }
+
+  Future<void> setEquippedOjamaEffectId(String effectId) async {
+    await load();
+    final normalized = effectId.trim().isEmpty
+        ? EffectSkinCatalog.defaultOjamaId
+        : effectId.trim();
+    if (!EffectSkinCatalog.isOjama(normalized)) {
+      return;
+    }
+    if (!_ownsEffectSkin(normalized)) {
+      return;
+    }
+    _equippedOjamaEffectId = normalized;
     await _savePublicProfile();
     await _syncRecordSummarySafely(force: true);
   }
@@ -1276,6 +1526,17 @@ class PlayerDataManager {
       return;
     }
     _equippedIconFrameId = normalized;
+    await _savePublicProfile();
+    await _syncRecordSummarySafely(force: true);
+  }
+
+  Future<void> setEquippedProfileBannerId(String bannerId) async {
+    await load();
+    final normalized = bannerId.trim().isEmpty ? 'default' : bannerId.trim();
+    if (!_ownsEquippableItem(normalized, ItemType.banner)) {
+      return;
+    }
+    _equippedProfileBannerId = normalized;
     await _savePublicProfile();
     await _syncRecordSummarySafely(force: true);
   }
@@ -1796,27 +2057,25 @@ class PlayerDataManager {
       }
     }
 
+    final remoteSeasonWins = currentSeasonWins ?? 0;
+    final remoteSeasonLosses = currentSeasonLosses ?? 0;
+    final remoteSeasonRating = currentSeasonRating ?? 1000;
+    final canUseCurrentSeasonRecord = hasCurrentSeasonRecord &&
+        _isPlausibleRankedSeasonRating(
+          rating: remoteSeasonRating,
+          wins: remoteSeasonWins,
+          losses: remoteSeasonLosses,
+        );
+
     _rankedSeasonId = currentSeasonId;
-    _seasonRankedWins = shouldResetFromPreviousSeason
-        ? 0
-        : hasCurrentSeasonRecord
-            ? (currentSeasonWins ?? 0)
-            : 0;
-    _seasonRankedLosses = shouldResetFromPreviousSeason
-        ? 0
-        : hasCurrentSeasonRecord
-            ? (currentSeasonLosses ?? 0)
-            : 0;
+    _seasonRankedWins = canUseCurrentSeasonRecord ? remoteSeasonWins : 0;
+    _seasonRankedLosses = canUseCurrentSeasonRecord ? remoteSeasonLosses : 0;
     _seasonRankedMaxWinStreak = 0;
     _rankedCurrentWinStreak =
-        shouldResetFromPreviousSeason || !hasCurrentSeasonRecord
+        shouldResetFromPreviousSeason || !canUseCurrentSeasonRecord
             ? 0
             : _rankedCurrentWinStreak;
-    _currentRating = shouldResetFromPreviousSeason
-        ? 1000
-        : hasCurrentSeasonRecord
-            ? (currentSeasonRating ?? 1000)
-            : 1000;
+    _currentRating = canUseCurrentSeasonRecord ? remoteSeasonRating : 1000;
     _highestRating = max(_highestRating, _currentRating);
     await _savePublicProfile();
     await _saveStats();
@@ -2001,6 +2260,7 @@ class PlayerDataManager {
       'collection': {
         'equippedPlayerIconId': collection['equippedPlayerIconId'],
         'equippedIconFrameId': collection['equippedIconFrameId'],
+        'equippedProfileBannerId': collection['equippedProfileBannerId'],
         'equippedBadgeIds': collection['equippedBadgeIds'],
         'unlockedBadgeIds': collection['unlockedBadgeIds'],
         'seasonRankBadges': collection['seasonRankBadges'],
@@ -2119,6 +2379,7 @@ class PlayerDataManager {
     await prefs.setInt(_expKey, _exp);
     await prefs.setInt(_gachaTicketsKey, _gachaTickets);
     await prefs.setInt(_cyberScrapKey, _cyberScrap);
+    await prefs.setInt(_collectionMedalsKey, _collectionMedals);
     _syncRecordSummaryInBackground();
   }
 
@@ -2151,8 +2412,17 @@ class PlayerDataManager {
     await prefs.setString(_equippedBadgeIdsKey, jsonEncode(_equippedBadgeIds));
     await prefs.setInt(_currentRatingKey, _currentRating);
     await prefs.setString(_equippedBallSkinIdKey, _equippedBallSkinId);
+    await prefs.setString(
+      _equippedFormationEffectIdKey,
+      _equippedFormationEffectId,
+    );
+    await prefs.setString(_equippedOjamaEffectIdKey, _equippedOjamaEffectId);
     await prefs.setString(_equippedPlayerIconIdKey, _equippedPlayerIconId);
     await prefs.setString(_equippedIconFrameIdKey, _equippedIconFrameId);
+    await prefs.setString(
+      _equippedProfileBannerIdKey,
+      _equippedProfileBannerId,
+    );
   }
 
   Future<void> _saveStats() async {
@@ -2330,18 +2600,18 @@ class PlayerDataManager {
     final rewardedMission = activeDailyPool.firstWhere(
       (mission) => mission.id == MissionCatalog.rewardedAdMissionIds.first,
     );
-    final endlessMission = activeDailyPool.firstWhere(
-      (mission) => mission.id == MissionCatalog.requiredEndlessMissionId,
+    final dailyMission = activeDailyPool.firstWhere(
+      (mission) => mission.id == MissionCatalog.requiredDailyMissionId,
     );
     final pool = activeDailyPool
         .where((mission) =>
             !MissionCatalog.isRewardedAdMissionId(mission.id) &&
-            mission.id != MissionCatalog.requiredEndlessMissionId)
+            mission.id != MissionCatalog.requiredDailyMissionId)
         .toList()
       ..shuffle(_random);
     return [
       rewardedMission.toMissionMap(),
-      endlessMission.toMissionMap(),
+      dailyMission.toMissionMap(),
       ...pool.take(2).map((mission) => mission.toMissionMap()),
     ];
   }
@@ -2405,25 +2675,47 @@ class PlayerDataManager {
 
   bool _removeRetiredCollectionItems() {
     var changed = false;
-    final filteredItems =
-        _ownedItems.where((item) => item.id != retiredPrismSkinId).toList();
+    final allowAllCollections =
+        displayPlayerName == AudioSelectionManager.allAudioUnlockedPlayerName;
+    final filteredItems = _ownedItems
+        .where((item) =>
+            item.id != retiredPrismSkinId &&
+            (allowAllCollections || !item.isSkin))
+        .toList();
     if (filteredItems.length != _ownedItems.length) {
       _ownedItems = filteredItems;
       changed = true;
     }
-    if (_equippedBallSkinId == retiredPrismSkinId) {
+    if (_equippedBallSkinId == retiredPrismSkinId ||
+        (!allowAllCollections && _equippedBallSkinId != 'default')) {
       _equippedBallSkinId = 'default';
+      changed = true;
+    }
+    final normalizedBallSkin = _normalizeBallSkinId(_equippedBallSkinId);
+    if (normalizedBallSkin != _equippedBallSkinId) {
+      _equippedBallSkinId = normalizedBallSkin;
       changed = true;
     }
     return changed;
   }
 
   GameItem _canonicalItem(GameItem item) {
-    final catalogItem = GameItemCatalog.byId(item.id);
+    final catalogItem = GameItemCatalog.byId(_normalizeBallSkinId(item.id));
     if (catalogItem == null) {
       return item;
     }
     return catalogItem.copyWith(level: item.level);
+  }
+
+  String _normalizeBallSkinId(String id) {
+    final normalized = id.trim();
+    if (normalized.isEmpty) {
+      return 'default';
+    }
+    if (normalized.startsWith('skin_hexa_orbit_')) {
+      return 'skin_orbit';
+    }
+    return normalized;
   }
 
   String _generatePublicPlayerId() {
@@ -2579,9 +2871,16 @@ class PlayerDataManager {
             .where((item) => item.type == ItemType.frame)
             .map((item) => item.id)
             .toList(),
+        'ownedBannerIds': _ownedItems
+            .where((item) => item.type == ItemType.banner)
+            .map((item) => item.id)
+            .toList(),
         'equippedBallSkinId': _equippedBallSkinId,
+        'equippedFormationEffectId': _equippedFormationEffectId,
+        'equippedOjamaEffectId': _equippedOjamaEffectId,
         'equippedPlayerIconId': _equippedPlayerIconId,
         'equippedIconFrameId': _equippedIconFrameId,
+        'equippedProfileBannerId': _equippedProfileBannerId,
         'equippedBadgeIds': List<String>.from(_equippedBadgeIds),
         'unlockedBadgeIds': unlockedBadgeIds,
         'seasonRankBadges':
@@ -2920,9 +3219,25 @@ class PlayerDataManager {
   }
 
   bool _ownsEquippableItem(String id, ItemType type) {
-    if (id == 'default') {
+    final normalized = type == ItemType.skin ? _normalizeBallSkinId(id) : id;
+    if (normalized == 'default') {
       return true;
     }
-    return _ownedItems.any((item) => item.id == id && item.type == type);
+    if (displayPlayerName == AudioSelectionManager.allAudioUnlockedPlayerName) {
+      return true;
+    }
+    return _ownedItems
+        .any((item) => item.id == normalized && item.type == type);
+  }
+
+  bool _ownsEffectSkin(String id) {
+    if (id == EffectSkinCatalog.defaultFormationId ||
+        id == EffectSkinCatalog.defaultOjamaId) {
+      return true;
+    }
+    if (displayPlayerName == AudioSelectionManager.allAudioUnlockedPlayerName) {
+      return true;
+    }
+    return _ownedItems.any((item) => item.id == id && item.isEffect);
   }
 }

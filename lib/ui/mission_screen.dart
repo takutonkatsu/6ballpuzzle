@@ -67,6 +67,22 @@ class _MissionScreenState extends State<MissionScreen> {
     AppSfx.playUiTap();
   }
 
+  Future<void> _claimAllDailyMissions() async {
+    _playUiTap();
+    await _runClaimWithPress('daily:all', () async {
+      await _missionManager.claimAllDailyMissionRewards();
+      await _load();
+    });
+  }
+
+  Future<void> _claimAllRegularMissions() async {
+    _playUiTap();
+    await _runClaimWithPress('regular:all', () async {
+      await _missionManager.claimAllRegularMissionRewards();
+      await _load();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -137,15 +153,26 @@ class _MissionScreenState extends State<MissionScreen> {
       final target = (mission['target'] as num?)?.toInt() ?? 0;
       return progress >= target;
     }).length;
-    final adsRemoved = AppSettings.instance.adsRemoved.value;
+    final adsRemoved = AppSettings.instance.adRemovalBenefitsEnabled;
     final showAllClearBonus = !adsRemoved && missions.isNotEmpty;
     final canClaimAllClearBonus = showAllClearBonus &&
         _missionManager.allMissionsComplete &&
         !_missionManager.isAllClearBonusClaimed;
+    final bulkReward = missions.fold<int>(
+      0,
+      (total, mission) => total + _claimableDailyMissionReward(mission),
+    );
 
     return _tabList(
       children: [
         _sectionHeader('$completed / ${missions.length} 達成'),
+        _bulkClaimButton(
+          label: 'デイリー報酬を一括受け取り',
+          reward: bulkReward,
+          pressed: _pressedClaimKeys.contains('daily:all'),
+          onPressed: bulkReward > 0 ? _claimAllDailyMissions : null,
+        ),
+        const SizedBox(height: 14),
         for (var i = 0; i < missions.length; i++) ...[
           _dailyMissionTile(mission: missions[i]),
           if (i != missions.length - 1) const SizedBox(height: 10),
@@ -171,8 +198,19 @@ class _MissionScreenState extends State<MissionScreen> {
             child: CircularProgressIndicator(color: GameThemeColors.cyan),
           );
         }
+        final bulkReward = missions.fold<int>(
+          0,
+          (total, mission) => total + _claimableRegularMissionReward(mission),
+        );
         return _tabList(
           children: [
+            _bulkClaimButton(
+              label: 'レギュラー報酬を一括受け取り',
+              reward: bulkReward,
+              pressed: _pressedClaimKeys.contains('regular:all'),
+              onPressed: bulkReward > 0 ? _claimAllRegularMissions : null,
+            ),
+            const SizedBox(height: 14),
             for (var i = 0; i < missions.length; i++) ...[
               _regularMissionTile(mission: missions[i]),
               if (i != missions.length - 1) const SizedBox(height: 10),
@@ -180,6 +218,108 @@ class _MissionScreenState extends State<MissionScreen> {
           ],
         );
       },
+    );
+  }
+
+  int _claimableDailyMissionReward(Map<String, dynamic> mission) {
+    final claimed = mission['claimed'] as bool? ?? false;
+    if (claimed) {
+      return 0;
+    }
+    final progress = (mission['progress'] as num?)?.toInt() ?? 0;
+    final target = (mission['target'] as num?)?.toInt() ?? 0;
+    final missionId = mission['id']?.toString() ?? '';
+    final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
+    final canClaim = progress >= target ||
+        (isRewardedAdMission && AppSettings.instance.adRemovalBenefitsEnabled);
+    return canClaim ? _missionManager.rewardCoinsFor(mission) : 0;
+  }
+
+  int _claimableRegularMissionReward(Map<String, dynamic> mission) {
+    final canClaim = mission['claimable'] as bool? ?? false;
+    if (!canClaim) {
+      return 0;
+    }
+    final claimableReward = (mission['claimableRewardCoins'] as num?)?.toInt();
+    if (claimableReward != null) {
+      return claimableReward;
+    }
+    return (mission['rewardCoins'] as num?)?.toInt() ?? 0;
+  }
+
+  Widget _bulkClaimButton({
+    required String label,
+    required int reward,
+    required bool pressed,
+    required Future<void> Function()? onPressed,
+  }) {
+    final enabled = onPressed != null && reward > 0;
+    return InkWell(
+      onTap: enabled ? () => unawaited(onPressed()) : null,
+      borderRadius: BorderRadius.circular(14),
+      child: AnimatedScale(
+        scale: pressed ? 0.96 : 1,
+        duration: const Duration(milliseconds: 90),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: enabled
+                ? GameThemeColors.blueSide.withValues(
+                    alpha: pressed ? 0.24 : 0.18,
+                  )
+                : Colors.white.withValues(alpha: 0.05),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: enabled
+                  ? GameThemeColors.blueSide.withValues(alpha: 0.86)
+                  : Colors.white.withValues(alpha: 0.16),
+              width: enabled ? 1.4 : 1,
+            ),
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: GameThemeColors.blueSide.withValues(alpha: 0.22),
+                      blurRadius: 14,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.download_done_rounded,
+                color: enabled ? Colors.white : Colors.white38,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  AppSettings.instance.translate(label),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: enabled ? Colors.white : Colors.white38,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              HexagonCoinAmount(
+                reward,
+                color: enabled ? Colors.white : Colors.white38,
+                iconSize: 16,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -247,7 +387,7 @@ class _MissionScreenState extends State<MissionScreen> {
     final target = (mission['target'] as num?)?.toInt() ?? 0;
     final reward = _missionManager.rewardCoinsFor(mission);
     final claimed = mission['claimed'] as bool? ?? false;
-    final adsRemoved = AppSettings.instance.adsRemoved.value;
+    final adsRemoved = AppSettings.instance.adRemovalBenefitsEnabled;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
     final isDone = progress >= target;
@@ -353,7 +493,7 @@ class _MissionScreenState extends State<MissionScreen> {
     final canClaim = mission['claimable'] as bool? ?? false;
     final progressKey = mission['progressKey']?.toString() ?? '';
     final isAdMission = progressKey == 'rewarded_ad_views';
-    final adsRemoved = AppSettings.instance.adsRemoved.value;
+    final adsRemoved = AppSettings.instance.adRemovalBenefitsEnabled;
     final stateColor = _missionStateColor();
 
     return InkWell(
@@ -361,7 +501,7 @@ class _MissionScreenState extends State<MissionScreen> {
           ? null
           : () async {
               _playUiTap();
-              if (AppSettings.instance.adsRemoved.value) {
+              if (AppSettings.instance.adRemovalBenefitsEnabled) {
                 await _missionManager.recordRewardedAdView();
               } else {
                 final rewarded =

@@ -277,9 +277,9 @@ class SeamlessBgm {
   }
 
   Duration _loopLeadTimeFor(String? assetPath) {
-    return switch (assetPath) {
-      'audio/battle_bgm01.wav' => _battleLoopLeadTime,
-      _ => _homeLoopLeadTime,
-    };
+    if (assetPath?.contains('/bgm_battle') ?? false) {
+      return _battleLoopLeadTime;
+    }
+    return _homeLoopLeadTime;
   }
 }

@@ -11,6 +11,7 @@ import '../app_maintenance_manager.dart';
 import '../app_settings.dart';
 import '../app_notice_manager.dart';
 import '../app_review_config.dart';
+import '../audio/audio_selection_manager.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
 import '../data/player_data_manager.dart';
@@ -190,6 +191,10 @@ Future<HomeBootstrapData> prepareHomeBootstrapData() async {
       await _withHomeBootstrapTimeout(
         rankingManager.updateMyRating(rating: rating),
         label: 'ranking bootstrap',
+      );
+      await _withHomeBootstrapTimeout(
+        rankingManager.retryPendingRankedResultSyncs(),
+        label: 'pending ranked result sync bootstrap',
       );
     } catch (_) {
       // シーズン/ランキング同期の失敗でホーム起動を止めない。
@@ -409,9 +414,12 @@ class _HomeScreenState extends State<HomeScreen>
   static const _lastSeenNoticeIdKey = 'home_last_seen_notice_id';
   static const _shareFeatureNoticeHiddenDateKey =
       'home_share_feature_notice_hidden_date';
+  static const _rankedWinReviewPromptPendingKey =
+      'ranked_win_review_prompt_pending';
+  static const _rankedWinReviewPromptShownDateKey =
+      'ranked_win_review_prompt_shown_date';
   static const _lastAdRemovalPromptAtKey = 'home_last_ad_removal_prompt_at';
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
-  static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
   static const Duration _adRemovalPromptCooldown = Duration(hours: 24);
   static const int _adRemovalPromptMinMatches = 3;
   static const bool _debugControlsEnabled = AppReviewConfig.debugMenuEnabled;
@@ -463,12 +471,23 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _isArenaComingSoon => true;
 
   bool get _showsSettingsAdRemovalActions =>
+      AppSettings.instance.canShowAdRemovalUi &&
       Theme.of(context).platform != TargetPlatform.android &&
       !(Theme.of(context).platform == TargetPlatform.iOS &&
           AppReviewConfig.isProdFlavor);
 
+  bool get _serverAdsGloballyDisabled =>
+      AppSettings.instance.serverAdsGloballyDisabled.value;
+
   void _playUiTap() {
     AppSfx.playUiTap();
+  }
+
+  void _handleServerAdsConfigChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   IconData _playerIconData(String iconId) {
@@ -610,8 +629,14 @@ class _HomeScreenState extends State<HomeScreen>
         unawaited(_maybeShowShareFeatureNotice());
       });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_maybeShowRankedWinReviewPrompt());
+    });
     _startSeasonStateMonitor();
     _startNetworkErrorMonitor();
+    AppSettings.instance.serverAdsGloballyDisabled.addListener(
+      _handleServerAdsConfigChanged,
+    );
     unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_startHomeBgm());
   }
@@ -622,6 +647,9 @@ class _HomeScreenState extends State<HomeScreen>
     _seasonStateTimer?.cancel();
     _networkErrorTimer?.cancel();
     unawaited(_networkConnectionSubscription?.cancel());
+    AppSettings.instance.serverAdsGloballyDisabled.removeListener(
+      _handleServerAdsConfigChanged,
+    );
     WidgetsBinding.instance.removeObserver(this);
     _animController.dispose();
     _lobbyPageController.dispose();
@@ -798,12 +826,13 @@ class _HomeScreenState extends State<HomeScreen>
     }
     try {
       _isHomeBgmPlaying = true;
+      final selectedBgm = await AudioSelectionManager.selectedHomeBgm();
       await SeamlessBgm.instance.setMasterVolume(
         AppSettings.instance.musicVolume.value,
       );
       await SeamlessBgm.instance.play(
-        assetPath: 'audio/home_screen_bgm01.wav',
-        duration: _homeBgmDuration,
+        assetPath: selectedBgm.assetPath,
+        duration: selectedBgm.duration,
         volume: 0.576,
         owner: _bgmOwner,
         forceRestart: forceRestart,
@@ -965,7 +994,7 @@ class _HomeScreenState extends State<HomeScreen>
         context,
         title,
         message,
-        buttonLabel: '受け取る',
+        buttonLabel: '確認',
       );
       await _refreshPlayerEconomy();
     }
@@ -987,6 +1016,18 @@ class _HomeScreenState extends State<HomeScreen>
     unawaited(_maybeShowAdRemovalPrompt());
   }
 
+  Future<void> _refreshLocalEconomyFromEmbeddedPage() async {
+    await _playerDataManager.load();
+    await _missionManager.load();
+    final regularClaimableCount = await _missionManager.regularClaimableCount();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _syncPlayerEconomyState(regularClaimableCount: regularClaimableCount);
+    });
+  }
+
   Future<void> _maybeShowAdRemovalPrompt() async {
     if (_didCheckAdRemovalPromptThisSession || _isAdRemovalPromptVisible) {
       return;
@@ -995,6 +1036,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted ||
         !AdRemovalPurchaseManager.isSupportedPlatform ||
         !AdRemovalPurchaseManager.instance.isConfigured ||
+        _serverAdsGloballyDisabled ||
         AppSettings.instance.adsRemoved.value ||
         _playerDataManager.totalMatches < _adRemovalPromptMinMatches) {
       return;
@@ -1019,6 +1061,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted ||
         _isAdRemovalPromptVisible ||
         _isInitialNamePromptVisible ||
+        _serverAdsGloballyDisabled ||
         AppSettings.instance.adsRemoved.value) {
       return;
     }
@@ -1085,11 +1128,12 @@ class _HomeScreenState extends State<HomeScreen>
     _currentLevelExp = _playerDataManager.currentLevelExp;
     _nextLevelRequiredExp = _playerDataManager.nextLevelRequiredExp;
     _coins = _playerDataManager.coins;
-    final allClearClaimableCount = (!AppSettings.instance.adsRemoved.value &&
-            _missionManager.allMissionsComplete &&
-            !_missionManager.isAllClearBonusClaimed)
-        ? 1
-        : 0;
+    final allClearClaimableCount =
+        (!AppSettings.instance.adRemovalBenefitsEnabled &&
+                _missionManager.allMissionsComplete &&
+                !_missionManager.isAllClearBonusClaimed)
+            ? 1
+            : 0;
     _claimableMissionCount = _missionManager.claimableCount +
         regularClaimableCount +
         allClearClaimableCount;
@@ -1253,6 +1297,64 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             );
           },
+        );
+      },
+    );
+  }
+
+  Future<void> _maybeShowRankedWinReviewPrompt() async {
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (!mounted || _isInitialNamePromptVisible) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_rankedWinReviewPromptPendingKey) != true) {
+      return;
+    }
+    final todayKey = _localDateKey(DateTime.now());
+    if (prefs.getString(_rankedWinReviewPromptShownDateKey) == todayKey) {
+      await prefs.remove(_rankedWinReviewPromptPendingKey);
+      return;
+    }
+    await prefs.setString(_rankedWinReviewPromptShownDateKey, todayKey);
+    await prefs.remove(_rankedWinReviewPromptPendingKey);
+    if (!mounted) {
+      return;
+    }
+    await _showRankedWinReviewPromptDialog();
+  }
+
+  Future<void> _showRankedWinReviewPromptDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _homeCyan,
+          title: 'レビューのお願い',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'いつもヘキサゴンを遊んでいただきありがとうございます。\n\n'
+                'もし楽しんでいただけていましたら、App Storeでレビューを書いていただけると、とても励みになります。\n\n'
+                'いただいたご意見は、今後の改善の参考にさせていただきます。\n'
+                'これからもヘキサゴンをよろしくお願いいたします。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  height: 1.55,
+                ),
+              ),
+              const SizedBox(height: 18),
+              _buildCyberDialogButton(
+                label: '閉じる',
+                accentColor: _homeCyan,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1466,6 +1568,9 @@ class _HomeScreenState extends State<HomeScreen>
               rating: seasonRating,
               displayName: _playerDataManager.displayPlayerName,
             )
+            .timeout(_nameRegistrationSyncTimeout);
+        await _rankingManager
+            .retryPendingRankedResultSyncs()
             .timeout(_nameRegistrationSyncTimeout);
       } catch (_) {
         // 新シーズンのランキング行作成に失敗しても結果ログは表示する。
@@ -1766,7 +1871,9 @@ class _HomeScreenState extends State<HomeScreen>
                       vertical: compact ? 7 : 9,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.42),
+                      gradient: _homeProfileBannerGradient(
+                        _playerDataManager.equippedProfileBannerId,
+                      ),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
                         color: _homeCyan.withValues(alpha: 0.56),
@@ -1989,6 +2096,29 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  LinearGradient _homeProfileBannerGradient(String bannerId) {
+    final banner = GameItemCatalog.byId(bannerId);
+    final baseColor = switch (banner?.colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => _computerYellow,
+      'lime' => Colors.limeAccent,
+      'green' => _endlessGreen,
+      'blue' => GameThemeColors.blueSide,
+      'purple' => Colors.purpleAccent,
+      'white' => Colors.white,
+      'black' => const Color(0xFF05070D),
+      _ => _homeCyan,
+    };
+    final softColor = switch (banner?.colorName) {
+      'white' => const Color(0xFFFBFDFF).withValues(alpha: 0.34),
+      'black' => const Color(0xFF343A45).withValues(alpha: 0.42),
+      _ => (Color.lerp(baseColor, Colors.white, 0.84) ?? baseColor)
+          .withValues(alpha: 0.38),
+    };
+    return LinearGradient(colors: [softColor, softColor]);
+  }
+
   Future<void> _openProfileScreen() async {
     if (_isOpeningProfileScreen) {
       return;
@@ -2031,9 +2161,10 @@ class _HomeScreenState extends State<HomeScreen>
       duration: const Duration(milliseconds: 220),
       child: switch (destination) {
         _HomeLobbyDestination.home => _buildBattleLobbyPage(),
-        _HomeLobbyDestination.shop => const ShopScreen(
-            key: ValueKey('shop_page'),
+        _HomeLobbyDestination.shop => ShopScreen(
+            key: const ValueKey('shop_page'),
             embedded: true,
+            onEconomyChanged: _refreshLocalEconomyFromEmbeddedPage,
           ),
         _HomeLobbyDestination.collection => const CollectionScreen(
             key: ValueKey('collection_page'),
@@ -2201,7 +2332,8 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     const SizedBox(width: 6),
                   ],
-                  if (AdRemovalPurchaseManager.isSupportedPlatform) ...[
+                  if (!_serverAdsGloballyDisabled &&
+                      AdRemovalPurchaseManager.isSupportedPlatform) ...[
                     const SizedBox(width: 6),
                     _buildRoundIcon(
                       Icons.block,
@@ -3268,6 +3400,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildInterstitialSkipTicketHomeButton() {
+    if (_serverAdsGloballyDisabled) {
+      return const SizedBox.shrink();
+    }
     return ValueListenableBuilder<bool>(
       valueListenable: AppSettings.instance.adsRemoved,
       builder: (context, adsRemoved, child) {
@@ -3525,6 +3660,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _showAdRemovalDialog(BuildContext context) async {
+    if (_serverAdsGloballyDisabled) {
+      return;
+    }
     if (!AdRemovalPurchaseManager.isSupportedPlatform) {
       await _showAdRemovalGiftCodeDialog(context);
       return;
@@ -4004,13 +4142,13 @@ class _HomeScreenState extends State<HomeScreen>
                       label: !status.canAttempt
                           ? '本日は終了'
                           : status.needsRewardAd &&
-                                  !AppSettings.instance.adsRemoved.value
+                                  !AppSettings.instance.adRemovalBenefitsEnabled
                               ? '広告を見て開始'
                               : '開始',
                       accentColor: _dailyBlue,
                       onPressed: () async {
                         final shouldShowAd = status.needsRewardAd &&
-                            !AppSettings.instance.adsRemoved.value;
+                            !AppSettings.instance.adRemovalBenefitsEnabled;
                         if (!status.canAttempt) {
                           await _showAlert(
                             context,
@@ -4220,7 +4358,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               _dailyRewardSection(
                 title: 'デイリー',
-                subtitle: '日付変更後 / 10位まで',
+                subtitle: '報酬対象: 10位まで / 受け取り期限: 翌日24:00 JST',
                 rows: rewards,
               ),
               const SizedBox(height: 14),
@@ -4383,6 +4521,15 @@ class _HomeScreenState extends State<HomeScreen>
                   style: TextStyle(
                     color: _dailyBlue,
                     fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  '受け取り期限: 翌日24:00 JST',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 10,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
@@ -5008,15 +5155,7 @@ class _HomeScreenState extends State<HomeScreen>
             color: accentColor.withValues(alpha: filled ? 0.88 : 0.58),
             width: filled ? 1.8 : 1.3,
           ),
-          boxShadow: filled
-              ? [
-                  BoxShadow(
-                    color: accentColor.withValues(alpha: 0.20),
-                    blurRadius: 18,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : null,
+          boxShadow: null,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -5073,7 +5212,7 @@ class _HomeScreenState extends State<HomeScreen>
             }
 
             final dialogMissions = _playerDataManager.currentMissions;
-            final adsRemoved = AppSettings.instance.adsRemoved.value;
+            final adsRemoved = AppSettings.instance.adRemovalBenefitsEnabled;
             final showAllClearBonus = !adsRemoved && dialogMissions.isNotEmpty;
             final canClaimAllClearBonus = showAllClearBonus &&
                 _missionManager.allMissionsComplete &&
@@ -5459,7 +5598,7 @@ class _HomeScreenState extends State<HomeScreen>
     final target = (mission['target'] as num?)?.toInt() ?? 0;
     final reward = _missionManager.rewardCoinsFor(mission);
     final claimed = mission['claimed'] as bool? ?? false;
-    final adsRemoved = AppSettings.instance.adsRemoved.value;
+    final adsRemoved = AppSettings.instance.adRemovalBenefitsEnabled;
     final missionId = mission['id']?.toString() ?? '';
     final isRewardedAdMission = MissionCatalog.isRewardedAdMissionId(missionId);
     final isDone = progress >= target;
@@ -6287,6 +6426,15 @@ class _HomeScreenState extends State<HomeScreen>
       return false;
     }
 
+    if (!AppSettings.instance.canRequestRewardedAds) {
+      await _showAlert(
+        context,
+        'フレンド対戦',
+        '現在、動画広告による回復は利用できません。',
+      );
+      return false;
+    }
+
     unawaited(RewardedAdManager.instance.warmUp());
     final shouldWatchAd = await _showFriendMatchRestoreDialog(context);
     if (!mounted || shouldWatchAd != true) {
@@ -6345,7 +6493,7 @@ class _HomeScreenState extends State<HomeScreen>
                   const SizedBox(width: 12),
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: '動画を見る',
+                      label: '動画広告を見る',
                       accentColor: _friendPink,
                       onPressed: () => Navigator.of(dialogContext).pop(true),
                     ),
@@ -6462,6 +6610,14 @@ class _HomeScreenState extends State<HomeScreen>
         return;
       }
       await _syncRankedSeasonState().timeout(_nameRegistrationSyncTimeout);
+      await _playerDataManager.load();
+      final nowJst =
+          await ServerTimeManager.instance.nowJst(forceRefresh: true);
+      final currentSeasonId =
+          RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+      if (_playerDataManager.rankedSeasonId != currentSeasonId) {
+        throw StateError('ランク戦のシーズン同期に失敗しました。');
+      }
       if (!context.mounted || cancelledByUser) {
         return;
       }
@@ -7263,6 +7419,7 @@ class _HomeScreenState extends State<HomeScreen>
     double sfxVolume = AppSettings.instance.sfxVolume.value;
     var layout = AppSettings.instance.controlLayout.value;
     var hintGuideEnabled = AppSettings.instance.hintGuideEnabled.value;
+    var hapticsEnabled = AppSettings.instance.hapticsEnabled.value;
 
     await showDialog<void>(
       context: context,
@@ -7282,6 +7439,13 @@ class _HomeScreenState extends State<HomeScreen>
                 sfxVolume = value;
               });
               await AppSettings.instance.setSfxVolume(value);
+            }
+
+            Future<void> updateHaptics(bool value) async {
+              setDialogState(() {
+                hapticsEnabled = value;
+              });
+              await AppSettings.instance.setHapticsEnabled(value);
             }
 
             Future<void> updateLayout(ControlLayoutPreset preset) async {
@@ -7325,6 +7489,10 @@ class _HomeScreenState extends State<HomeScreen>
                         },
                         onSfxChanged: (value) async {
                           await updateSfx(value);
+                        },
+                        initialHapticsEnabled: hapticsEnabled,
+                        onHapticsChanged: (value) async {
+                          await updateHaptics(value);
                         },
                       ),
                     ),
@@ -7397,6 +7565,19 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
                   ],
+                  if (AppReviewConfig.hasContactForm) ...[
+                    const SizedBox(height: 10),
+                    _buildCyberDialogButton(
+                      label: AppSettings.instance.text(
+                        'お問い合わせ',
+                        'Contact',
+                      ),
+                      accentColor: _homeCyan,
+                      onPressed: () => unawaited(
+                        _openExternalUri(AppReviewConfig.contactFormUrl),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   _buildCyberDialogButton(
                     label: AppSettings.instance.text('閉じる', 'Close'),
@@ -7418,9 +7599,12 @@ class _HomeScreenState extends State<HomeScreen>
     required double initialSfxVolume,
     required Future<void> Function(double value) onMusicChanged,
     required Future<void> Function(double value) onSfxChanged,
+    required bool initialHapticsEnabled,
+    required Future<void> Function(bool value) onHapticsChanged,
   }) async {
     double musicVolume = initialMusicVolume;
     double sfxVolume = initialSfxVolume;
+    var hapticsEnabled = initialHapticsEnabled;
 
     await showDialog<void>(
       context: parentContext,
@@ -7441,6 +7625,13 @@ class _HomeScreenState extends State<HomeScreen>
               await onSfxChanged(value);
             }
 
+            Future<void> updateLocalHaptics(bool value) async {
+              setDialogState(() {
+                hapticsEnabled = value;
+              });
+              await onHapticsChanged(value);
+            }
+
             return _buildCyberDialog(
               accentColor: _homeCyan,
               title: '音量設定',
@@ -7449,7 +7640,7 @@ class _HomeScreenState extends State<HomeScreen>
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildSettingsSlider(
-                    label: '音楽',
+                    label: 'BGM',
                     value: musicVolume,
                     onChanged: (value) => unawaited(updateLocalMusic(value)),
                   ),
@@ -7458,6 +7649,13 @@ class _HomeScreenState extends State<HomeScreen>
                     label: '効果音',
                     value: sfxVolume,
                     onChanged: (value) => unawaited(updateLocalSfx(value)),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildSettingsToggleButton(
+                    title: 'バイブレーション',
+                    body: '操作や消去時の振動を有効にします。',
+                    value: hapticsEnabled,
+                    onChanged: (value) => unawaited(updateLocalHaptics(value)),
                   ),
                   const SizedBox(height: 16),
                   _buildCyberDialogButton(
@@ -8636,22 +8834,26 @@ class _RankedMatchmakingEstimateState
 
   @override
   Widget build(BuildContext context) {
-    if (_elapsedSeconds < _visibleAfterSeconds) {
-      return const SizedBox(height: 0);
-    }
-
+    final visible = _elapsedSeconds >= _visibleAfterSeconds;
     final remaining =
         (_estimatedBotMatchSeconds - _elapsedSeconds).clamp(0, 10);
     return Padding(
       padding: const EdgeInsets.only(top: 14),
-      child: Text(
-        'マッチングまで推定$remaining秒',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: _rankedPurpleText.withValues(alpha: 0.92),
-          fontSize: 13,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.2,
+      child: SizedBox(
+        height: 18,
+        child: AnimatedOpacity(
+          opacity: visible ? 1 : 0,
+          duration: const Duration(milliseconds: 160),
+          child: Text(
+            'マッチングまで推定$remaining秒',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _rankedPurpleText.withValues(alpha: 0.92),
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
+            ),
+          ),
         ),
       ),
     );
@@ -8785,31 +8987,35 @@ class _RankedMatchmakingHint extends StatefulWidget {
 
 class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
   static const List<String> _defaultHints = [
-    'ネクストボールを見ると、次の一手が少しだけ未来になります。',
-    'ヘキサゴンを狙いすぎると、盤面が小声で止めてきます。',
-    '序盤は低く、終盤は冷静に。だいたいこれで助かります。',
-    '相手の盤面が高い時は、攻めるチャンスです。',
-    '自分の盤面が高い時は、まず深呼吸。次に消しましょう。',
+    'ネクストボールを見ると、プロになりきれます。',
+    'ヘキサゴンを狙いすぎると、なかなか同じ色のボールが落ちてきません。',
+    '相手の盤面が高い時は、妨害する絶好のチャンスです。',
+    '自分の盤面が高い時は、まず深呼吸しましょう。',
     'ピラミッドは作りやすく、頼れるフォーメーションです。',
-    'ストレートは素早く妨害を送りたい時に有効です。',
+    'ストレートは地味にウザいです。',
     '端に積みすぎると、あとで端に泣かされます。',
-    '大きなフォーメーションが見えない時は、小さな消去で流れを作りましょう。',
-    '相手のネクストを見ると、攻撃タイミングを読みやすくなります。',
     'ハードドロップは速いですが、置きミスも速いです。',
-    '迷ったら中央を整えると、次の一手が楽になります。',
     '妨害ボールも、使い方次第では味方になります。',
     '勝っている時ほど、安全確認が大事です。',
     '負けている時でも、1回のフォーメーションでひっくり返せます。',
-    'レートは大事。でもまずは目の前の3個です。',
     '連勝中の油断は、だいたい次の試合で回収されます。',
     '盤面が荒れてきたら、大きなフォーメーションよりも整地を優先しましょう。',
-    'たまには守りの一手が、一番攻撃的な一手になります。',
     'マッチング中は指を温めておきましょう。心も少しだけ。',
     'レート差があっても、盤面は平等です。',
     '焦って置いた1手は、未来の自分への宿題になります。',
     '今日の勝利数ランキング、上の方はだいたい本気です。',
     '調子が悪い時は、ボールのせいにしてから切り替えましょう。',
     '負けても次があります。レートは逃げますが、また捕まえられます。',
+    'いい結果が出たら、みんなにシェアしましょう。',
+    'スタンプで相手にとどめの一撃を入れましょう。',
+    '時にはプロフィール画面で、相手に存在感を見せつけましょう。',
+    'ヘキサゴンは一番強いフォーメーションです。',
+    'フォーメーションを決めるほど、獲得コイン数が増えます。',
+    '広告削除を有効にすると、広告が削除されます。',
+    'ランク戦とエンドレスのランキング切替は、日本時間21時です。',
+    'ランキング報酬は、次の切替までに受け取りましょう。',
+    'ランキング報酬は、切替15分後から受け取れます。',
+    'スタンプで煽ってから負けるのは、人として一番恥ずかしいです。',
   ];
 
   List<String> _hints = _defaultHints;

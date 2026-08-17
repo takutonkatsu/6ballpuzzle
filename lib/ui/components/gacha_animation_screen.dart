@@ -24,8 +24,8 @@ class GachaAnimationScreen extends StatefulWidget {
 
 class _GachaAnimationScreenState extends State<GachaAnimationScreen>
     with TickerProviderStateMixin {
-  static const String _waitingSfx = 'Scene_Change11-1(Up)_ガチャ待機.mp3';
-  static const String _revealSfx = '決定ボタンを押す25_ガチャ排出.mp3';
+  static const String _waitingSfx = 'gachaWaiting_Scene_Change11-1(Up).mp3';
+  static const String _revealSfx = 'gachaDrop決定ボタンを押す25.mp3';
 
   late AnimationController _mainController;
   late Animation<double> _chargeAnimation;
@@ -98,6 +98,9 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
     if (grantResult.leveledUp) {
       return 'Lv.${item.level}に強化';
     }
+    if (grantResult.collectionMedalsAdded > 0) {
+      return 'コレクションメダル +${grantResult.collectionMedalsAdded}';
+    }
     return 'すでに所持済み';
   }
 
@@ -107,7 +110,9 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
       ItemType.skin => 'ボールスキン',
       ItemType.icon => 'プレイヤーアイコン',
       ItemType.frame => 'アイコンフレーム',
+      ItemType.banner => 'プロフィールバナー',
       ItemType.vfx => 'エフェクト',
+      ItemType.audio => 'ミュージック',
     };
   }
 
@@ -257,14 +262,8 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
                             ),
                           ),
                           const SizedBox(height: 16),
-                          Text(
-                            _grantResultMessage(widget.result.grantResult),
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 1.2,
-                            ),
+                          _grantResultMessageWidget(
+                            widget.result.grantResult,
                           ),
                           if (_canDismiss) ...[
                             const SizedBox(height: 40),
@@ -338,8 +337,12 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
         };
       case ItemType.frame:
         return Icons.crop_square;
+      case ItemType.banner:
+        return Icons.panorama_rounded;
       case ItemType.vfx:
         return Icons.auto_awesome;
+      case ItemType.audio:
+        return Icons.music_note_rounded;
       case ItemType.stamp:
         return switch (item.iconName) {
           'handshake' => Icons.handshake,
@@ -352,6 +355,52 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
           _ => Icons.chat_bubble,
         };
     }
+  }
+
+  Widget _grantResultMessageWidget(ItemGrantResult grantResult) {
+    if (grantResult.isDuplicate &&
+        !grantResult.leveledUp &&
+        grantResult.collectionMedalsAdded > 0) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            '所持済み',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Image.asset(
+            'assets/images/collection_medal.png',
+            width: 20,
+            height: 20,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '${grantResult.collectionMedalsAdded}',
+            style: const TextStyle(
+              color: Color(0xFFFFE8A3),
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      );
+    }
+    return Text(
+      _grantResultMessage(grantResult),
+      style: const TextStyle(
+        color: Colors.white70,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 1.2,
+      ),
+    );
   }
 
   Widget _itemVisualWidget(GameItem item, Color accent) {
@@ -417,6 +466,38 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
               spreadRadius: 2,
             ),
           ],
+        ),
+      );
+    }
+    if (item.type == ItemType.banner) {
+      final bannerColor = _colorFromFrameName(item.colorName);
+      return Container(
+        width: 156,
+        height: 92,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              bannerColor.withValues(alpha: 0.82),
+              bannerColor.withValues(alpha: 0.28),
+              const Color(0xFF0B1220),
+            ],
+          ),
+          border: Border.all(color: bannerColor, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: bannerColor.withValues(alpha: 0.35),
+              blurRadius: 24,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.panorama_rounded,
+          color: Colors.white,
+          size: 42,
         ),
       );
     }

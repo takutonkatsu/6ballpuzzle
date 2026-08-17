@@ -74,6 +74,9 @@ class AppAdService {
   }
 
   Future<bool> ensureInitialized() {
+    if (!canRequestRewardedAds && !canRequestAds) {
+      return Future<bool>.value(false);
+    }
     if (_initialized) {
       return Future<bool>.value(true);
     }
@@ -131,7 +134,12 @@ class AppAdService {
   }
 
   bool get canRequestAds =>
-      isSupportedPlatform && !AppSettings.instance.adsRemoved.value;
+      isSupportedPlatform &&
+      AppSettings.instance.canRequestAds &&
+      !AppSettings.instance.adsRemoved.value;
+
+  bool get canRequestRewardedAds =>
+      isSupportedPlatform && AppSettings.instance.canRequestRewardedAds;
 
   String? _nonEmpty(String value) {
     final trimmed = value.trim();

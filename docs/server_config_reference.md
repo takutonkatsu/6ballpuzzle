@@ -13,6 +13,7 @@
 | `appConfig/updateMessage` | 強制アップデート画面の本文 | 文字列 | アプリ起動時 |
 | `appConfig/maintenance/global` | アプリ全体をロード画面で停止 | `enabled`, `title`, `message`, `startsAt`, `expectedEndAt` | アプリ起動時 |
 | `appConfig/maintenance/modes/{mode}` | 各モードの開始/マッチング停止 | `enabled`, `matchmakingDisabled`, `title`, `message`, `startsAt`, `expectedEndAt` | モード開始時、DB Rules判定時 |
+| `appConfig/ads` | 全広告停止、広告削除課金導線の非表示 | `globallyDisabled` | アプリ起動時。その後はリアルタイム反映 |
 | `appConfig/realtimeTransport` | WebSocket同期のON/OFF、接続先、モード別導入 | `enabled`, `shadowEnabled`, `receiveEnabled`, `url`, `allowInsecureEndpoint`, `modes.friend`, `modes.ranked`, `modes.arena` | 対人戦接続時。30秒キャッシュ |
 | `appConfig/rankedMatchmaking` | ランク戦マッチング条件 | `botFallbackSeconds`, `rangeGrowthPerSecond` | ランク戦マッチング開始時。30秒キャッシュ |
 | `appConfig/rankedMatchmakingHints` | ランク戦待機画面のヒント文 | `items` 配下に文字列、または `{ text, order, enabled }` | ランク戦待機画面表示時 |
@@ -22,6 +23,21 @@
 | `appConfig/nameModeration` | 名前登録/変更時のNG判定 | `blockedWords`, `reservedWords`, `regexes` | 名前チェック時。10分キャッシュ |
 | `adminGrants/{uid}/{grantId}` | 個別ユーザーへの未受取報酬付与 | `type`, `coins`, `title`, `message`, `createdAt`, `expiresAt` | アプリ起動時/プレイヤーデータ読込時 |
 | `adminRatingLocks/{uid}/rating` | 特定ユーザーのランク戦レート固定 | `rating` | DB Rulesでランキング/ユーザー更新時 |
+
+## 問い合わせ調査で見るログ
+
+| DBパス | 確認できる内容 | 主な使い道 |
+| --- | --- | --- |
+| `rankedResultSyncLatest/{uid}` | 直近のランク戦ランキング反映結果 | 戦績はあるのにランキングへ載っていない/レートが反映されない時の初動確認 |
+| `rankedResultSyncLogs/{uid}` | ランク戦ランキング反映の成功/失敗履歴 | どのシーズンID、レート、シーズン勝敗数、今日の勝利数で送信されたか確認 |
+| `adminGrants/{uid}/{grantId}` | 未受取の個別付与報酬 | まだ受け取っていない報酬が残っているか確認 |
+| `claimedAdminGrants/{uid}/{grantId}` | 個別付与報酬の受取済み履歴 | 補填やランキング報酬をユーザーが受け取ったか確認 |
+| `expiredAdminGrants/{uid}/{grantId}` | 期限切れで削除された個別付与報酬 | 報酬が付与されたが期限切れで消えたのか確認 |
+| `adminStats/rankedSeasonFinalizations/{seasonId}` | ランク戦シーズン確定時の概要 | シーズン終了時点の上位サンプル、確定件数確認 |
+| `adminStats/rankedSeasonTransitions/{seasonId}` | ランク戦シーズン切替処理の実行結果 | シーズン切替時にリセットが完了したか確認 |
+| `adminStats/rankedSeasonSanitizations/{seasonId}` | 新シーズンに混入した異常レート補正ログ | 前シーズンレートの混入や到達不能レートを補正したか確認 |
+| `adminStats/dailyWinRankFinalizations/{date}` | 今日の勝利数ランキング報酬の確定ログ | 報酬対象者、勝利数、付与予定コインの確認 |
+| `adminStats/adminGrantExpirationCleanups/{date}` | 期限切れ報酬の削除実行ログ | cleanupが実行され、何件期限切れ処理されたか確認 |
 
 ## モード名
 
@@ -90,6 +106,20 @@
 ```
 
 `botFallbackSeconds` は `3〜60`、`rangeGrowthPerSecond` は `0〜200` にアプリ側で丸められます。初期範囲はアプリ内固定で `±50` です。
+
+### 全広告停止モード
+
+```json
+{
+  "appConfig": {
+    "ads": {
+      "globallyDisabled": true
+    }
+  }
+}
+```
+
+`true` にすると、広告削除課金と同等のゲーム内特典を有効にした上で、リワード広告、インタースティシャル広告、広告SDKの読み込みを停止します。ホーム/設定の広告削除課金ボタンと、ショップの広告ガチャボタンも非表示になります。購入済みフラグ `adsRemoved` 自体は変更しないため、広告削除課金の購入者一覧とは区別されます。未設定または `false` で通常運用です。
 
 ### ランク戦待機ヒント
 
@@ -183,4 +213,3 @@
 | ミッション内容/報酬 | アプリ内固定 |
 | ガチャ排出内容/価格 | アプリ内固定 |
 | シーズン切替時刻/自動メンテ時間 | アプリ内固定 |
-

@@ -9,12 +9,14 @@ import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../app_settings.dart';
+import '../audio/audio_selection_manager.dart';
 import '../audio/sfx_player.dart';
 import 'components/active_piece_component.dart';
 import 'components/ball_component.dart';
 import 'components/effect_components.dart';
 import 'components/hint_component.dart';
 import 'components/ojama_block_component.dart';
+import 'effect_skin.dart';
 import 'grid_system.dart';
 import 'score_manager.dart';
 import 'cpu_agent.dart';
@@ -87,14 +89,15 @@ class _ActiveBallContactState {
 }
 
 class PuzzleGame extends FlameGame with KeyboardEvents {
-  static const String _spawnSfx = '決定ボタンを押す33_スポーン02.mp3';
-  static const String _hardDropSfx = 'カーソル移動5_落下02.mp3';
-  static const String _landingSfx = 'カーソル移動12_落下.mp3';
-  static const String _rotationSfx = 'キャンセル1＿回転01.mp3';
-  static const String _ojamaSpawnSfx = 'データ表示3_おじゃまボール.mp3';
-  static const String _ojamaBlockSpawnSfx = '決定、ボタン押下34_おじゃまスポーン01.mp3';
-  static const String _wazaChargeSfx = 'メニューを開く4_ワザ.mp3';
-  static const String _clearSfx = '決定ボタンを押す42_消去03.mp3';
+  static const String _spawnSfx = 'spawn01_決定ボタンを押す33.mp3';
+  static const String _hardDropSfx = 'hardDrop01_カーソル移動5.mp3';
+  static const String _landingSfx = 'drop01_カーソル移動12.mp3';
+  static const String _rotationSfx = 'rotaion01_キャンセル1.mp3';
+  static const String _ojamaSpawnSfx = 'obstacleBallEffect01_データ表示3.mp3';
+  static const String _ojamaBlockSpawnSfx =
+      'obstacleBallDrop01_決定、ボタン押下34.mp3';
+  static const String _wazaChargeSfx = 'formation01_メニューを開く4.mp3';
+  static const String _clearSfx = 'deleteBall01_決定ボタンを押す42.mp3';
   static const double _sfxVolumeMultiplier = 2.6;
 
   final bool isCpuMode;
@@ -107,9 +110,19 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   final bool hintGuideEnabled;
   final ScoreMode scoreMode;
   String ballSkinId;
+  final String formationEffectId;
+  Map<String, String>? _sfxSelectionIds;
   late Random _rng;
   Random? syncDropRng;
   int currentDropSeed = 0;
+  String _spawnSfxFile = _spawnSfx;
+  final String _hardDropSfxFile = _hardDropSfx;
+  final String _landingSfxFile = _landingSfx;
+  final String _rotationSfxFile = _rotationSfx;
+  String _ojamaSpawnSfxFile = _ojamaSpawnSfx;
+  final String _ojamaBlockSpawnSfxFile = _ojamaBlockSpawnSfx;
+  String _wazaChargeSfxFile = _wazaChargeSfx;
+  final String _clearSfxFile = _clearSfx;
   CPUAgent? cpuAgent;
   late GridSystem grid;
   ActivePieceComponent? activePiece;
@@ -252,7 +265,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
   }
 
-  bool get _shouldPlayHaptics => !isCpuMode && !isRemotePlayerMode;
+  bool get _shouldPlayHaptics =>
+      !isCpuMode &&
+      !isRemotePlayerMode &&
+      AppSettings.instance.hapticsEnabled.value;
 
   void _triggerHapticFeedback(Future<void> Function() action) {
     if (!_shouldPlayHaptics) {
@@ -477,10 +493,10 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       activeOjamaBlocks.add(block);
       add(block);
       if (i == 0 && _playsBoardSfx) {
-        _playSfx(_ojamaSpawnSfx, volume: 0.9);
+        _playSfx(_ojamaSpawnSfxFile, volume: 0.9);
       }
       if (_playsBoardSfx) {
-        _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+        _playSfx(_ojamaBlockSpawnSfxFile, volume: 0.41);
       }
       _triggerThrottledHapticFeedback(
         'preview_ojama_spawn',
@@ -696,12 +712,42 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     this.scoreMode = ScoreMode.endless,
     this.wallColor,
     this.ballSkinId = 'default',
+    this.formationEffectId = EffectSkinCatalog.defaultFormationId,
+    this.gridRows = 12,
+    Map<String, String>? sfxSelectionIds,
   }) {
+    _sfxSelectionIds = sfxSelectionIds == null
+        ? null
+        : Map<String, String>.unmodifiable(sfxSelectionIds);
     _rng = seed != null ? Random(seed) : Random();
-    grid = GridSystem(ballRadius: _ballRadius);
+    grid = GridSystem(ballRadius: _ballRadius, numRows: gridRows);
     scoreManager = ScoreManager(mode: scoreMode);
     if (isCpuMode && !isRemotePlayerMode) {
       cpuAgent = CPUAgent(this, difficulty: CPUDifficulty.hard);
+    }
+  }
+
+  final int gridRows;
+
+  void configureGridRows(int rows) {
+    final normalizedRows = rows.clamp(3, 12).toInt();
+    if (grid.numRows == normalizedRows) {
+      return;
+    }
+    _clearLockedBalls();
+    _clearHints();
+    _clearActiveOjamaBlocks();
+    if (activePiece?.parent != null) {
+      activePiece!.removeFromParent();
+    }
+    if (ghostPiece?.parent != null) {
+      ghostPiece!.removeFromParent();
+    }
+    activePiece = null;
+    ghostPiece = null;
+    grid = GridSystem(ballRadius: _ballRadius, numRows: normalizedRows);
+    if (isLoaded) {
+      _updateGridLayout();
     }
   }
 
@@ -709,11 +755,49 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
   Future<void> onLoad() async {
     await super.onLoad();
 
+    await _loadSelectedSfx();
     _updateGridLayout();
 
     if (autoStart) {
       startGame();
     }
+  }
+
+  Future<void> _loadSelectedSfx() async {
+    final selections = _sfxSelectionIds;
+    if (selections != null) {
+      _spawnSfxFile = AudioSelectionManager.sfxFileFromSelections(
+        selections,
+        'spawn',
+        _spawnSfx,
+      );
+      _ojamaSpawnSfxFile = AudioSelectionManager.sfxFileFromSelections(
+        selections,
+        'obstacle',
+        _ojamaSpawnSfx,
+      );
+      _wazaChargeSfxFile = AudioSelectionManager.sfxFileFromSelections(
+        selections,
+        'formation',
+        _wazaChargeSfx,
+      );
+      return;
+    }
+    _spawnSfxFile =
+        await AudioSelectionManager.selectedSfxFile('spawn', _spawnSfx);
+    _ojamaSpawnSfxFile =
+        await AudioSelectionManager.selectedSfxFile('obstacle', _ojamaSpawnSfx);
+    _wazaChargeSfxFile = await AudioSelectionManager.selectedSfxFile(
+      'formation',
+      _wazaChargeSfx,
+    );
+  }
+
+  void setSfxSelectionIds(Map<String, String>? selectionIds) {
+    _sfxSelectionIds = selectionIds == null
+        ? null
+        : Map<String, String>.unmodifiable(selectionIds);
+    unawaited(_loadSelectedSfx());
   }
 
   @override
@@ -820,7 +904,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
     nextPieceColors.value = _generatePieceColors();
     if (_playsBoardSfx) {
-      _playSfx(_spawnSfx, volume: 0.53);
+      _playSfx(_spawnSfxFile, volume: 0.53);
     }
     _notifyActivePieceState(force: true, action: 'spawn');
     _scheduleHintGuideForCurrentPiece();
@@ -902,6 +986,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       isGhost: true,
       fallSpeed: fallSpeed,
       presetColors: colors,
+      ballSkinId: ballSkinId,
     )..priority = 0;
     ghostPiece!.setRotationIndex(rotation);
     add(ghostPiece!);
@@ -1009,7 +1094,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       );
     }
     if (_playsBoardSfx) {
-      _playSfx(_hardDropSfx, volume: 0.85);
+      _playSfx(_hardDropSfxFile, volume: 0.85);
     }
     _triggerHapticFeedback(HapticFeedback.heavyImpact);
     _notifyActivePieceState(force: true, action: 'hard_drop');
@@ -1600,7 +1685,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     scoreManager.recordPlacement();
 
     if (_playsBoardSfx && !_suppressNextLandingSfx) {
-      _playSfx(_landingSfx, volume: 0.33);
+      _playSfx(_landingSfxFile, volume: 0.33);
     }
     _suppressNextLandingSfx = false;
 
@@ -1816,7 +1901,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     if (_playsBoardSfx &&
         gameStateWrapper.value == GameState.playing &&
         hadGravitySequence) {
-      _playSfx(_landingSfx, volume: 0.33);
+      _playSfx(_landingSfxFile, volume: 0.33);
     }
     return hadGravitySequence;
   }
@@ -1886,7 +1971,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
               }
 
               if (_playsBoardSfx) {
-                _playSfx(_clearSfx, volume: 1.0);
+                _playSfx(_clearSfxFile, volume: 1.0);
               }
               if (matchResult.highestWaza == WazaType.none) {
                 _triggerThrottledHapticFeedback(
@@ -1903,6 +1988,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
                 final ringEffect = BallPopRingEffect(
                   position: comp.position.clone(),
                   ringColor: comp.ballColor.glowColor,
+                  effectSkinId: formationEffectId,
                 );
                 add(ringEffect);
 
@@ -2604,11 +2690,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
           activeOjamaBlocks.add(block);
           add(block);
           if (!playedInitialOjamaSfx && _playsBoardSfx) {
-            _playSfx(_ojamaSpawnSfx, volume: 0.9);
+            _playSfx(_ojamaSpawnSfxFile, volume: 0.9);
             playedInitialOjamaSfx = true;
           }
           if (_playsBoardSfx) {
-            _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+            _playSfx(_ojamaBlockSpawnSfxFile, volume: 0.41);
           }
         },
       );
@@ -2844,6 +2930,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       incomingOjama.clear();
       return;
     }
+    final taskBallSkinId =
+        task.ballSkinId.trim().isEmpty ? 'default' : task.ballSkinId.trim();
+    final taskEffectSkinId = task.effectSkinId.trim().isEmpty
+        ? taskBallSkinId
+        : task.effectSkinId.trim();
 
     int numSets = 1;
     if (task.type == OjamaType.pyramidSet) numSets = 4;
@@ -2887,8 +2978,9 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         'colors': colorsPerSet[i].map((color) => color.index).toList(),
         'dropSeed': dropSeeds[i],
         if (landingCells.isNotEmpty) 'landingCells': landingCells,
-        if (ballSkinId != 'default') 'ballSkinId': ballSkinId,
-        if (task.effectSkinId != ballSkinId) 'effectSkinId': task.effectSkinId,
+        if (taskBallSkinId != 'default') 'ballSkinId': taskBallSkinId,
+        if (taskEffectSkinId != taskBallSkinId)
+          'effectSkinId': taskEffectSkinId,
       };
       if (task.type == OjamaType.straightSet && task.startColor != null) {
         spawnData['startColor'] = task.startColor!.index;
@@ -2918,16 +3010,16 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
               task.type == OjamaType.straightSet ? task.startColor : null,
           presetColors: colors,
           lockedCells: _parseLockedCellPayload(spawnData['landingCells']),
-          ballSkinId: ballSkinId,
-          effectSkinId: task.effectSkinId,
+          ballSkinId: taskBallSkinId,
+          effectSkinId: taskEffectSkinId,
         );
         activeOjamaBlocks.add(block);
         add(block);
         if (i == 0 && _playsBoardSfx) {
-          _playSfx(_ojamaSpawnSfx, volume: 0.9);
+          _playSfx(_ojamaSpawnSfxFile, volume: 0.9);
         }
         if (_playsBoardSfx) {
-          _playSfx(_ojamaBlockSpawnSfx, volume: 0.41);
+          _playSfx(_ojamaBlockSpawnSfxFile, volume: 0.41);
         }
         _triggerThrottledHapticFeedback(
           'ojama_spawn',
@@ -3174,6 +3266,33 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     final wazaName = _wazaName(matchResult.highestWaza);
     wazaNameNotifier.value = '$wazaName！';
 
+    if (formationEffectId != EffectSkinCatalog.defaultFormationId &&
+        matchResult.wazaPattern.isNotEmpty) {
+      final positions = <Vector2>[];
+      for (final group in matchResult.wazaPattern) {
+        for (final hex in group) {
+          final ball = grid.lockedBalls[hex];
+          if (ball != null) {
+            positions.add(ball.position);
+          }
+        }
+      }
+      if (positions.isNotEmpty) {
+        final center = positions.fold<Vector2>(
+              Vector2.zero(),
+              (sum, position) => sum + position,
+            ) /
+            positions.length.toDouble();
+        add(
+          FormationBurstEffect(
+            position: center,
+            effectSkinId: formationEffectId,
+            baseColor: matchResult.wazaColor?.glowColor ?? Colors.white,
+          ),
+        );
+      }
+    }
+
     final sameColorBalls = <BallComponent>[];
     if (matchResult.wazaColor != null) {
       for (var ball in grid.lockedBalls.values) {
@@ -3186,7 +3305,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     }
 
     if (_playsBoardSfx) {
-      _playSfx(_wazaChargeSfx, volume: 0.9);
+      _playSfx(_wazaChargeSfxFile, volume: 0.9);
     }
     _triggerHapticFeedback(HapticFeedback.heavyImpact);
     for (var group in matchResult.wazaPattern) {
@@ -3308,7 +3427,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _markGhostPositionDirty();
     _enforceBounds();
     if (_playsBoardSfx) {
-      _playSfx(_rotationSfx, volume: 0.14);
+      _playSfx(_rotationSfxFile, volume: 0.14);
     }
     _triggerThrottledHapticFeedback(
       'piece_rotate',
@@ -3324,7 +3443,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
     _markGhostPositionDirty();
     _enforceBounds();
     if (_playsBoardSfx) {
-      _playSfx(_rotationSfx, volume: 0.14);
+      _playSfx(_rotationSfxFile, volume: 0.14);
     }
     _triggerThrottledHapticFeedback(
       'piece_rotate',
@@ -3372,6 +3491,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
         final effect = SparkEffect(
           position: dropPositions[i].clone(),
           sparkColor: pieceColors[i].glowColor,
+          effectSkinId: formationEffectId,
         );
         add(effect);
       }
@@ -3381,7 +3501,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       _forceLockNextActivePieceContact = true;
       _suppressNextLandingSfx = true;
       if (_playsBoardSfx) {
-        _playSfx(_hardDropSfx, volume: 0.85);
+        _playSfx(_hardDropSfxFile, volume: 0.85);
       }
       _triggerHapticFeedback(HapticFeedback.heavyImpact);
       _notifyActivePieceState(force: true, action: 'hard_drop');
@@ -3437,7 +3557,7 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
       }
 
       if (playHardDropEffects && _playsBoardSfx) {
-        _playSfx(_hardDropSfx, volume: 0.85);
+        _playSfx(_hardDropSfxFile, volume: 0.85);
       }
 
       isMovingLeft = false;

@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:math';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 
 import '../app_settings.dart';
+import '../audio/audio_selection_manager.dart';
+import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
@@ -19,9 +23,14 @@ import 'components/screen_bottom_banner_ad.dart';
 import 'theme/game_theme_colors.dart';
 
 class ShopScreen extends StatefulWidget {
-  const ShopScreen({super.key, this.embedded = false});
+  const ShopScreen({
+    super.key,
+    this.embedded = false,
+    this.onEconomyChanged,
+  });
 
   final bool embedded;
+  final FutureOr<void> Function()? onEconomyChanged;
 
   @override
   State<ShopScreen> createState() => _ShopScreenState();
@@ -29,28 +38,72 @@ class ShopScreen extends StatefulWidget {
 
 class _ShopScreenState extends State<ShopScreen> {
   static const Color _shopPanelColor = GameThemeColors.surface;
-  static const Color _shopPanelAccent = GameThemeColors.cyan;
   static const Color _shopPanelAccentStrong = Color(0xFFEAF6FF);
   static const int _dailyShopItemPrice = 15000;
   static const int _permanentShopItemPrice = 500000;
+  static const int _medalExchangeItemCost = 200;
 
   final PlayerDataManager _playerData = PlayerDataManager.instance;
   final GachaManager _gachaManager = GachaManager.instance;
   final MissionManager _missionManager = MissionManager.instance;
+  final AudioPlayer _gachaAudioPreviewPlayer = AudioPlayer();
 
   bool _isLoading = true;
   bool _isBuying = false;
   int _coins = 0;
+  int _collectionMedals = 0;
   List<GameItem> _items = const [];
   List<GameItem> _ownedItems = const [];
   int _adRollsUsed = 0;
-  int _premiumFreeRollsUsed = 0;
+  int _premiumAdRollsUsed = 0;
+  Map<GachaCategory, int> _categoryAdRollsUsed = const {};
 
   int get _remainingAdRolls =>
       (GachaManager.dailyAdRollLimit - _adRollsUsed).clamp(0, 999);
-  int get _remainingPremiumFreeRolls =>
-      (GachaManager.dailyPremiumFreeRollLimit - _premiumFreeRollsUsed)
+  int get _remainingPremiumAdRolls =>
+      (GachaManager.dailyPremiumAdRollLimit - _premiumAdRollsUsed)
           .clamp(0, 999);
+  int _remainingCategoryAdRolls(GachaCategory category) =>
+      (GachaManager.categoryAdRollLimit(category) -
+              (_categoryAdRollsUsed[category] ?? 0))
+          .clamp(0, 999);
+
+  bool get _adsGloballyDisabled =>
+      AppSettings.instance.serverAdsGloballyDisabled.value;
+
+  bool get _showsAdGachaButtons => !_adsGloballyDisabled;
+
+  List<_MedalExchangeEntry> get _dailyMedalExchangeItems {
+    final random = Random(_dailyExchangeSeed());
+    final effects = List<GameItem>.from(GameItemCatalog.effectItems)
+      ..sort((a, b) => a.id.compareTo(b.id));
+    final audios = List<GameItem>.from(GameItemCatalog.audioItems)
+      ..sort((a, b) => a.id.compareTo(b.id));
+    final entries = <_MedalExchangeEntry>[];
+    if (effects.isNotEmpty) {
+      final item = effects[random.nextInt(effects.length)];
+      entries.add(
+        _MedalExchangeEntry(itemId: item.id, cost: _medalExchangeItemCost),
+      );
+    }
+    final selectedAudioIds = <String>{};
+    while (audios.isNotEmpty &&
+        selectedAudioIds.length < 2 &&
+        selectedAudioIds.length < audios.length) {
+      final item = audios[random.nextInt(audios.length)];
+      if (selectedAudioIds.add(item.id)) {
+        entries.add(
+          _MedalExchangeEntry(itemId: item.id, cost: _medalExchangeItemCost),
+        );
+      }
+    }
+    return entries;
+  }
+
+  int _dailyExchangeSeed() {
+    final jstNow = DateTime.now().toUtc().add(const Duration(hours: 9));
+    return jstNow.year * 10000 + jstNow.month * 100 + jstNow.day;
+  }
 
   void _playUiTap() {
     AppSfx.playUiTap();
@@ -59,8 +112,29 @@ class _ShopScreenState extends State<ShopScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(RewardedAdManager.instance.warmUp());
+    AppSettings.instance.serverAdsGloballyDisabled.addListener(
+      _handleServerAdsConfigChanged,
+    );
+    if (_showsAdGachaButtons) {
+      unawaited(RewardedAdManager.instance.warmUp());
+    }
     _loadShop();
+  }
+
+  @override
+  void dispose() {
+    AppSettings.instance.serverAdsGloballyDisabled.removeListener(
+      _handleServerAdsConfigChanged,
+    );
+    unawaited(_gachaAudioPreviewPlayer.dispose());
+    super.dispose();
+  }
+
+  void _handleServerAdsConfigChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   Future<void> _loadShop() async {
@@ -72,17 +146,27 @@ class _ShopScreenState extends State<ShopScreen> {
         .take(3)
         .toList();
     final adRollsUsed = await _gachaManager.adRollsUsedToday();
-    final premiumFreeRollsUsed =
-        await _gachaManager.premiumFreeRollsUsedToday();
+    final premiumAdRollsUsed = await _gachaManager.premiumAdRollsUsedToday();
+    final categoryAdRollsUsed = {
+      for (final category in [
+        GachaCategory.stamp,
+        GachaCategory.profile,
+        GachaCategory.effect,
+        GachaCategory.audio,
+      ])
+        category: await _gachaManager.categoryAdRollsUsedToday(category),
+    };
     if (!mounted) {
       return;
     }
     setState(() {
       _coins = _playerData.coins;
+      _collectionMedals = _playerData.collectionMedals;
       _ownedItems = ownedItems;
       _items = items;
       _adRollsUsed = adRollsUsed;
-      _premiumFreeRollsUsed = premiumFreeRollsUsed;
+      _premiumAdRollsUsed = premiumAdRollsUsed;
+      _categoryAdRollsUsed = categoryAdRollsUsed;
       _isLoading = false;
     });
   }
@@ -99,6 +183,7 @@ class _ShopScreenState extends State<ShopScreen> {
       await _playerData.spendCoins(_priceFor(item));
       final grantResult = await _playerData.addOrUpgradeItem(item);
       await _loadShop();
+      await _notifyEconomyChanged();
       if (!mounted) {
         return;
       }
@@ -150,8 +235,77 @@ class _ShopScreenState extends State<ShopScreen> {
     }
   }
 
+  Future<void> _exchangeMedalItem(_MedalExchangeEntry entry) async {
+    if (_isBuying) {
+      return;
+    }
+    final item = GameItemCatalog.byId(entry.itemId);
+    if (item == null || _ownedItems.any((owned) => owned.id == item.id)) {
+      return;
+    }
+
+    setState(() {
+      _isBuying = true;
+    });
+    try {
+      await _playerData.spendCollectionMedals(entry.cost);
+      final grantResult = await _playerData.addOrUpgradeItem(item);
+      await _loadShop();
+      await _notifyEconomyChanged();
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF151723),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(
+                  color: GameThemeColors.cyan.withValues(alpha: 0.55)),
+            ),
+            title: const Text(
+              '交換完了',
+              style: TextStyle(
+                color: GameThemeColors.cyan,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: Text(
+              _grantResultMessage(grantResult),
+              style: const TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  _playUiTap();
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text('閉じる'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await _showShopErrorDialog(title: '交換失敗', error: error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBuying = false;
+        });
+      }
+    }
+  }
+
   Future<void> _rollFreeAdGacha() async {
-    if (_isBuying || _adRollsUsed >= GachaManager.dailyAdRollLimit) {
+    if (_adsGloballyDisabled ||
+        _isBuying ||
+        _adRollsUsed >= GachaManager.dailyAdRollLimit) {
       return;
     }
 
@@ -166,9 +320,11 @@ class _ShopScreenState extends State<ShopScreen> {
       final result = await _gachaManager.rollFreeAdGacha();
       await _missionManager.recordEvent('roll_gacha');
       await _loadShop();
+      await _notifyEconomyChanged();
       if (!mounted) {
         return;
       }
+      await _playGachaResultAudioIfNeeded(result);
       await _showGachaResultDialog(result);
     } catch (error) {
       if (!mounted) {
@@ -184,9 +340,10 @@ class _ShopScreenState extends State<ShopScreen> {
     }
   }
 
-  Future<void> _rollPremiumDailyFreeGacha() async {
-    if (_isBuying ||
-        _premiumFreeRollsUsed >= GachaManager.dailyPremiumFreeRollLimit) {
+  Future<void> _rollPremiumAdGacha() async {
+    if (_adsGloballyDisabled ||
+        _isBuying ||
+        _premiumAdRollsUsed >= GachaManager.dailyPremiumAdRollLimit) {
       return;
     }
 
@@ -194,18 +351,26 @@ class _ShopScreenState extends State<ShopScreen> {
       _isBuying = true;
     });
     try {
-      final result = await _gachaManager.rollPremiumDailyFreeGacha();
+      for (var i = 0; i < GachaManager.premiumAdRollAdViews; i += 1) {
+        final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+        if (!rewarded) {
+          throw StateError('広告の視聴が完了しませんでした。');
+        }
+      }
+      final result = await _gachaManager.rollPremiumAdGacha();
       await _missionManager.recordEvent('roll_gacha');
       await _loadShop();
+      await _notifyEconomyChanged();
       if (!mounted) {
         return;
       }
+      await _playGachaResultAudioIfNeeded(result);
       await _showGachaResultDialog(result);
     } catch (error) {
       if (!mounted) {
         return;
       }
-      await _showShopErrorDialog(title: '無料ガチャ失敗', error: error);
+      await _showShopErrorDialog(title: 'プレミアム広告ガチャ失敗', error: error);
     } finally {
       if (mounted) {
         setState(() {
@@ -215,7 +380,9 @@ class _ShopScreenState extends State<ShopScreen> {
     }
   }
 
-  Future<void> _rollGacha() async {
+  Future<void> _rollGacha([
+    GachaCategory category = GachaCategory.standard,
+  ]) async {
     if (_isBuying) {
       return;
     }
@@ -224,12 +391,16 @@ class _ShopScreenState extends State<ShopScreen> {
       _isBuying = true;
     });
     try {
-      final result = await _gachaManager.rollGacha();
+      final result = category == GachaCategory.standard
+          ? await _gachaManager.rollGacha()
+          : await _gachaManager.rollCategoryGacha(category);
       await _missionManager.recordEvent('roll_gacha');
       await _loadShop();
+      await _notifyEconomyChanged();
       if (!mounted) {
         return;
       }
+      await _playGachaResultAudioIfNeeded(result);
       await _showGachaResultDialog(result);
     } catch (error) {
       if (!mounted) {
@@ -242,6 +413,73 @@ class _ShopScreenState extends State<ShopScreen> {
           _isBuying = false;
         });
       }
+    }
+  }
+
+  Future<void> _rollCategoryAdGacha(GachaCategory category) async {
+    if (_adsGloballyDisabled ||
+        _isBuying ||
+        _remainingCategoryAdRolls(category) <= 0) {
+      return;
+    }
+
+    setState(() {
+      _isBuying = true;
+    });
+    try {
+      final adViews = GachaManager.categoryAdRollAdViews(category);
+      for (var i = 0; i < adViews; i += 1) {
+        final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+        if (!rewarded) {
+          throw StateError('広告の視聴が完了しませんでした。');
+        }
+      }
+      final result = await _gachaManager.rollCategoryAdGacha(category);
+      await _missionManager.recordEvent('roll_gacha');
+      await _loadShop();
+      await _notifyEconomyChanged();
+      if (!mounted) {
+        return;
+      }
+      await _playGachaResultAudioIfNeeded(result);
+      await _showGachaResultDialog(result);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await _showShopErrorDialog(title: '広告ガチャ失敗', error: error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isBuying = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _playGachaResultAudioIfNeeded(GachaRollResult result) async {
+    if (!result.item.isAudio) {
+      return;
+    }
+    final fileName = AudioSelectionManager.audioFileForItemId(result.item.id);
+    if (fileName == null) {
+      return;
+    }
+    try {
+      await SeamlessBgm.instance.suspendForExternalAudio();
+      await _gachaAudioPreviewPlayer.stop();
+      await _gachaAudioPreviewPlayer.setReleaseMode(ReleaseMode.stop);
+      await _gachaAudioPreviewPlayer.setVolume(
+        AppSettings.instance.sfxVolume.value.clamp(0.0, 1.0),
+      );
+      await _gachaAudioPreviewPlayer.play(AssetSource('audio/$fileName'));
+      unawaited(
+        _gachaAudioPreviewPlayer.onPlayerComplete.first.then(
+          (_) => SeamlessBgm.instance.resumeFromExternalAudio(),
+        ),
+      );
+    } catch (_) {
+      await SeamlessBgm.instance.resumeFromExternalAudio();
     }
   }
 
@@ -258,6 +496,10 @@ class _ShopScreenState extends State<ShopScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _notifyEconomyChanged() async {
+    await widget.onEconomyChanged?.call();
   }
 
   bool _canBuy(GameItem item) {
@@ -285,7 +527,7 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   Color _iconColorFor(GameItem item) {
-    if (item.type == ItemType.frame) {
+    if (item.type == ItemType.frame || item.type == ItemType.banner) {
       return _colorFromFrameName(item.colorName);
     }
     return _colorFor(item);
@@ -304,8 +546,12 @@ class _ShopScreenState extends State<ShopScreen> {
         return 'プレイヤーアイコン';
       case ItemType.frame:
         return 'アイコンフレーム';
+      case ItemType.banner:
+        return 'プロフィールバナー';
       case ItemType.vfx:
         return '演出データ';
+      case ItemType.audio:
+        return 'ミュージック';
     }
   }
 
@@ -323,6 +569,9 @@ class _ShopScreenState extends State<ShopScreen> {
     }
     if (grantResult.leveledUp) {
       return '${item.name} が Lv.${item.level} になりました。';
+    }
+    if (grantResult.collectionMedalsAdded > 0) {
+      return '${item.name} はすでに所持しています。\nコレクションメダル +${grantResult.collectionMedalsAdded}';
     }
     return '${item.name} はすでに所持しています。';
   }
@@ -383,7 +632,6 @@ class _ShopScreenState extends State<ShopScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final adsRemoved = AppSettings.instance.adsRemoved.value;
     final content = Stack(
       children: [
         if (!widget.embedded)
@@ -401,7 +649,9 @@ class _ShopScreenState extends State<ShopScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   children: [
-                    _buildGachaPanel(adsRemoved: adsRemoved),
+                    _buildGachaPanel(),
+                    const SizedBox(height: 28),
+                    _buildMedalExchangePanel(),
                     const SizedBox(height: 32),
                     _sectionTitle('限定コレクション'),
                     for (final item in GameItemCatalog.permanentShopItems.where(
@@ -606,169 +856,762 @@ class _ShopScreenState extends State<ShopScreen> {
     );
   }
 
-  Widget _buildGachaPanel({required bool adsRemoved}) {
-    final freeLabel = adsRemoved
-        ? '1日1回無料  残り$_remainingPremiumFreeRolls回'
-        : '動画で無料  残り$_remainingAdRolls回';
-    final freeIcon = adsRemoved ? Icons.card_giftcard : Icons.ondemand_video;
-    final canUseFree = adsRemoved
-        ? !_isBuying &&
-            _premiumFreeRollsUsed < GachaManager.dailyPremiumFreeRollLimit
-        : !_isBuying && _adRollsUsed < GachaManager.dailyAdRollLimit;
-
+  Widget _buildMedalExchangePanel() {
+    final exchangeItems = _dailyMedalExchangeItems;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Padding(
-          padding: EdgeInsets.only(left: 8, bottom: 12),
-          child: Text(
-            'ガチャ',
-            style: TextStyle(
-              color: GameThemeColors.cyan,
-              fontWeight: FontWeight.w900,
-              fontSize: 16,
-              letterSpacing: 1,
-            ),
-          ),
+        Row(
+          children: [
+            Expanded(child: _sectionTitle('コレクションメダル交換所')),
+            _collectionMedalBadge(),
+            const SizedBox(width: 8),
+          ],
         ),
         Container(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: const Color(0xFF0F1E2D).withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: GameThemeColors.cyanBorder,
-              width: 1.4,
+              color: GameThemeColors.cyan.withValues(alpha: 0.38),
+              width: 1.3,
             ),
           ),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.24),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: _shopPanelAccent.withValues(alpha: 0.42),
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.auto_awesome,
-                      color: _shopPanelAccentStrong,
-                      size: 32,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'コレクションガチャ',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
-                        SizedBox(height: 5),
-                        Text(
-                          'スタンプ、アイコン、フレームを入手できます',
-                          style: TextStyle(
-                            color: Colors.white60,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _isBuying
-                    ? null
-                    : () {
-                        _playUiTap();
-                        unawaited(_rollGacha());
-                      },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _shopPanelAccent.withValues(alpha: 0.14),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    side: const BorderSide(
-                      color: GameThemeColors.cyanBorder,
-                      width: 1.4,
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'ガチャを引く',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.4,
-                        fontSize: 15,
-                      ),
-                    ),
-                    SizedBox(width: 10),
-                    HexagonCoinAmount(
-                      GachaManager.rollCost,
-                      color: Color(0xFFEAF6FF),
-                      iconSize: 17,
-                      fontSize: 15,
-                    ),
-                  ],
+              const Text(
+                '毎日、エフェクト1枠とミュージック2枠が入れ替わります。所持済みアイテムがガチャで出るとメダルを獲得できます。',
+                style: TextStyle(
+                  color: Colors.white60,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: canUseFree
-                    ? () {
-                        _playUiTap();
-                        unawaited(
-                          adsRemoved
-                              ? _rollPremiumDailyFreeGacha()
-                              : _rollFreeAdGacha(),
-                        );
-                      }
-                    : null,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: _shopPanelAccentStrong,
-                  side: BorderSide(
-                    color: _shopPanelAccentStrong.withValues(alpha: 0.50),
-                    width: 1.2,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                icon: Icon(freeIcon, size: 18),
-                label: Text(
-                  freeLabel,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ),
+              const SizedBox(height: 12),
+              for (final entry in exchangeItems) ...[
+                _medalExchangeCard(entry),
+                if (entry != exchangeItems.last) const SizedBox(height: 10),
+              ],
             ],
           ),
         ),
       ],
     );
+  }
+
+  Widget _medalExchangeCard(_MedalExchangeEntry entry) {
+    final item = GameItemCatalog.byId(entry.itemId);
+    if (item == null) {
+      return const SizedBox.shrink();
+    }
+    final owned = _ownedItems.any((ownedItem) => ownedItem.id == item.id);
+    final enough = _collectionMedals >= entry.cost;
+    final accent = _iconColorFor(item);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: accent.withValues(alpha: 0.34)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: accent.withValues(alpha: 0.54)),
+            ),
+            child: Center(child: _itemIconWidget(item, accent)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _subtitleFor(item),
+                  style: TextStyle(
+                    color: accent.withValues(alpha: 0.78),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 94,
+            height: 42,
+            child: ElevatedButton(
+              onPressed: !_isBuying && !owned && enough
+                  ? () {
+                      _playUiTap();
+                      unawaited(_exchangeMedalItem(entry));
+                    }
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor:
+                    enough ? accent.withValues(alpha: 0.15) : Colors.white10,
+                foregroundColor: enough ? Colors.white : Colors.white38,
+                elevation: 0,
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(
+                    color: enough
+                        ? accent.withValues(alpha: 0.70)
+                        : Colors.white24,
+                  ),
+                ),
+              ),
+              child: owned
+                  ? const Text(
+                      '所持済み',
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    )
+                  : _collectionMedalAmount(entry.cost, compact: true),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGachaPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _sectionTitle('ガチャ'),
+        _buildFeaturedGachaCard(),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final twoColumn = constraints.maxWidth >= 420;
+            final gap = twoColumn ? 12.0 : 10.0;
+            final width = twoColumn
+                ? (constraints.maxWidth - gap) / 2
+                : constraints.maxWidth;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: [
+                SizedBox(
+                  width: width,
+                  child: _buildGachaTypeCard(
+                    title: 'スタンプガチャ',
+                    subtitle: '対戦で使えるスタンプ中心',
+                    iconAsset:
+                        'assets/images/BattleStamps/battle_message_stamp.png',
+                    color: GameThemeColors.cyan,
+                    price: GachaManager.stampRollCost,
+                    category: GachaCategory.stamp,
+                  ),
+                ),
+                SizedBox(
+                  width: width,
+                  child: _buildGachaTypeCard(
+                    title: 'プロフィールガチャ',
+                    subtitle: 'アイコン・フレーム中心',
+                    iconAsset: 'assets/images/Profile_Icon.png',
+                    color: const Color(0xFF7AA8FF),
+                    price: GachaManager.profileRollCost,
+                    category: GachaCategory.profile,
+                  ),
+                ),
+                SizedBox(
+                  width: width,
+                  child: _buildGachaTypeCard(
+                    title: 'エフェクトガチャ',
+                    subtitle: 'フォーメーション演出など',
+                    iconAsset: 'assets/images/Effects_Icon.png',
+                    color: const Color(0xFFFFD84D),
+                    price: GachaManager.effectRollCost,
+                    category: GachaCategory.effect,
+                  ),
+                ),
+                SizedBox(
+                  width: width,
+                  child: _buildGachaTypeCard(
+                    title: 'ミュージックガチャ',
+                    subtitle: 'BGM・SE コレクション',
+                    iconAsset: 'assets/images/Music_Icon.png',
+                    color: const Color(0xFFFF7AD9),
+                    price: GachaManager.audioRollCost,
+                    category: GachaCategory.audio,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeaturedGachaCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F1E2D).withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: GameThemeColors.cyanBorder,
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: GameThemeColors.cyan.withValues(alpha: 0.11),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: GameThemeColors.cyan.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: GameThemeColors.cyan.withValues(alpha: 0.52),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Image.asset(
+                    'assets/images/HomeNav/nav_collection.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'コレクションガチャ',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'スタンプ、アイコン、フレームをまとめて狙えます',
+                      style: TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _gachaInfoButton(
+                color: GameThemeColors.cyan,
+                title: 'コレクションガチャ排出率',
+                lines: _oddsLinesForCategory(GachaCategory.standard),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: _showsAdGachaButtons ? 2 : 1,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: _showsAdGachaButtons ? 3.1 : 5.8,
+            children: [
+              _coinOnlyGachaButton(
+                label: '通常',
+                price: GachaManager.rollCost,
+                color: GameThemeColors.cyan,
+                onTap: () => _rollGacha(),
+              ),
+              if (_showsAdGachaButtons)
+                _adGachaButton(
+                  label: '広告1回',
+                  color: GameThemeColors.cyan,
+                  remaining: _remainingAdRolls,
+                  limit: GachaManager.dailyAdRollLimit,
+                  onTap: _rollFreeAdGacha,
+                ),
+              _coinOnlyGachaButton(
+                label: 'プレミアム',
+                price: GachaManager.premiumRollCost,
+                color: const Color(0xFFFFD84D),
+                onTap: () => _rollGacha(GachaCategory.premium),
+              ),
+              if (_showsAdGachaButtons)
+                _adGachaButton(
+                  label: '広告3回',
+                  color: const Color(0xFFFFD84D),
+                  remaining: _remainingPremiumAdRolls,
+                  limit: GachaManager.dailyPremiumAdRollLimit,
+                  onTap: _rollPremiumAdGacha,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGachaTypeCard({
+    required String title,
+    required String subtitle,
+    required String iconAsset,
+    required Color color,
+    required int price,
+    required GachaCategory category,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: _shopPanelColor.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.38)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: color.withValues(alpha: 0.46)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(7),
+                  child: Image.asset(iconAsset, fit: BoxFit.contain),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _gachaInfoButton(
+                color: color,
+                title: '$title 排出率',
+                lines: _oddsLinesForCategory(category),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _coinOnlyGachaButton(
+                  price: price,
+                  color: color,
+                  onTap: () => _rollGacha(category),
+                ),
+              ),
+              if (_showsAdGachaButtons) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _adGachaButton(
+                    label: '広告${GachaManager.categoryAdRollAdViews(category)}回',
+                    color: color,
+                    remaining: _remainingCategoryAdRolls(category),
+                    limit: GachaManager.categoryAdRollLimit(category),
+                    onTap: () => _rollCategoryAdGacha(category),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _coinOnlyGachaButton({
+    String? label,
+    required int price,
+    required Color color,
+    required Future<void> Function() onTap,
+  }) {
+    return ElevatedButton(
+      onPressed: _isBuying
+          ? null
+          : () {
+              _playUiTap();
+              unawaited(onTap());
+            },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color.withValues(alpha: 0.16),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: color.withValues(alpha: 0.82), width: 1.2),
+        ),
+        minimumSize: const Size.fromHeight(54),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (label != null) ...[
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            HexagonCoinAmount(
+              price,
+              color: _shopPanelAccentStrong,
+              iconSize: 17,
+              fontSize: 14,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _adGachaButton({
+    required String label,
+    required Color color,
+    required int remaining,
+    required int limit,
+    required Future<void> Function() onTap,
+  }) {
+    final enabled = !_isBuying && remaining > 0;
+    return ElevatedButton(
+      onPressed: enabled
+          ? () {
+              _playUiTap();
+              unawaited(onTap());
+            }
+          : null,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: enabled
+            ? color.withValues(alpha: 0.16)
+            : Colors.white.withValues(alpha: 0.06),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(
+            color: enabled ? color.withValues(alpha: 0.82) : Colors.white24,
+            width: 1.2,
+          ),
+        ),
+        minimumSize: const Size.fromHeight(54),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              style: TextStyle(
+                color: enabled ? Colors.white : Colors.white38,
+                fontWeight: FontWeight.w900,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '本日残り$remaining/$limit回',
+              maxLines: 1,
+              style: TextStyle(
+                color: enabled
+                    ? Colors.white.withValues(alpha: 0.78)
+                    : Colors.white30,
+                fontWeight: FontWeight.w800,
+                fontSize: 10,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _gachaInfoButton({
+    required Color color,
+    required String title,
+    required List<String> lines,
+  }) {
+    return IconButton(
+      onPressed: () {
+        _playUiTap();
+        unawaited(
+            _showGachaInfoDialog(title: title, color: color, lines: lines));
+      },
+      icon: Icon(Icons.info_outline_rounded, color: color, size: 20),
+      visualDensity: VisualDensity.compact,
+      tooltip: '排出率',
+    );
+  }
+
+  Future<void> _showGachaInfoDialog({
+    required String title,
+    required Color color,
+    required List<String> lines,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF151723),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: color.withValues(alpha: 0.55)),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(color: color, fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: min(MediaQuery.of(context).size.width * 0.82, 420),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final line in lines) _oddsLineTile(line, color),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _playUiTap();
+              Navigator.of(dialogContext).pop();
+            },
+            child: Text(
+              '閉じる',
+              style: TextStyle(color: color, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _oddsLineTile(String line, Color color) {
+    final isHeading = line.startsWith('#');
+    final isNote = line.startsWith('※');
+    final text = isHeading ? line.substring(1) : line;
+    if (isHeading) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 10, bottom: 6),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w900,
+            fontSize: 14,
+          ),
+        ),
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: isNote
+            ? Colors.white.withValues(alpha: 0.04)
+            : Colors.white.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: isNote
+              ? Colors.white.withValues(alpha: 0.08)
+              : color.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: isNote ? Colors.white60 : Colors.white.withValues(alpha: 0.88),
+          height: 1.35,
+          fontWeight: FontWeight.w800,
+          fontSize: isNote ? 11 : 12,
+        ),
+      ),
+    );
+  }
+
+  List<String> _oddsLinesForCategory(GachaCategory category) {
+    final formationEffects = GameItemCatalog.effectItems
+        .where((item) => item.id.contains('formation'))
+        .toList();
+    final ojamaEffects = GameItemCatalog.effectItems
+        .where((item) => item.id.contains('ojama'))
+        .toList();
+    final bgmItems = GameItemCatalog.audioItems
+        .where((item) => item.id.contains('bgm'))
+        .toList();
+    final seItems = GameItemCatalog.audioItems
+        .where((item) => !item.id.contains('bgm'))
+        .toList();
+    final standardEffectAudio = [
+      ...GameItemCatalog.effectItems,
+      ...GameItemCatalog.audioItems,
+    ];
+    final standardProfileItems = [
+      ...GameItemCatalog.playerIcons,
+      ...GameItemCatalog.standardIconFrames,
+      ...GameItemCatalog.profileBanners,
+    ];
+    final premiumProfileItems = [
+      ...GameItemCatalog.playerIcons,
+      ...GameItemCatalog.standardIconFrames,
+      ...GameItemCatalog.profileBanners,
+      ...GameItemCatalog.premiumIconFrames,
+    ];
+    return switch (category) {
+      GachaCategory.stamp => [
+          '#カテゴリ別の排出率',
+          'スタンプ：100%',
+          '#アイテム別の排出率',
+          ..._itemOddsLines(GameItemCatalog.commonStamps, 100),
+          '※重複したスタンプはLvアップします。',
+        ],
+      GachaCategory.profile => [
+          '#カテゴリ別の排出率',
+          'プレイヤーアイコン：50%',
+          'フレーム：25%',
+          'バナー：25%',
+          '#アイテム別の排出率',
+          ..._itemOddsLines(GameItemCatalog.playerIcons, 50),
+          ..._itemOddsLines(GameItemCatalog.standardIconFrames, 25),
+          ..._itemOddsLines(GameItemCatalog.profileBanners, 25),
+        ],
+      GachaCategory.effect => [
+          '#カテゴリ別の排出率',
+          'フォーメーション演出：50%',
+          '妨害演出：50%',
+          '#アイテム別の排出率',
+          ..._itemOddsLines(formationEffects, 50),
+          ..._itemOddsLines(ojamaEffects, 50),
+        ],
+      GachaCategory.audio => [
+          '#カテゴリ別の排出率',
+          'BGM：35%',
+          'SE：65%',
+          '#アイテム別の排出率',
+          ..._itemOddsLines(bgmItems, 35),
+          ..._itemOddsLines(seItems, 65),
+        ],
+      GachaCategory.standard => [
+          '#通常ガチャ カテゴリ別の排出率',
+          'スタンプ：70%',
+          'アイコン/フレーム/バナー：25%',
+          'エフェクト/ミュージック：5%',
+          '#通常ガチャ アイテム別の排出率',
+          ..._itemOddsLines(GameItemCatalog.commonStamps, 70),
+          ..._itemOddsLines(standardProfileItems, 25),
+          ..._itemOddsLines(standardEffectAudio, 5),
+          '#プレミアムガチャ カテゴリ別の排出率',
+          'スタンプ：20%',
+          'アイコン/フレーム/バナー：40%',
+          'エフェクト/ミュージック：40%',
+          '#プレミアムガチャ アイテム別の排出率',
+          ..._itemOddsLines(GameItemCatalog.commonStamps, 20),
+          ..._itemOddsLines(premiumProfileItems, 40),
+          ..._itemOddsLines(standardEffectAudio, 40),
+          '※端数処理により表示値と実抽選にわずかな差が出る場合があります。',
+        ],
+      GachaCategory.premium => [
+          '#カテゴリ別の排出率',
+          'スタンプ：20%',
+          'アイコン/フレーム/バナー：40%',
+          'エフェクト/ミュージック：40%',
+          '#アイテム別の排出率',
+          ..._itemOddsLines(GameItemCatalog.commonStamps, 20),
+          ..._itemOddsLines(premiumProfileItems, 40),
+          ..._itemOddsLines(standardEffectAudio, 40),
+        ],
+    };
+  }
+
+  List<String> _itemOddsLines(List<GameItem> items, num categoryPercent) {
+    if (items.isEmpty) {
+      return const [];
+    }
+    final value = categoryPercent / items.length;
+    final percent = _formatOddsPercent(value);
+    return [
+      for (final item in items) '${item.name}：$percent%',
+    ];
+  }
+
+  String _formatOddsPercent(num value) {
+    final formatted = value >= 10
+        ? value.toStringAsFixed(1)
+        : value >= 1
+            ? value.toStringAsFixed(2)
+            : value.toStringAsFixed(3);
+    return formatted.replaceFirst(RegExp(r'\.?0+$'), '');
   }
 
   IconData _iconForItem(GameItem item) {
@@ -806,8 +1649,12 @@ class _ShopScreenState extends State<ShopScreen> {
         };
       case ItemType.frame:
         return Icons.crop_square;
+      case ItemType.banner:
+        return Icons.panorama_rounded;
       case ItemType.vfx:
         return Icons.auto_awesome;
+      case ItemType.audio:
+        return Icons.music_note_rounded;
       case ItemType.stamp:
         return switch (item.iconName) {
           'handshake' => Icons.handshake,
@@ -872,6 +1719,28 @@ class _ShopScreenState extends State<ShopScreen> {
         ),
       );
     }
+    if (item.type == ItemType.banner) {
+      final bannerColor = _colorFromFrameName(item.colorName);
+      return Container(
+        width: 38,
+        height: 28,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          gradient: LinearGradient(
+            colors: [
+              bannerColor.withValues(alpha: 0.82),
+              bannerColor.withValues(alpha: 0.28),
+            ],
+          ),
+          border: Border.all(color: bannerColor, width: 1.6),
+        ),
+        child: const Icon(
+          Icons.panorama_rounded,
+          color: Colors.white,
+          size: 18,
+        ),
+      );
+    }
     if (item.type == ItemType.icon) {
       return PlayerIconImage(
         iconId: item.id,
@@ -886,6 +1755,12 @@ class _ShopScreenState extends State<ShopScreen> {
         height: 34,
         fit: BoxFit.contain,
       );
+    }
+    if (item.type == ItemType.audio) {
+      return Icon(Icons.music_note_rounded, color: iconAccent, size: 32);
+    }
+    if (item.type == ItemType.vfx) {
+      return Icon(Icons.auto_awesome_rounded, color: iconAccent, size: 32);
     }
     return Icon(
       _iconForItem(item),
@@ -930,6 +1805,42 @@ class _ShopScreenState extends State<ShopScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _collectionMedalBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        border:
+            Border.all(color: const Color(0xFFFFD84D).withValues(alpha: 0.7)),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: _collectionMedalAmount(_collectionMedals, compact: true),
+    );
+  }
+
+  Widget _collectionMedalAmount(int amount, {bool compact = false}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          'assets/images/collection_medal.png',
+          width: compact ? 17 : 20,
+          height: compact ? 17 : 20,
+          fit: BoxFit.contain,
+        ),
+        SizedBox(width: compact ? 4 : 6),
+        Text(
+          '$amount',
+          style: TextStyle(
+            color: const Color(0xFFFFE8A3),
+            fontWeight: FontWeight.w900,
+            fontSize: compact ? 13 : 15,
+          ),
+        ),
+      ],
     );
   }
 
@@ -985,4 +1896,14 @@ class _ShopPageTitle extends StatelessWidget {
       ],
     );
   }
+}
+
+class _MedalExchangeEntry {
+  const _MedalExchangeEntry({
+    required this.itemId,
+    required this.cost,
+  });
+
+  final String itemId;
+  final int cost;
 }

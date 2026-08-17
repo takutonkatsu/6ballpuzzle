@@ -1280,7 +1280,11 @@ class _RecordScreenState extends State<RecordScreen> {
 
   Widget _historyTile(MatchHistoryEntry entry) {
     final color = _modeColor(entry.mode);
-    final title = entry.mode == 'SOLO' ? 'エンドレス' : entry.opponentName;
+    final title = switch (entry.mode) {
+      'SOLO' => 'エンドレス',
+      'DAILY' => 'デイリー',
+      _ => entry.opponentName,
+    };
     final canOpenProfile = _canOpenOpponentProfile(entry);
     final resultColor =
         entry.isWin ? GameThemeColors.blueSide : GameThemeColors.redSide;
@@ -1376,9 +1380,10 @@ class _RecordScreenState extends State<RecordScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            if (entry.mode == 'SOLO' && entry.score != null)
-              _scoreSummary(entry.score!)
-            else if (entry.mode != 'SOLO')
+            if ((entry.mode == 'SOLO' || entry.mode == 'DAILY') &&
+                entry.score != null)
+              _scoreSummary(entry.score!, color: color)
+            else if (entry.mode != 'SOLO' && entry.mode != 'DAILY')
               _ratingSummary(entry, resultColor: resultColor),
           ],
         ),
@@ -1468,7 +1473,7 @@ class _RecordScreenState extends State<RecordScreen> {
     }
   }
 
-  Widget _scoreSummary(int score) {
+  Widget _scoreSummary(int score, {Color color = GameThemeColors.endless}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -1481,9 +1486,9 @@ class _RecordScreenState extends State<RecordScreen> {
           ),
         ),
         Text(
-          '$score',
-          style: const TextStyle(
-            color: GameThemeColors.endless,
+          '${_formatNumber(score)}点',
+          style: TextStyle(
+            color: color,
             fontWeight: FontWeight.w900,
           ),
         ),
@@ -1600,6 +1605,7 @@ class _RecordScreenState extends State<RecordScreen> {
       'FRIEND' => GameThemeColors.friend,
       'CPU' => GameThemeColors.computer,
       'SOLO' => GameThemeColors.endless,
+      'DAILY' => GameThemeColors.blueSide,
       _ => Colors.white54,
     };
   }
@@ -1609,6 +1615,7 @@ class _RecordScreenState extends State<RecordScreen> {
       'RANKED' => 'ランク戦',
       'CPU' => 'コンピュータ対戦',
       'SOLO' => 'エンドレス',
+      'DAILY' => 'デイリー',
       'FRIEND' => 'フレンド対戦',
       _ => mode,
     };

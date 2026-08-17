@@ -2,6 +2,7 @@ import 'dart:async' show runZonedGuarded, unawaited;
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart' as ap;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flame_audio/flame_audio.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -14,6 +15,7 @@ import 'app_settings.dart';
 import 'app_maintenance_manager.dart';
 import 'app_update_manager.dart';
 import 'app_version.dart';
+import 'audio/audio_selection_manager.dart';
 import 'auth/auth_manager.dart';
 import 'data/player_data_manager.dart';
 import 'firebase_database_provider.dart';
@@ -121,7 +123,8 @@ Future<void> _initializeEssentialServices() async {
 }
 
 Future<void> _initializePostLaunchServices() async {
-  if (AdRemovalPurchaseManager.isSupportedPlatform) {
+  if (AdRemovalPurchaseManager.isSupportedPlatform &&
+      AppSettings.instance.canShowAdRemovalUi) {
     unawaited(AdRemovalPurchaseManager.instance.initialize());
   }
   await _configureSharedGameAudio();
@@ -218,15 +221,18 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   static const Duration _bootstrapTimeout = Duration(seconds: 8);
   static const Duration _connectionStartupWaitTimeout = Duration(seconds: 8);
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
+  static const String _loadScreenSfx = 'loadScreen01_サウンドロゴ_3.mp3';
 
   late final AnimationController _progressController;
   late final AnimationController _startPromptController;
+  final ap.AudioPlayer _loadScreenPlayer = ap.AudioPlayer();
   MaintenanceNotice? _maintenanceNotice;
   HomeBootstrapData? _readyBootstrapData;
   String _publicPlayerId = '';
   bool _isRetryingMaintenance = false;
   bool _isReadyToStart = false;
   bool _isStartingAfterTap = false;
+  bool _loadScreenSfxStarted = false;
 
   @override
   void initState() {
@@ -239,8 +245,39 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_playLoadScreenSfx());
+    });
     _boot();
     unawaited(_loadPublicPlayerId());
+  }
+
+  Future<void> _playLoadScreenSfx() async {
+    if (_loadScreenSfxStarted) {
+      return;
+    }
+    _loadScreenSfxStarted = true;
+    try {
+      final fileName = await AudioSelectionManager.selectedSfxFile(
+        'load_screen',
+        _loadScreenSfx,
+      );
+      await _loadScreenPlayer.setReleaseMode(ap.ReleaseMode.stop);
+      await _loadScreenPlayer.setVolume(
+        AppSettings.instance.sfxVolume.value.clamp(0.0, 1.0),
+      );
+      await _loadScreenPlayer.play(ap.AssetSource('audio/$fileName'));
+    } catch (_) {
+      // ロード画面SEの失敗で起動処理は止めない。
+    }
+  }
+
+  Future<void> _stopLoadScreenSfx() async {
+    try {
+      await _loadScreenPlayer.stop();
+    } catch (_) {
+      // 画面遷移時の停止失敗は無視する。
+    }
   }
 
   Future<void> _loadPublicPlayerId() async {
@@ -312,6 +349,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       return;
     }
     if (updateRequirement.required) {
+      unawaited(_stopLoadScreenSfx());
       Navigator.of(context).pushReplacement(
         PageRouteBuilder<void>(
           pageBuilder: (_, animation, __) => FadeTransition(
@@ -365,6 +403,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       _isStartingAfterTap = true;
     });
     _startPromptController.stop();
+    unawaited(_stopLoadScreenSfx());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_initializePostLaunchServices());
     });
@@ -669,6 +708,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   void dispose() {
     _progressController.dispose();
     _startPromptController.dispose();
+    unawaited(_loadScreenPlayer.dispose());
     super.dispose();
   }
 

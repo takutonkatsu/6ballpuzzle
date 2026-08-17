@@ -336,66 +336,81 @@ class _ProfileScreenState extends State<ProfileScreen> {
     List<_BadgeDisplay> equippedBadges,
   ) {
     final iconFrameColor = _playerIconFrameColor(profile.playerIconFrameId);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildPlayerIconAvatar(
-              iconId: profile.playerIconId,
-              frameId: profile.playerIconFrameId,
-              color: iconFrameColor,
-              size: 62,
-              iconSize: 34,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: SizedBox(
-                height: 62,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _profileNameText(profile.displayName),
-                          ),
-                          const SizedBox(width: 4),
-                          if (_isOwnProfile)
-                            IconButton(
-                              tooltip: '名前変更',
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                minWidth: 34,
-                                minHeight: 34,
-                              ),
-                              onPressed: () {
-                                _playUiTap();
-                                unawaited(_editName());
-                              },
-                              icon: const Icon(
-                                Icons.edit,
-                                color: Colors.white70,
-                              ),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: _profileBannerGradient(profile.profileBannerId),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: GameThemeColors.cyan.withValues(alpha: 0.58)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.22),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildPlayerIconAvatar(
+                iconId: profile.playerIconId,
+                frameId: profile.playerIconFrameId,
+                color: iconFrameColor,
+                size: 62,
+                iconSize: 34,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: SizedBox(
+                  height: 62,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: _profileNameText(profile.displayName),
                             ),
-                        ],
+                            const SizedBox(width: 4),
+                            if (_isOwnProfile)
+                              IconButton(
+                                tooltip: '名前変更',
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 34,
+                                  minHeight: 34,
+                                ),
+                                onPressed: () {
+                                  _playUiTap();
+                                  unawaited(_editName());
+                                },
+                                icon: const Icon(
+                                  Icons.edit,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
-                    Expanded(
-                      child: _buildEquippedBadges(equippedBadges),
-                    ),
-                  ],
+                      Expanded(
+                        child: _buildEquippedBadges(equippedBadges),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        _smallInfoLine('プレイヤーID：', profile.publicId),
-      ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          _smallInfoLine('プレイヤーID：', profile.publicId),
+        ],
+      ),
     );
   }
 
@@ -1736,6 +1751,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _ => GameThemeColors.cyan,
     };
   }
+
+  LinearGradient _profileBannerGradient(String bannerId) {
+    final banner = GameItemCatalog.byId(bannerId);
+    final color = switch (banner?.colorName) {
+      'red' => Colors.redAccent,
+      'orange' => Colors.orangeAccent,
+      'yellow' => GameThemeColors.computer,
+      'lime' => Colors.limeAccent,
+      'green' => GameThemeColors.endless,
+      'blue' => GameThemeColors.blueSide,
+      'purple' => Colors.purpleAccent,
+      'white' => Colors.white,
+      'black' => const Color(0xFF05070D),
+      _ => GameThemeColors.cyan,
+    };
+    final softColor = _softProfileBannerColor(banner?.colorName, color);
+    return LinearGradient(colors: [softColor, softColor]);
+  }
+
+  Color _softProfileBannerColor(String? colorName, Color color) {
+    if (colorName == 'white') {
+      return const Color(0xFFFBFDFF).withValues(alpha: 0.34);
+    }
+    if (colorName == 'black') {
+      return const Color(0xFF343A45).withValues(alpha: 0.42);
+    }
+    return (Color.lerp(color, Colors.white, 0.84) ?? color)
+        .withValues(alpha: 0.38);
+  }
 }
 
 class _ProfileViewData {
@@ -1744,6 +1788,7 @@ class _ProfileViewData {
     required this.publicId,
     required this.playerIconId,
     required this.playerIconFrameId,
+    required this.profileBannerId,
     required this.equippedBadgeIds,
     required this.unlockedBadgeIds,
     required this.seasonRankBadges,
@@ -1763,6 +1808,7 @@ class _ProfileViewData {
   final String publicId;
   final String playerIconId;
   final String playerIconFrameId;
+  final String profileBannerId;
   final List<String> equippedBadgeIds;
   final List<String> unlockedBadgeIds;
   final List<SeasonRankBadge> seasonRankBadges;
@@ -1783,6 +1829,7 @@ class _ProfileViewData {
       publicId: publicId,
       playerIconId: playerIconId,
       playerIconFrameId: playerIconFrameId,
+      profileBannerId: profileBannerId,
       equippedBadgeIds: equippedBadgeIds,
       unlockedBadgeIds: unlockedBadgeIds,
       seasonRankBadges: badges,
@@ -1810,6 +1857,7 @@ class _ProfileViewData {
       publicId: rankingEntry?.publicId ?? publicId,
       playerIconId: playerIconId,
       playerIconFrameId: playerIconFrameId,
+      profileBannerId: profileBannerId,
       equippedBadgeIds: equippedBadgeIds,
       unlockedBadgeIds: unlockedBadgeIds,
       seasonRankBadges: seasonRankBadges,
@@ -1841,6 +1889,7 @@ class _ProfileViewData {
       publicId: playerData.playerId,
       playerIconId: playerData.equippedPlayerIconId,
       playerIconFrameId: playerData.equippedIconFrameId,
+      profileBannerId: playerData.equippedProfileBannerId,
       equippedBadgeIds: playerData.equippedBadgeIds,
       unlockedBadgeIds: playerData.unlockedBadgeIds,
       seasonRankBadges: playerData.seasonRankBadges,
@@ -1876,6 +1925,8 @@ class _ProfileViewData {
       playerIconId: _stringValue(collection['equippedPlayerIconId']) ?? '',
       playerIconFrameId:
           _stringValue(collection['equippedIconFrameId']) ?? 'default',
+      profileBannerId:
+          _stringValue(collection['equippedProfileBannerId']) ?? 'default',
       equippedBadgeIds: _stringListValue(collection['equippedBadgeIds']),
       unlockedBadgeIds: _stringListValue(collection['unlockedBadgeIds']),
       seasonRankBadges: _seasonRankBadgesValue(collection['seasonRankBadges']),
@@ -1909,6 +1960,7 @@ class _ProfileViewData {
       publicId: entry?.publicId ?? '',
       playerIconId: '',
       playerIconFrameId: 'default',
+      profileBannerId: 'default',
       equippedBadgeIds: const [],
       unlockedBadgeIds: const [],
       seasonRankBadges: const [],

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -100,6 +102,9 @@ class RankingManager {
   static const Duration _summaryCacheTtl = Duration(minutes: 5);
   static const Duration _unchangedPushTtl = Duration(minutes: 10);
   static const String _lastPushPrefix = 'ranking_last_push_v2_';
+  static const String _pendingRankedResultSyncsKey =
+      'ranking_pending_ranked_result_syncs_v1';
+  static const int _pendingRankedResultSyncLimit = 12;
 
   List<RankingEntry>? _topRatingCache;
   DateTime? _topRatingCacheAt;
@@ -187,6 +192,11 @@ class RankingManager {
     required int rating,
     bool incrementDailyWin = false,
     bool incrementSeasonLoss = false,
+    int? seasonWinsOverride,
+    int? seasonLossesOverride,
+    int? dailyWinsOverride,
+    bool auditRankedResult = false,
+    String auditReason = 'profile_sync',
   }) async {
     final clock = await _rankingClock(forceRefresh: true);
     final authUid = await AuthManager.instance.ensureSignedIn();
@@ -207,6 +217,9 @@ class RankingManager {
         )) {
       await syncSeasonStateForCurrentPlayer();
       await PlayerDataManager.instance.load();
+      if (PlayerDataManager.instance.rankedSeasonId != seasonId) {
+        throw StateError('ランク戦のシーズン同期に失敗しました。');
+      }
       if (!incrementDailyWin && !incrementSeasonLoss) {
         rating = PlayerDataManager.instance.currentRating;
       }
@@ -238,8 +251,15 @@ class RankingManager {
     final pushKey =
         '$_lastPushPrefix${seasonId}_${endlessSeasonId}_$resolvedUid';
 
+    final hasAbsoluteSeasonOverrides =
+        seasonWinsOverride != null || seasonLossesOverride != null;
+    final hasAbsoluteDailyOverride = dailyWinsOverride != null;
+
     if (!incrementDailyWin &&
         !incrementSeasonLoss &&
+        !hasAbsoluteSeasonOverrides &&
+        !hasAbsoluteDailyOverride &&
+        !auditRankedResult &&
         _isRecentUnchangedPush(
           prefs: prefs,
           key: pushKey,
@@ -262,6 +282,9 @@ class RankingManager {
       today: today,
       incrementDailyWin: incrementDailyWin,
       incrementSeasonLoss: incrementSeasonLoss,
+      seasonWinsOverride: seasonWinsOverride,
+      seasonLossesOverride: seasonLossesOverride,
+      dailyWinsOverride: dailyWinsOverride,
     );
     final endlessPayload = _buildEndlessRankingUpdatePayload(
       uid: resolvedUid,
@@ -303,6 +326,20 @@ class RankingManager {
       );
     }
     await Future.wait(futures);
+    if (auditRankedResult) {
+      await _writeRankedResultSyncAudit(
+        uid: resolvedUid,
+        publicId: publicId,
+        displayName: resolvedName,
+        seasonId: seasonId,
+        rating: rating,
+        seasonWins: seasonWinsOverride,
+        seasonLosses: seasonLossesOverride,
+        dailyWins: dailyWinsOverride,
+        status: 'success',
+        reason: auditReason,
+      );
+    }
     await _saveLastPush(
       prefs: prefs,
       key: pushKey,
@@ -313,6 +350,105 @@ class RankingManager {
       seasonEndlessHighScore: seasonEndlessHighScore,
     );
     _invalidateCaches();
+  }
+
+  Future<void> syncRankedResultAbsolute({
+    required int rating,
+    required bool isWin,
+    String reason = 'ranked_result',
+  }) async {
+    await PlayerDataManager.instance.load();
+    final clock = await _rankingClock(forceRefresh: true);
+    final seasonWins = PlayerDataManager.instance.seasonRankedWins;
+    final seasonLosses = PlayerDataManager.instance.seasonRankedLosses;
+    final dailyWins = PlayerDataManager.instance.todayRankedWins;
+    final seasonId = PlayerDataManager.instance.rankedSeasonId;
+    if (seasonId.isEmpty || seasonId != clock.currentSeasonId) {
+      await _writeRankedResultSyncAudit(
+        uid: await AuthManager.instance.ensureSignedIn(),
+        publicId: PlayerDataManager.instance.playerId,
+        displayName: PlayerDataManager.instance.displayPlayerName,
+        seasonId: seasonId.isEmpty ? clock.currentSeasonId : seasonId,
+        rating: rating,
+        seasonWins: seasonWins,
+        seasonLosses: seasonLosses,
+        dailyWins: dailyWins,
+        status: 'skipped',
+        reason: 'season_mismatch_$reason',
+      );
+      return;
+    }
+    try {
+      await updateMyRating(
+        rating: rating,
+        displayName: PlayerDataManager.instance.displayPlayerName,
+        seasonWinsOverride: seasonWins,
+        seasonLossesOverride: seasonLosses,
+        dailyWinsOverride: dailyWins,
+        auditRankedResult: true,
+        auditReason: reason,
+      );
+      await _removePendingRankedResultSync(seasonId: seasonId);
+    } catch (error) {
+      await _writeRankedResultSyncAudit(
+        uid: await AuthManager.instance.ensureSignedIn(),
+        publicId: PlayerDataManager.instance.playerId,
+        displayName: PlayerDataManager.instance.displayPlayerName,
+        seasonId: seasonId,
+        rating: rating,
+        seasonWins: seasonWins,
+        seasonLosses: seasonLosses,
+        dailyWins: dailyWins,
+        status: 'failed',
+        reason: reason,
+        error: error.toString(),
+      );
+      await _storePendingRankedResultSync(
+        seasonId: seasonId,
+        rating: rating,
+        seasonWins: seasonWins,
+        seasonLosses: seasonLosses,
+        dailyWins: dailyWins,
+        isWin: isWin,
+        reason: reason,
+      );
+      rethrow;
+    }
+  }
+
+  Future<void> retryPendingRankedResultSyncs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pending = _pendingRankedResultSyncs(prefs);
+    if (pending.isEmpty) {
+      return;
+    }
+    final remaining = <Map<String, Object?>>[];
+    final clock = await _rankingClock(forceRefresh: true);
+    for (final entry in pending) {
+      final seasonId = entry['seasonId']?.toString() ?? '';
+      final rating = RankingEntry._intValue(entry['rating']) ?? 0;
+      if (seasonId.isEmpty || rating <= 0) {
+        continue;
+      }
+      if (seasonId != clock.currentSeasonId) {
+        continue;
+      }
+      try {
+        await updateMyRating(
+          rating: rating,
+          displayName: PlayerDataManager.instance.displayPlayerName,
+          seasonWinsOverride: RankingEntry._intValue(entry['seasonWins']) ?? 0,
+          seasonLossesOverride:
+              RankingEntry._intValue(entry['seasonLosses']) ?? 0,
+          dailyWinsOverride: RankingEntry._intValue(entry['dailyWins']) ?? 0,
+          auditRankedResult: true,
+          auditReason: 'pending_retry',
+        );
+      } catch (_) {
+        remaining.add(entry);
+      }
+    }
+    await _savePendingRankedResultSyncs(prefs, remaining);
   }
 
   Future<void> _syncProfileRatingFields({
@@ -817,12 +953,25 @@ class RankingManager {
     final uid = MultiplayerManager.instance.myUid ??
         await AuthManager.instance.ensureSignedIn();
     await PlayerDataManager.instance.load();
+    final playerData = PlayerDataManager.instance;
     final publicId = PlayerDataManager.instance.playerId;
     final currentEntry = await _fetchEntryByUidOrPublicId(
       _seasonRankingRef(currentSeasonId),
       uid: uid,
       publicId: publicId,
     );
+    final shouldBootstrapBlankCurrentSeason =
+        currentEntry == null &&
+            playerData.rankedSeasonId.trim().isEmpty &&
+            (playerData.seasonRankedWins + playerData.seasonRankedLosses) > 0 &&
+            !playerData.accountCreatedAt.isBefore(
+              RankedSeasonManager.seasonStartJst(currentSeasonId),
+            ) &&
+            _isPlausibleSeasonRating(
+              rating: playerData.currentRating,
+              wins: playerData.seasonRankedWins,
+              losses: playerData.seasonRankedLosses,
+            );
     final previousEntries = await fetchSeasonRankings(previousSeasonId);
     final previousIndex = previousEntries.indexWhere(
       (entry) => _matchesCurrentPlayer(
@@ -840,10 +989,19 @@ class RankingManager {
       currentSeasonId: currentSeasonId,
       currentSeasonRating: _hasSeasonRecord(currentEntry)
           ? currentEntry?.rating
-          : MultiplayerManager.initialRating,
-      hasCurrentSeasonRecord: _hasSeasonRecord(currentEntry),
-      currentSeasonWins: currentEntry?.seasonWins,
-      currentSeasonLosses: currentEntry?.seasonLosses,
+          : (shouldBootstrapBlankCurrentSeason
+              ? playerData.currentRating
+              : MultiplayerManager.initialRating),
+      hasCurrentSeasonRecord:
+          _hasSeasonRecord(currentEntry) || shouldBootstrapBlankCurrentSeason,
+      currentSeasonWins: currentEntry?.seasonWins ??
+          (shouldBootstrapBlankCurrentSeason
+              ? playerData.seasonRankedWins
+              : null),
+      currentSeasonLosses: currentEntry?.seasonLosses ??
+          (shouldBootstrapBlankCurrentSeason
+              ? playerData.seasonRankedLosses
+              : null),
       previousSeasonName: RankedSeasonManager.seasonName(previousSeasonId),
       previousFinalRank: previousRank,
       previousFinalRating: previousEntry?.rating,
@@ -852,6 +1010,19 @@ class RankingManager {
       previousSeasonLosses:
           _hasSeasonRecord(previousEntry) ? previousEntry!.seasonLosses : null,
     );
+    if (shouldBootstrapBlankCurrentSeason) {
+      await PlayerDataManager.instance.load();
+      await updateMyRating(
+        uid: uid,
+        displayName: PlayerDataManager.instance.displayPlayerName,
+        rating: PlayerDataManager.instance.currentRating,
+        seasonWinsOverride: PlayerDataManager.instance.seasonRankedWins,
+        seasonLossesOverride: PlayerDataManager.instance.seasonRankedLosses,
+        dailyWinsOverride: PlayerDataManager.instance.todayRankedWins,
+        auditRankedResult: true,
+        auditReason: 'bootstrap_blank_ranked_season_id',
+      );
+    }
     await syncSeasonRankBadgesForCurrentPlayer();
   }
 
@@ -1204,6 +1375,9 @@ class RankingManager {
     required String today,
     required bool incrementDailyWin,
     required bool incrementSeasonLoss,
+    int? seasonWinsOverride,
+    int? seasonLossesOverride,
+    int? dailyWinsOverride,
   }) async {
     final updatePayload = <String, Object?>{
       'uid': uid,
@@ -1214,7 +1388,27 @@ class RankingManager {
       'updatedAt': ServerValue.timestamp,
     };
 
-    if (incrementDailyWin || incrementSeasonLoss) {
+    if (seasonWinsOverride != null || seasonLossesOverride != null) {
+      updatePayload['seasonWins'] = (seasonWinsOverride ?? 0).clamp(0, 999999);
+      updatePayload['seasonLosses'] =
+          (seasonLossesOverride ?? 0).clamp(0, 999999);
+    }
+
+    if (dailyWinsOverride != null) {
+      final safeDailyWins = dailyWinsOverride.clamp(0, 999999);
+      updatePayload['dailyWins'] = safeDailyWins;
+      updatePayload['dailyWinDate'] = today;
+      if (safeDailyWins > 0) {
+        updatePayload['dailyWinRanking'] = {
+          'uid': uid,
+          'publicId': publicId,
+          'displayName': displayName,
+          'rating': rating,
+          'dailyWins': safeDailyWins,
+          'updatedAt': ServerValue.timestamp,
+        };
+      }
+    } else if (incrementDailyWin || incrementSeasonLoss) {
       final currentSnapshot = await entryRef.get();
       final currentData = currentSnapshot.value is Map
           ? currentSnapshot.value as Map<dynamic, dynamic>
@@ -1223,10 +1417,14 @@ class RankingManager {
           RankingEntry._intValue(currentData?['seasonWins']) ?? 0;
       final currentSeasonLosses =
           RankingEntry._intValue(currentData?['seasonLosses']) ?? 0;
-      updatePayload['seasonWins'] =
-          currentSeasonWins + (incrementDailyWin ? 1 : 0);
-      updatePayload['seasonLosses'] =
-          currentSeasonLosses + (incrementSeasonLoss ? 1 : 0);
+      if (seasonWinsOverride == null) {
+        updatePayload['seasonWins'] =
+            currentSeasonWins + (incrementDailyWin ? 1 : 0);
+      }
+      if (seasonLossesOverride == null) {
+        updatePayload['seasonLosses'] =
+            currentSeasonLosses + (incrementSeasonLoss ? 1 : 0);
+      }
       final currentWinDate = currentData?['dailyWinDate']?.toString();
       final rawCurrentWins =
           RankingEntry._intValue(currentData?['dailyWins']) ?? 0;
@@ -1246,6 +1444,7 @@ class RankingManager {
           'uid': uid,
           'publicId': publicId,
           'displayName': displayName,
+          'rating': rating,
           'dailyWins': nextDailyWins,
           'updatedAt': ServerValue.timestamp,
         };
@@ -1516,6 +1715,121 @@ class RankingManager {
       prefs.setString('${key}_displayName', displayName),
       prefs.setString('${key}_publicId', publicId),
     ]);
+  }
+
+  Future<void> _writeRankedResultSyncAudit({
+    required String uid,
+    required String publicId,
+    required String displayName,
+    required String seasonId,
+    required int rating,
+    required String status,
+    required String reason,
+    int? seasonWins,
+    int? seasonLosses,
+    int? dailyWins,
+    String? error,
+  }) async {
+    if (uid.trim().isEmpty || seasonId.trim().isEmpty) {
+      return;
+    }
+    final now = DateTime.now();
+    final logKey = '${now.millisecondsSinceEpoch}_${status}_$reason'
+        .replaceAll(RegExp(r'[\.\#\$\[\]/]'), '_');
+    final log = <String, Object?>{
+      'uid': uid,
+      'publicId': publicId,
+      'displayName': displayName,
+      'seasonId': seasonId,
+      'rating': rating,
+      if (seasonWins != null) 'seasonWins': seasonWins,
+      if (seasonLosses != null) 'seasonLosses': seasonLosses,
+      if (dailyWins != null) 'dailyWins': dailyWins,
+      'status': status,
+      'reason': reason,
+      if (error != null && error.isNotEmpty) 'error': error,
+      'createdAt': ServerValue.timestamp,
+      'createdAtText': now.toIso8601String(),
+    };
+    await _db.child('rankedResultSyncLogs/$uid/$logKey').set(log);
+    await _db.child('rankedResultSyncLatest/$uid').set(log);
+  }
+
+  List<Map<String, Object?>> _pendingRankedResultSyncs(
+    SharedPreferences prefs,
+  ) {
+    final raw = prefs.getString(_pendingRankedResultSyncsKey);
+    if (raw == null || raw.isEmpty) {
+      return const [];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        return const [];
+      }
+      return decoded
+          .whereType<Map>()
+          .map((entry) => Map<String, Object?>.from(entry))
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _savePendingRankedResultSyncs(
+    SharedPreferences prefs,
+    List<Map<String, Object?>> pending,
+  ) async {
+    if (pending.isEmpty) {
+      await prefs.remove(_pendingRankedResultSyncsKey);
+      return;
+    }
+    await prefs.setString(_pendingRankedResultSyncsKey, jsonEncode(pending));
+  }
+
+  Future<void> _storePendingRankedResultSync({
+    required String seasonId,
+    required int rating,
+    required int seasonWins,
+    required int seasonLosses,
+    required int dailyWins,
+    required bool isWin,
+    required String reason,
+  }) async {
+    if (seasonId.isEmpty) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final pending = _pendingRankedResultSyncs(prefs)
+        .where((entry) => entry['seasonId']?.toString() != seasonId)
+        .toList();
+    pending.add({
+      'seasonId': seasonId,
+      'rating': rating,
+      'seasonWins': seasonWins,
+      'seasonLosses': seasonLosses,
+      'dailyWins': dailyWins,
+      'isWin': isWin,
+      'reason': reason,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+    final trimmed = pending.length > _pendingRankedResultSyncLimit
+        ? pending.sublist(pending.length - _pendingRankedResultSyncLimit)
+        : pending;
+    await _savePendingRankedResultSyncs(prefs, trimmed);
+  }
+
+  Future<void> _removePendingRankedResultSync({
+    required String seasonId,
+  }) async {
+    if (seasonId.isEmpty) {
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final remaining = _pendingRankedResultSyncs(prefs)
+        .where((entry) => entry['seasonId']?.toString() != seasonId)
+        .toList();
+    await _savePendingRankedResultSyncs(prefs, remaining);
   }
 
   bool _isRecentUnchangedPush({

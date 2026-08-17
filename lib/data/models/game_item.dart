@@ -1,4 +1,4 @@
-enum ItemType { stamp, skin, icon, frame, vfx }
+enum ItemType { stamp, skin, icon, frame, banner, vfx, audio }
 
 enum ItemRarity { common, rare, epic, legendary }
 
@@ -26,8 +26,12 @@ class GameItem {
   final String? text;
 
   bool get isStamp => type == ItemType.stamp;
+  bool get isSkin => type == ItemType.skin;
   bool get isIcon => type == ItemType.icon;
   bool get isFrame => type == ItemType.frame;
+  bool get isBanner => type == ItemType.banner;
+  bool get isEffect => type == ItemType.vfx;
+  bool get isAudio => type == ItemType.audio;
   bool get isMaxLevel => isStamp && level >= maxStampLevel;
 
   GameItem copyWith({
@@ -675,22 +679,388 @@ class GameItemCatalog {
     ...premiumIconFrames,
   ];
 
+  static const List<GameItem> profileBanners = [
+    GameItem(
+      id: 'banner_red',
+      name: '赤バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'red',
+    ),
+    GameItem(
+      id: 'banner_orange',
+      name: '橙バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'orange',
+    ),
+    GameItem(
+      id: 'banner_yellow',
+      name: '黄バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'yellow',
+    ),
+    GameItem(
+      id: 'banner_lime',
+      name: '黄緑バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'lime',
+    ),
+    GameItem(
+      id: 'banner_green',
+      name: '緑バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'green',
+    ),
+    GameItem(
+      id: 'banner_blue',
+      name: '青バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'blue',
+    ),
+    GameItem(
+      id: 'banner_white',
+      name: '白バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'white',
+    ),
+    GameItem(
+      id: 'banner_purple',
+      name: '紫バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'purple',
+    ),
+    GameItem(
+      id: 'banner_black',
+      name: '黒バナー',
+      type: ItemType.banner,
+      rarity: ItemRarity.common,
+      colorName: 'black',
+    ),
+  ];
+
   static const List<GameItem> ballSkins = [
     GameItem(
-      id: 'skin_luxury_prism',
-      name: 'プリズム',
+      id: 'skin_orbit',
+      name: 'オービット',
       type: ItemType.skin,
-      rarity: ItemRarity.legendary,
-      colorName: 'prism',
+      rarity: ItemRarity.rare,
+      colorName: 'orbit',
+    ),
+    GameItem(
+      id: 'skin_arcade',
+      name: 'アーケード',
+      type: ItemType.skin,
+      rarity: ItemRarity.rare,
+      colorName: 'arcade',
+    ),
+    GameItem(
+      id: 'skin_hexacore',
+      name: 'ヘキサコア',
+      type: ItemType.skin,
+      rarity: ItemRarity.rare,
+      colorName: 'hexacore',
+    ),
+    GameItem(
+      id: 'skin_element',
+      name: 'エレメント',
+      type: ItemType.skin,
+      rarity: ItemRarity.rare,
+      colorName: 'element',
+    ),
+    GameItem(
+      id: 'skin_cosmic',
+      name: 'コズミック',
+      type: ItemType.skin,
+      rarity: ItemRarity.rare,
+      colorName: 'cosmic',
     ),
   ];
 
   static const List<GameItem> permanentShopItems = [
     ...premiumIconFrames,
-    ...ballSkins,
   ];
 
   static const List<GameItem> legacyVfxItems = [];
+
+  static const List<GameItem> effectItems = [
+    GameItem(
+      id: 'effect_formation_burst',
+      name: 'バースト',
+      type: ItemType.vfx,
+      rarity: ItemRarity.epic,
+      colorName: 'yellow',
+    ),
+    GameItem(
+      id: 'effect_formation_arc',
+      name: 'アーク',
+      type: ItemType.vfx,
+      rarity: ItemRarity.epic,
+      colorName: 'purple',
+    ),
+    GameItem(
+      id: 'effect_formation_emerald',
+      name: 'エメラルド',
+      type: ItemType.vfx,
+      rarity: ItemRarity.epic,
+      colorName: 'green',
+    ),
+    GameItem(
+      id: 'effect_ojama_meteor',
+      name: 'メテオ',
+      type: ItemType.vfx,
+      rarity: ItemRarity.epic,
+      colorName: 'orange',
+    ),
+    GameItem(
+      id: 'effect_ojama_crystal',
+      name: 'クリスタル',
+      type: ItemType.vfx,
+      rarity: ItemRarity.epic,
+      colorName: 'blue',
+    ),
+    GameItem(
+      id: 'effect_ojama_thunder',
+      name: 'サンダー',
+      type: ItemType.vfx,
+      rarity: ItemRarity.epic,
+      colorName: 'yellow',
+    ),
+  ];
+
+  static const List<GameItem> audioItems = [
+    GameItem(
+        id: 'home_bgm_02',
+        name: 'ホームBGM 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_02',
+        name: 'バトルBGM 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_03',
+        name: 'バトルBGM 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_04',
+        name: 'バトルBGM 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_05',
+        name: 'バトルBGM 05',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_06',
+        name: 'バトルBGM 06',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_07',
+        name: 'バトルBGM 07',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_08',
+        name: 'バトルBGM 08',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_09',
+        name: 'バトルBGM 09',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_10',
+        name: 'バトルBGM 10',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'battle_bgm_11',
+        name: 'バトルBGM 11',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'ready_02',
+        name: 'READY 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'ready_03',
+        name: 'READY 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'winner_02',
+        name: '勝利 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'winner_03',
+        name: '勝利 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'winner_04',
+        name: '勝利 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'winner_05',
+        name: '勝利 05',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'winner_06',
+        name: '勝利 06',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'loser_02',
+        name: '敗北 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'loser_03',
+        name: '敗北 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'loser_04',
+        name: '敗北 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'loser_05',
+        name: '敗北 05',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'button_02',
+        name: '決定 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'button_03',
+        name: '決定 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'button_04',
+        name: '決定 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'button_05',
+        name: '決定 05',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'button_06',
+        name: '決定 06',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'button_07',
+        name: '決定 07',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'matching_02',
+        name: 'マッチング 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'matching_03',
+        name: 'マッチング 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'matching_04',
+        name: 'マッチング 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'matching_05',
+        name: 'マッチング 05',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'matching_06',
+        name: 'マッチング 06',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'matching_07',
+        name: 'マッチング 07',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'formation_02',
+        name: 'フォーメーション 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'formation_03',
+        name: 'フォーメーション 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'formation_04',
+        name: 'フォーメーション 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'formation_05',
+        name: 'フォーメーション 05',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'formation_06',
+        name: 'フォーメーション 06',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'formation_07',
+        name: 'フォーメーション 07',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'obstacle_02',
+        name: '妨害ボール 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'obstacle_03',
+        name: '妨害ボール 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'obstacle_04',
+        name: '妨害ボール 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'spawn_02',
+        name: 'スポーン 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'spawn_03',
+        name: 'スポーン 03',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+  ];
 
   static const List<GameItem> gachaCommonPool = [
     ...commonStamps,
@@ -707,7 +1077,10 @@ class GameItemCatalog {
     ...rareStamps,
     ...playerIcons,
     ...iconFrames,
+    ...profileBanners,
     ...ballSkins,
+    ...effectItems,
+    ...audioItems,
   ];
 
   static const List<GameItem> allItems = [
@@ -719,6 +1092,7 @@ class GameItemCatalog {
     ...commonStamps,
     ...playerIcons,
     ...standardIconFrames,
+    ...profileBanners,
   ];
 
   static GameItem? byId(String id) {

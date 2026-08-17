@@ -21,12 +21,19 @@ class FriendMatchLimitManager {
     final prefs = await SharedPreferences.getInstance();
     await _resetIfNeeded(prefs);
 
-    final isUnlimited = AppSettings.instance.adsRemoved.value ||
+    final isUnlimited = AppSettings.instance.adRemovalBenefitsEnabled ||
         AppSettings.instance.isInterstitialSkipActive;
     final used = prefs.getInt(_usedKey) ?? 0;
     final bonus = prefs.getInt(_bonusKey) ?? 0;
     final allowance = freeDailyMatches + bonus;
     final remaining = isUnlimited ? 1 << 30 : math.max(0, allowance - used);
+    final bonusUsed = math.max(0, used - freeDailyMatches);
+    final bonusRemaining = math.max(0, bonus - bonusUsed);
+    final baseRemaining = math.max(0, freeDailyMatches - used);
+    final displayRemaining =
+        bonus > 0 && baseRemaining <= 0 ? bonusRemaining : baseRemaining;
+    final displayAllowance =
+        bonus > 0 && baseRemaining <= 0 ? bonus : freeDailyMatches;
 
     return FriendMatchLimitSnapshot(
       isUnlimited: isUnlimited,
@@ -34,6 +41,8 @@ class FriendMatchLimitManager {
       bonus: bonus,
       allowance: allowance,
       remaining: remaining,
+      displayRemaining: displayRemaining,
+      displayAllowance: displayAllowance,
     );
   }
 
@@ -46,7 +55,7 @@ class FriendMatchLimitManager {
     final prefs = await SharedPreferences.getInstance();
     await _resetIfNeeded(prefs);
 
-    if (AppSettings.instance.adsRemoved.value ||
+    if (AppSettings.instance.adRemovalBenefitsEnabled ||
         AppSettings.instance.isInterstitialSkipActive) {
       return true;
     }
@@ -66,7 +75,7 @@ class FriendMatchLimitManager {
     final prefs = await SharedPreferences.getInstance();
     await _resetIfNeeded(prefs);
 
-    if (AppSettings.instance.adsRemoved.value ||
+    if (AppSettings.instance.adRemovalBenefitsEnabled ||
         AppSettings.instance.isInterstitialSkipActive) {
       return;
     }
@@ -118,6 +127,8 @@ class FriendMatchLimitSnapshot {
     required this.bonus,
     required this.allowance,
     required this.remaining,
+    required this.displayRemaining,
+    required this.displayAllowance,
   });
 
   final bool isUnlimited;
@@ -125,4 +136,6 @@ class FriendMatchLimitSnapshot {
   final int bonus;
   final int allowance;
   final int remaining;
+  final int displayRemaining;
+  final int displayAllowance;
 }

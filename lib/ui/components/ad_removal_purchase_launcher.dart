@@ -10,7 +10,9 @@ class AdRemovalPurchaseLauncher {
   static bool _isStartingPurchase = false;
 
   static Future<void> startFromBanner(BuildContext context) async {
-    if (_isStartingPurchase || AppSettings.instance.adsRemoved.value) {
+    if (_isStartingPurchase ||
+        !AppSettings.instance.canShowAdRemovalUi ||
+        AppSettings.instance.adsRemoved.value) {
       return;
     }
     _isStartingPurchase = true;

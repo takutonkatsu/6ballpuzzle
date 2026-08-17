@@ -28,20 +28,34 @@ class AppSettings {
   static const String _usedAdGiftCodesKey = 'settings_used_ad_gift_codes';
   static const String _onboardingSeenKey = 'settings_onboarding_seen';
   static const String _hintGuideEnabledKey = 'settings_hint_guide_enabled';
+  static const String _hapticsEnabledKey = 'settings_haptics_enabled';
+  static const String _serverAdsConfigPath = 'appConfig/ads';
 
   final ValueNotifier<double> musicVolume = ValueNotifier(1.0);
   final ValueNotifier<double> sfxVolume = ValueNotifier(1.0);
   final ValueNotifier<bool> adsRemoved = ValueNotifier(false);
+  final ValueNotifier<bool> serverAdsGloballyDisabled = ValueNotifier(false);
   final ValueNotifier<DateTime?> interstitialSkipUntil = ValueNotifier(null);
   final ValueNotifier<bool> onboardingSeen = ValueNotifier(false);
   final ValueNotifier<bool> hintGuideEnabled = ValueNotifier(true);
+  final ValueNotifier<bool> hapticsEnabled = ValueNotifier(true);
   final ValueNotifier<ControlLayoutPreset> controlLayout =
       ValueNotifier(ControlLayoutPreset.rotateMoveMoveRotate);
 
   bool _loaded = false;
+  StreamSubscription<DatabaseEvent>? _serverAdsConfigSubscription;
 
   bool get _androidAdsRemovedBenefitsEnabled =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  bool get canRequestAds => !serverAdsGloballyDisabled.value;
+
+  bool get canRequestRewardedAds => !serverAdsGloballyDisabled.value;
+
+  bool get canShowAdRemovalUi => !serverAdsGloballyDisabled.value;
+
+  bool get adRemovalBenefitsEnabled =>
+      adsRemoved.value || serverAdsGloballyDisabled.value;
 
   Future<void> load() async {
     if (_loaded) {
@@ -61,11 +75,41 @@ class AppSettings {
             : null;
     onboardingSeen.value = prefs.getBool(_onboardingSeenKey) ?? false;
     hintGuideEnabled.value = prefs.getBool(_hintGuideEnabledKey) ?? true;
+    hapticsEnabled.value = prefs.getBool(_hapticsEnabledKey) ?? true;
     final defaultLayout = ControlLayoutPreset.rotateMoveMoveRotate.index;
     final rawLayout = prefs.getInt(_controlLayoutKey) ?? defaultLayout;
     controlLayout.value = ControlLayoutPreset
         .values[rawLayout.clamp(0, ControlLayoutPreset.values.length - 1)];
     _loaded = true;
+    await startServerAdsConfigListener();
+  }
+
+  Future<void> startServerAdsConfigListener() async {
+    if (_serverAdsConfigSubscription != null) {
+      return;
+    }
+    try {
+      final ref = AppFirebaseDatabase.ref().child(_serverAdsConfigPath);
+      final snapshot = await ref.get().timeout(const Duration(seconds: 4));
+      _applyServerAdsConfig(snapshot.value);
+      _serverAdsConfigSubscription = ref.onValue.listen(
+        (event) => _applyServerAdsConfig(event.snapshot.value),
+        onError: (_) {},
+      );
+    } catch (_) {
+      serverAdsGloballyDisabled.value = false;
+    }
+  }
+
+  void _applyServerAdsConfig(Object? raw) {
+    if (raw is! Map) {
+      serverAdsGloballyDisabled.value = false;
+      return;
+    }
+    final data = Map<dynamic, dynamic>.from(raw);
+    serverAdsGloballyDisabled.value = _boolValue(data['globallyDisabled']) ||
+        _boolValue(data['disabled']) ||
+        _boolValue(data['hideAllAds']);
   }
 
   Future<void> setMusicVolume(double value) async {
@@ -150,6 +194,20 @@ class AppSettings {
     hintGuideEnabled.value = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_hintGuideEnabledKey, value);
+  }
+
+  Future<void> setHapticsEnabled(bool value) async {
+    hapticsEnabled.value = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_hapticsEnabledKey, value);
+  }
+
+  bool _boolValue(Object? value) {
+    if (value is bool) {
+      return value;
+    }
+    final text = value?.toString().trim().toLowerCase() ?? '';
+    return text == 'true' || text == '1' || text == 'yes' || text == 'on';
   }
 
   String text(String ja, String en) => ja;

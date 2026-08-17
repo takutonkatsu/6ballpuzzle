@@ -48,7 +48,8 @@ class MissionManager {
     return allClearBonusCoins;
   }
 
-  bool get adsRemovedBenefitsEnabled => AppSettings.instance.adsRemoved.value;
+  bool get adsRemovedBenefitsEnabled =>
+      AppSettings.instance.adRemovalBenefitsEnabled;
 
   Future<List<Map<String, dynamic>>> regularMissions() async {
     await load();
@@ -63,6 +64,8 @@ class MissionManager {
       final claimedCount = claimedCounts[definition.id] ?? 0;
       final target = definition.targetForClaimedCount(claimedCount);
       final progress = _regularProgressFor(definition, prefs);
+      final claimableTimes =
+          _regularClaimableTimes(definition, progress, claimedCount);
       missions.add({
         'id': definition.id,
         'title': definition.title,
@@ -71,7 +74,9 @@ class MissionManager {
         'target': target,
         'rewardCoins': definition.rewardCoins,
         'claimedCount': claimedCount,
-        'claimable': progress >= target,
+        'claimable': claimableTimes > 0,
+        'claimableTimes': claimableTimes,
+        'claimableRewardCoins': definition.rewardCoins * claimableTimes,
       });
     }
     missions.sort((a, b) {
@@ -146,7 +151,7 @@ class MissionManager {
     }
     final missionId = missions[index]['id']?.toString() ?? '';
     if (MissionCatalog.isRewardedAdMissionId(missionId) ||
-        missionId == MissionCatalog.requiredEndlessMissionId ||
+        missionId == MissionCatalog.requiredDailyMissionId ||
         MissionCatalog.isLoginRewardMissionId(missionId)) {
       throw StateError('このミッションはチェンジできません。');
     }
@@ -159,7 +164,7 @@ class MissionManager {
         .where(
           (mission) =>
               !MissionCatalog.isRewardedAdMissionId(mission.id) &&
-              mission.id != MissionCatalog.requiredEndlessMissionId &&
+              mission.id != MissionCatalog.requiredDailyMissionId &&
               !currentIds.contains(mission.id),
         )
         .toList();
@@ -235,6 +240,43 @@ class MissionManager {
     return reward;
   }
 
+  Future<int> claimAllDailyMissionRewards() async {
+    await load();
+    final missions = currentMissions;
+    var totalReward = 0;
+    var changed = false;
+    final adsRemoved = adsRemovedBenefitsEnabled;
+
+    for (final mission in missions) {
+      if (mission['claimed'] as bool? ?? false) {
+        continue;
+      }
+      final missionId = mission['id']?.toString() ?? '';
+      final isRewardedAdMission =
+          MissionCatalog.isRewardedAdMissionId(missionId);
+      final canClaimNow =
+          _isComplete(mission) || (isRewardedAdMission && adsRemoved);
+      if (!canClaimNow) {
+        continue;
+      }
+
+      if (isRewardedAdMission && adsRemoved) {
+        mission['progress'] = _intValue(mission['target']) ?? 1;
+      }
+      mission['claimed'] = true;
+      totalReward += rewardCoinsFor(mission);
+      changed = true;
+    }
+
+    if (!changed || totalReward == 0) {
+      return 0;
+    }
+
+    await _playerData.addCoins(totalReward);
+    await _persistMissionChanges(missions);
+    return totalReward;
+  }
+
   Future<int> claimAllClearBonus() async {
     await load();
     if (!allMissionsComplete) {
@@ -279,6 +321,39 @@ class MissionManager {
     await prefs.setString(_regularClaimCountsKey, jsonEncode(claimedCounts));
     await _playerData.addCoins(definition.rewardCoins);
     return definition.rewardCoins;
+  }
+
+  Future<int> claimAllRegularMissionRewards() async {
+    await load();
+    final prefs = await _prefs();
+    final claimedCounts = _regularClaimCounts(prefs);
+    var totalReward = 0;
+    var changed = false;
+
+    for (final definition in MissionCatalog.regularMissions) {
+      if (_isHiddenRegularMission(definition)) {
+        continue;
+      }
+      final claimedCount = claimedCounts[definition.id] ?? 0;
+      final progress = _regularProgressFor(definition, prefs);
+      final claimableTimes =
+          _regularClaimableTimes(definition, progress, claimedCount);
+      if (claimableTimes <= 0) {
+        continue;
+      }
+
+      claimedCounts[definition.id] = claimedCount + claimableTimes;
+      totalReward += definition.rewardCoins * claimableTimes;
+      changed = true;
+    }
+
+    if (!changed || totalReward == 0) {
+      return 0;
+    }
+
+    await prefs.setString(_regularClaimCountsKey, jsonEncode(claimedCounts));
+    await _playerData.addCoins(totalReward);
+    return totalReward;
   }
 
   Future<int> completeRewardedAdMission(int index) async {
@@ -356,7 +431,7 @@ class MissionManager {
       throw StateError('ミッションが見つかりません。');
     }
     if (MissionCatalog.isRewardedAdMissionId(missionId) ||
-        missionId == MissionCatalog.requiredEndlessMissionId ||
+        missionId == MissionCatalog.requiredDailyMissionId ||
         MissionCatalog.isLoginRewardMissionId(missionId)) {
       throw StateError('このミッションはチェンジできません。');
     }
@@ -369,7 +444,7 @@ class MissionManager {
         .where(
           (mission) =>
               !MissionCatalog.isRewardedAdMissionId(mission.id) &&
-              mission.id != MissionCatalog.requiredEndlessMissionId &&
+              mission.id != MissionCatalog.requiredDailyMissionId &&
               !currentIds.contains(mission.id),
         )
         .toList();
@@ -458,6 +533,23 @@ class MissionManager {
   bool _isHiddenRegularMission(RegularMissionDefinition definition) {
     return adsRemovedBenefitsEnabled &&
         definition.progressKey == 'rewarded_ad_views';
+  }
+
+  int _regularClaimableTimes(
+    RegularMissionDefinition definition,
+    int progress,
+    int claimedCount,
+  ) {
+    if (definition.targetStep <= 0) {
+      return progress >= definition.targetForClaimedCount(claimedCount) ? 1 : 0;
+    }
+    var count = 0;
+    var nextClaimedCount = claimedCount;
+    while (progress >= definition.targetForClaimedCount(nextClaimedCount)) {
+      count++;
+      nextClaimedCount++;
+    }
+    return count;
   }
 
   int _dailyWinRankFirstPlaceCount() {

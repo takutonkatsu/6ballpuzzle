@@ -5,12 +5,15 @@ import 'dart:ui' as ui;
 
 import 'package:flame/effects.dart';
 import 'package:flame/game.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ads/ranked_interstitial_debt_manager.dart';
 import '../app_settings.dart';
+import '../audio/audio_selection_manager.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
 import '../audio/sfx_player.dart';
@@ -32,6 +35,7 @@ import '../network/game_activity_presence.dart';
 import '../network/ranked_season_manager.dart';
 import '../network/ranking_manager.dart';
 import '../network/realtime_connection_guard.dart';
+import '../network/server_time_manager.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/game_pressable.dart';
 import 'components/interstitial_ad_manager.dart';
@@ -54,6 +58,8 @@ const Color _friendPink = GameThemeColors.friend;
 const Color _dailyBlue = GameThemeColors.blueSide;
 const Color _mutedButtonGrey = GameThemeColors.mutedButton;
 const Duration _playerProfileSyncTimeout = Duration(seconds: 15);
+const String _rankedWinReviewPromptPendingKey =
+    'ranked_win_review_prompt_pending';
 const String _shareAppIconAsset = 'assets/images/Hexagon_icon02_1024x1024.png';
 const String _shareSeasonBadgeAsset =
     'assets/images/Badge/Ranking_Badge_Rank.png';
@@ -157,15 +163,17 @@ class _GameScreenState extends State<GameScreen>
   static const double _compactStampWidth = 118;
   static const Duration _postReadyGoBoardPause = Duration(milliseconds: 350);
   static const Duration _preReadyDelay = Duration(milliseconds: 500);
+  static const Duration _defaultReadyToGoDelay = Duration(milliseconds: 1200);
+  static const Duration _countdownReadyToGoDelay = Duration(milliseconds: 2600);
   static const Duration _resultFreezeDelay = Duration(milliseconds: 700);
   static const Duration _resultBoardSettleDelay = Duration(milliseconds: 650);
   static const Duration _resultOpponentDisplayGrace =
       Duration(milliseconds: 450);
   static const Duration _rankedOfflineForfeitGrace = Duration(seconds: 10);
   static const Duration _opponentDisconnectForfeitGrace = Duration(seconds: 2);
-  static const Duration _battleBgmDuration = Duration(microseconds: 60007438);
-  static const Duration _homeBgmDuration = Duration(microseconds: 96003651);
-  static const String _readySfx = 'メニューを開く3_ READY02.mp3';
+  static const String _readySfx = 'readyGo01_メニューを開く3.mp3';
+  static const String _countdownReadySfx =
+      'readyGo03_3_2_1_GO!!!_レースのスタート音.mp3';
 
   final MultiplayerManager _multiplayerManager = MultiplayerManager();
   final RankingManager _rankingManager = RankingManager.instance;
@@ -180,6 +188,7 @@ class _GameScreenState extends State<GameScreen>
   MultiplayerRoom? _room;
   bool _onlineGameStarted = false;
   bool _readySubmitting = false;
+  bool _friendLobbyMatchAllowanceConsumed = true;
   String? _onlineResultMessage;
   bool _onlineResultWasForfeit = false;
   bool _onlineResultWasOfflineForfeit = false;
@@ -188,6 +197,7 @@ class _GameScreenState extends State<GameScreen>
   bool _isWaitingForRematch = false;
   bool _opponentRequestedRematch = false;
   bool _opponentUnavailableForRematch = false;
+  bool _friendDisconnectDialogShown = false;
   bool _isReturningToHome = false;
   bool _isCheckingHomeReturnConnection = false;
   bool? _cpuBattlePlayerWon;
@@ -364,6 +374,23 @@ class _GameScreenState extends State<GameScreen>
   bool get _isFriendMode =>
       _isOnlineMode && !widget.isRankedMode && !widget.isArenaMode;
 
+  int get _playerBoardRows {
+    final room = _room ?? _multiplayerManager.currentRoom;
+    final roleId = _multiplayerManager.myRoleId;
+    if (!_isFriendMode || room == null || roleId == null) {
+      return 12;
+    }
+    return room.boardRowsForRole(roleId);
+  }
+
+  int get _opponentBoardRows {
+    final room = _room ?? _multiplayerManager.currentRoom;
+    if (!_isFriendMode || room == null) {
+      return 12;
+    }
+    return room.boardRowsForRole(_multiplayerManager.opponentRoleId);
+  }
+
   int get _currentPlayerScore => _playerGame.scoreManager.state.value.score;
 
   int get _currentPlayerLevel => _playerGame.scoreManager.state.value.level;
@@ -474,6 +501,8 @@ class _GameScreenState extends State<GameScreen>
       scoreMode: widget.isDailyMode ? ScoreMode.daily : ScoreMode.endless,
       wallColor: Colors.blueAccent,
       ballSkinId: _playerDataManager.equippedBallSkinId,
+      formationEffectId: _playerDataManager.equippedFormationEffectId,
+      gridRows: _playerBoardRows,
     );
 
     if (widget.isTutorialMode) {
@@ -505,6 +534,9 @@ class _GameScreenState extends State<GameScreen>
         renderDetectedFormationEffects: true,
         wallColor: _battleOpponentColor,
         ballSkinId: _opponentBallSkinId(),
+        formationEffectId: _opponentFormationEffectId(),
+        sfxSelectionIds: _opponentSfxSelectionIds(),
+        gridRows: _opponentBoardRows,
       );
       _cpuGame!.onDeathLineCrossed = () {
         unawaited(_verifyOpponentDeathLineBeforeResult());
@@ -532,7 +564,8 @@ class _GameScreenState extends State<GameScreen>
           ),
         );
       }
-      if (_room?.bothPlayersReady ?? false) {
+      if ((_room?.status == 'playing') ||
+          ((_room?.isRanked ?? false) && (_room?.bothPlayersReady ?? false))) {
         _onlineGameStarted = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           unawaited(_startOnlineBattleWithReadyGo(_room!.seed));
@@ -540,7 +573,9 @@ class _GameScreenState extends State<GameScreen>
       } else if (_room?.bothPlayersJoined ?? false) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _playMatchedSfxOnce();
-          unawaited(_attemptAutoReady());
+          if (!_isFriendMode) {
+            unawaited(_attemptAutoReady());
+          }
         });
       }
     }
@@ -696,7 +731,12 @@ class _GameScreenState extends State<GameScreen>
           _sendTutorialOjamaWithDelay(_cpuGame!, waza, color);
         }
       } else if (_cpuGame != null) {
-        _sendOjamaWithDelay(_cpuGame!, waza, color);
+        _sendOjamaWithDelay(
+          _cpuGame!,
+          waza,
+          color,
+          ballSkinId: _playerDataManager.equippedBallSkinId,
+        );
       }
     };
     _playerGame.onBallsCleared = (ballsDestroyed) {
@@ -713,8 +753,13 @@ class _GameScreenState extends State<GameScreen>
     };
 
     if (widget.isCpuMode && !widget.isTutorialMode && _cpuGame != null) {
-      _cpuGame!.onWazaFired =
-          (waza, color) => _sendOjamaWithDelay(_playerGame, waza, color);
+      _cpuGame!.onWazaFired = (waza, color) => _sendOjamaWithDelay(
+            _playerGame,
+            waza,
+            color,
+            ballSkinId: _playerDataManager.equippedBallSkinId,
+            effectSkinId: 'effect_ojama_default',
+          );
     }
 
     if (widget.isTutorialMode) {
@@ -735,36 +780,25 @@ class _GameScreenState extends State<GameScreen>
   void _sendOjamaWithDelay(
     PuzzleGame targetGame,
     WazaType waza,
-    BallColor? color,
-  ) {
+    BallColor? color, {
+    String? ballSkinId,
+    String? effectSkinId,
+  }) {
+    final task = _createOjamaTaskForAttack(
+      waza,
+      color,
+      ballSkinId: ballSkinId,
+      effectSkinId: effectSkinId,
+    );
+    if (task == null) {
+      return;
+    }
     late Timer timer;
     timer = Timer(const Duration(milliseconds: 2500), () {
       _pendingAttackTimers.remove(timer);
 
       if (targetGame.gameStateWrapper.value == GameState.playing) {
-        if (waza == WazaType.hexagon) {
-          targetGame.incomingOjama.add(
-            OjamaTask(
-              OjamaType.hexagonSet,
-              ballSkinId: _playerDataManager.equippedBallSkinId,
-            ),
-          );
-        } else if (waza == WazaType.pyramid) {
-          targetGame.incomingOjama.add(
-            OjamaTask(
-              OjamaType.pyramidSet,
-              ballSkinId: _playerDataManager.equippedBallSkinId,
-            ),
-          );
-        } else if (waza == WazaType.straight) {
-          targetGame.incomingOjama.add(
-            OjamaTask(
-              OjamaType.straightSet,
-              startColor: color,
-              ballSkinId: _playerDataManager.equippedBallSkinId,
-            ),
-          );
-        }
+        targetGame.incomingOjama.add(task);
       }
     });
     _pendingAttackTimers.add(timer);
@@ -1350,7 +1384,7 @@ class _GameScreenState extends State<GameScreen>
             Expanded(child: expSummary),
           ],
         ),
-        if (!AppSettings.instance.adsRemoved.value) ...[
+        if (!AppSettings.instance.adRemovalBenefitsEnabled) ...[
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
@@ -1437,6 +1471,9 @@ class _GameScreenState extends State<GameScreen>
     required bool highlight,
     bool compact = false,
   }) {
+    if (!AppSettings.instance.canRequestRewardedAds) {
+      return const SizedBox.shrink();
+    }
     final waiting = _resultCoinTripleInProgress;
     final claimed = _resultCoinTripleClaimed;
     final shouldAnimate = highlight && !waiting && !claimed;
@@ -2001,6 +2038,28 @@ class _GameScreenState extends State<GameScreen>
         _multiplayerManager.currentRoom
             ?.players[_multiplayerManager.opponentRoleId]?.ballSkinId ??
         'default';
+  }
+
+  String _opponentFormationEffectId() {
+    if (widget.isTutorialMode || widget.isCpuMode) {
+      return 'effect_formation_default';
+    }
+    return _room
+            ?.players[_multiplayerManager.opponentRoleId]?.formationEffectId ??
+        _multiplayerManager.currentRoom
+            ?.players[_multiplayerManager.opponentRoleId]?.formationEffectId ??
+        'effect_formation_default';
+  }
+
+  Map<String, String> _opponentSfxSelectionIds() {
+    if (widget.isTutorialMode || widget.isCpuMode) {
+      return const {};
+    }
+    return _room
+            ?.players[_multiplayerManager.opponentRoleId]?.sfxSelectionIds ??
+        _multiplayerManager.currentRoom
+            ?.players[_multiplayerManager.opponentRoleId]?.sfxSelectionIds ??
+        const {};
   }
 
   List<String> _opponentResultBadgeIds() {
@@ -2907,8 +2966,13 @@ class _GameScreenState extends State<GameScreen>
             const SizedBox(height: 12),
           ],
           _buildResultShareHomeButtonRow(
+            homeLabel: _isFriendMode ? 'ロビーへ戻る' : 'ホームへ戻る',
             onHomePressed: () {
-              _leaveOnlineBattle();
+              if (_isFriendMode) {
+                unawaited(_returnFriendLobbyAfterResult());
+              } else {
+                _leaveOnlineBattle();
+              }
             },
           ),
         ],
@@ -2917,7 +2981,8 @@ class _GameScreenState extends State<GameScreen>
   }
 
   bool get _canShowRematchButton {
-    if (widget.isRankedMode ||
+    if (_isFriendMode ||
+        widget.isRankedMode ||
         _onlineResultWasForfeit ||
         _opponentUnavailableForRematch) {
       return false;
@@ -3078,6 +3143,7 @@ class _GameScreenState extends State<GameScreen>
 
   Widget _buildResultShareHomeButtonRow({
     required VoidCallback onHomePressed,
+    String homeLabel = 'ホームへ戻る',
   }) {
     return Row(
       children: [
@@ -3096,7 +3162,7 @@ class _GameScreenState extends State<GameScreen>
         const SizedBox(width: 10),
         Expanded(
           child: _buildCyberResultButton(
-            label: 'ホームへ戻る',
+            label: homeLabel,
             baseColor: _mutedButtonGrey,
             isWaiting: false,
             compact: true,
@@ -4797,7 +4863,7 @@ class _GameScreenState extends State<GameScreen>
     final guestReady = room?.players['guest']?.status == 'ready';
     final opponentName =
         _displayNameForRole(_multiplayerManager.opponentRoleId);
-    final showAutoStart = widget.isRankedMode || _isFriendMode;
+    final showAutoStart = widget.isRankedMode || widget.isArenaMode;
     final showLobbyTitle =
         widget.isRankedMode || widget.isArenaMode || !_isFriendMode || !isHost;
 
@@ -4869,7 +4935,7 @@ class _GameScreenState extends State<GameScreen>
                     ),
                     const SizedBox(height: 16),
                   ],
-                  if (!showAutoStart || !canShowReady) ...[
+                  if (!_isFriendMode && (!showAutoStart || !canShowReady)) ...[
                     Text(
                       canShowReady && opponentName != null
                           ? '$opponentName が参加しました。READYで開始準備をしてください。'
@@ -4923,7 +4989,9 @@ class _GameScreenState extends State<GameScreen>
                             : null,
                   ),
                   const SizedBox(height: 28),
-                  if (showAutoStart && canShowReady)
+                  if (_isFriendMode)
+                    _buildFriendLobbyActions(room: room, isHost: isHost)
+                  else if (showAutoStart && canShowReady)
                     SizedBox(
                       height: 56,
                       child: Center(
@@ -4990,7 +5058,7 @@ class _GameScreenState extends State<GameScreen>
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                         child: const Text(
-                          'キャンセル',
+                          'ホーム画面へ戻る',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0,
@@ -5006,6 +5074,495 @@ class _GameScreenState extends State<GameScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildFriendLobbyActions({
+    required MultiplayerRoom room,
+    required bool isHost,
+  }) {
+    final canShowReady = room.bothPlayersJoined;
+    final guestReady = room.players['guest']?.status == 'ready';
+    final guestReadyInLobby = room.status == 'waiting' && guestReady;
+    final myStatus =
+        room.players[_multiplayerManager.myRoleId]?.status ?? 'waiting';
+    final message = !canShowReady
+        ? '相手の入室を待っています…'
+        : isHost
+            ? guestReadyInLobby
+                ? '相手の準備が完了しました。ゲームを開始できます。'
+                : room.status == 'waiting'
+                    ? '相手の準備完了を待っています。'
+                    : '相手がロビーに戻るまでお待ちください。'
+            : myStatus == 'ready'
+                ? '準備完了しました。ホストの開始を待っています。'
+                : '準備ができたらボタンを押してください。';
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 15,
+            height: 1.45,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 14),
+        _buildFriendHandicapSummary(room: room, isHost: isHost),
+        const SizedBox(height: 10),
+        _buildFriendAllowanceStatus(),
+        const SizedBox(height: 12),
+        if (isHost)
+          _buildFriendLobbyPrimaryButton(
+            label: guestReadyInLobby ? 'ゲーム開始' : '相手の準備待ち',
+            color: _friendPink,
+            enabled: canShowReady && guestReadyInLobby && !_readySubmitting,
+            allowAdRestoreWithoutReady: true,
+            onPressed: _handleFriendStartPressed,
+          )
+        else
+          _buildFriendLobbyPrimaryButton(
+            label: myStatus == 'ready' ? '準備完了済み' : '準備完了',
+            color: _friendPink,
+            enabled: canShowReady && myStatus != 'ready' && !_readySubmitting,
+            onPressed: _handleReadyPressed,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildFriendLobbyPrimaryButton({
+    required String label,
+    required Color color,
+    required bool enabled,
+    required Future<void> Function() onPressed,
+    bool allowAdRestoreWithoutReady = false,
+  }) {
+    return FutureBuilder<FriendMatchLimitSnapshot>(
+      future: FriendMatchLimitManager.instance.loadSnapshot(),
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        final needsAdRestore = !_friendLobbyMatchAllowanceConsumed &&
+            data != null &&
+            !data.isUnlimited &&
+            data.remaining <= 0;
+        final canTap = needsAdRestore && allowAdRestoreWithoutReady
+            ? !_readySubmitting
+            : enabled &&
+                !_readySubmitting &&
+                (_friendLobbyMatchAllowanceConsumed || data != null);
+        return _buildFriendLobbyButton(
+          label: needsAdRestore ? '動画広告を見る' : label,
+          color: color,
+          onPressed: canTap
+              ? () {
+                  _playUiTap();
+                  unawaited(onPressed());
+                }
+              : null,
+        );
+      },
+    );
+  }
+
+  Widget _buildFriendLobbyButton({
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+    bool outlined = false,
+  }) {
+    final disabled = onPressed == null;
+    return Opacity(
+      opacity: disabled ? 0.56 : 1,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 52,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: outlined
+                ? color.withValues(alpha: 0.08)
+                : color.withValues(alpha: disabled ? 0.16 : 0.92),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: color.withValues(alpha: outlined ? 0.72 : 0.95),
+              width: 1.5,
+            ),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: outlined ? color : Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFriendHandicapSummary({
+    required MultiplayerRoom room,
+    required bool isHost,
+  }) {
+    final myRoleId = _multiplayerManager.myRoleId;
+    final myRows =
+        myRoleId == 'guest' ? room.guestBoardRows : room.hostBoardRows;
+    final opponentRows =
+        myRoleId == 'guest' ? room.hostBoardRows : room.guestBoardRows;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _friendPink.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: RichText(
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              text: TextSpan(
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
+                children: [
+                  const TextSpan(text: 'ハンデ  '),
+                  TextSpan(
+                    text: 'あなた:$myRows段',
+                    style: const TextStyle(color: _battlePlayerColor),
+                  ),
+                  const TextSpan(text: '  '),
+                  TextSpan(
+                    text: '相手:$opponentRows段',
+                    style: const TextStyle(color: _battleOpponentColor),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: isHost
+                ? () {
+                    _playUiTap();
+                    unawaited(_showFriendHandicapDialog(room));
+                  }
+                : null,
+            tooltip: isHost ? 'ハンデ設定' : 'ホストのみ設定できます',
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              Icons.settings_rounded,
+              color: isHost ? _friendPink : Colors.white30,
+              size: 22,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFriendAllowanceStatus() {
+    return FutureBuilder<FriendMatchLimitSnapshot>(
+      future: FriendMatchLimitManager.instance.loadSnapshot(),
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        if (data != null && data.isUnlimited) {
+          return const SizedBox.shrink();
+        }
+        final text = data == null
+            ? 'フレンド対戦回数を確認中...'
+            : data.remaining > 0
+                ? '本日の残り無料対戦 ${data.displayRemaining}/${data.displayAllowance}回'
+                : '次の対戦には動画広告の視聴が必要です';
+        final color = data == null
+            ? Colors.white54
+            : data.remaining > 0
+                ? _friendPink
+                : Colors.white70;
+        return Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            height: 1.35,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool> _consumeFriendLobbyMatchAllowanceIfNeeded() async {
+    if (!_isFriendMode || _friendLobbyMatchAllowanceConsumed) {
+      return true;
+    }
+    if (await FriendMatchLimitManager.instance.canStartMatch()) {
+      final consumed = await FriendMatchLimitManager.instance.consumeMatch();
+      if (!consumed) {
+        if (mounted) {
+          await _showCyberAlertDialog(
+            'フレンド対戦',
+            '本日の無料フレンド対戦回数を使い切りました。',
+          );
+        }
+        return false;
+      }
+      if (mounted) {
+        setState(() {
+          _friendLobbyMatchAllowanceConsumed = true;
+        });
+      } else {
+        _friendLobbyMatchAllowanceConsumed = true;
+      }
+      return true;
+    }
+
+    if (!mounted) {
+      return false;
+    }
+    unawaited(RewardedAdManager.instance.warmUp());
+    final shouldWatchAd = await _showFriendMatchRestoreDialog();
+    if (!mounted || shouldWatchAd != true) {
+      return false;
+    }
+    final rewarded = await RewardedAdManager.instance.showDoubleRewardAd();
+    if (!mounted) {
+      return false;
+    }
+    if (!rewarded) {
+      await _showCyberAlertDialog('広告エラー', '動画の視聴が完了しませんでした。');
+      return false;
+    }
+    await FriendMatchLimitManager.instance.addRewardedMatches();
+    if (!mounted) {
+      return false;
+    }
+    setState(() {});
+    await _showCyberAlertDialog(
+      'フレンド対戦',
+      'フレンド対戦が2戦分回復しました。',
+    );
+    return false;
+  }
+
+  Future<void> _handleFriendStartPressed() async {
+    setState(() {
+      _readySubmitting = true;
+    });
+    try {
+      final hasAllowance = await _consumeFriendLobbyMatchAllowanceIfNeeded();
+      if (!hasAllowance) {
+        return;
+      }
+      final connected = await _ensureServerConnection();
+      if (!connected) {
+        return;
+      }
+      await _multiplayerManager.startFriendMatchFromLobby();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await _showErrorDialog('ゲーム開始に失敗しました', '$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _readySubmitting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _showFriendHandicapDialog(MultiplayerRoom room) async {
+    var hostRows = room.hostBoardRows.toDouble();
+    var guestRows = room.guestBoardRows.toDouble();
+    final hostController =
+        FixedExtentScrollController(initialItem: 12 - hostRows.round());
+    final guestController =
+        FixedExtentScrollController(initialItem: 12 - guestRows.round());
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              Widget rowPicker({
+                required String label,
+                required double rows,
+                required ValueChanged<double> onChanged,
+                required Color color,
+                required FixedExtentScrollController controller,
+              }) {
+                return Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: color.withValues(alpha: 0.62)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              label,
+                              style: TextStyle(
+                                color: color,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${rows.round()}段',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: 112,
+                        height: 132,
+                        child: CupertinoPicker(
+                          scrollController: controller,
+                          itemExtent: 38,
+                          magnification: 1.12,
+                          squeeze: 0.92,
+                          useMagnifier: true,
+                          selectionOverlay: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border.symmetric(
+                                horizontal: BorderSide(
+                                  color: color.withValues(alpha: 0.62),
+                                  width: 1.2,
+                                ),
+                              ),
+                            ),
+                          ),
+                          onSelectedItemChanged: (index) {
+                            onChanged((12 - index).toDouble());
+                          },
+                          children: [
+                            for (var value = 12; value >= 3; value -= 1)
+                              Center(
+                                child: Text(
+                                  '$value段',
+                                  style: TextStyle(
+                                    color: value == rows.round()
+                                        ? color
+                                        : Colors.white70,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return _buildCyberDialog(
+                accentColor: _friendPink,
+                title: 'ハンデ設定',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    rowPicker(
+                      label: 'あなた',
+                      rows: hostRows,
+                      color: _battlePlayerColor,
+                      controller: hostController,
+                      onChanged: (value) =>
+                          setDialogState(() => hostRows = value),
+                    ),
+                    const SizedBox(height: 10),
+                    rowPicker(
+                      label: '相手',
+                      rows: guestRows,
+                      color: _battleOpponentColor,
+                      controller: guestController,
+                      onChanged: (value) =>
+                          setDialogState(() => guestRows = value),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildCyberDialogButton(
+                            label: 'キャンセル',
+                            accentColor: _mutedButtonGrey,
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildCyberDialogButton(
+                            label: '保存',
+                            accentColor: _friendPink,
+                            onPressed: () {
+                              Navigator.of(dialogContext).pop();
+                              unawaited(
+                                _saveFriendHandicapRows(
+                                  hostRows.round(),
+                                  guestRows.round(),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      hostController.dispose();
+      guestController.dispose();
+    }
+  }
+
+  Future<void> _saveFriendHandicapRows(int hostRows, int guestRows) async {
+    try {
+      await _multiplayerManager.updateFriendHandicapRows(
+        hostRows: hostRows,
+        guestRows: guestRows,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await _showErrorDialog('ハンデ設定に失敗しました', '$error');
+    }
   }
 
   Future<void> _cancelFriendLobby() async {
@@ -5280,6 +5837,12 @@ class _GameScreenState extends State<GameScreen>
     });
 
     try {
+      if (_isFriendMode) {
+        final hasAllowance = await _consumeFriendLobbyMatchAllowanceIfNeeded();
+        if (!hasAllowance) {
+          return;
+        }
+      }
       final connected = await _ensureServerConnection();
       if (!connected) {
         return;
@@ -5308,6 +5871,11 @@ class _GameScreenState extends State<GameScreen>
       _room = room;
       if (_isOnlineMode && _cpuGame != null) {
         _cpuGame!.ballSkinId = _opponentBallSkinId();
+        _cpuGame!.setSfxSelectionIds(_opponentSfxSelectionIds());
+        if (!_onlineGameStarted) {
+          _playerGame.configureGridRows(_playerBoardRows);
+          _cpuGame!.configureGridRows(_opponentBoardRows);
+        }
       }
       final opponentStatus =
           room.players[_multiplayerManager.opponentRoleId]?.status;
@@ -5335,16 +5903,27 @@ class _GameScreenState extends State<GameScreen>
     final opponentStatus =
         room.players[_multiplayerManager.opponentRoleId]?.status;
     if (room.bothPlayersJoined && opponentStatus == 'left') {
-      _handlePreBattleOpponentForfeit(room.seed);
+      if (_isFriendMode) {
+        unawaited(_showFriendDisconnectedReturnHome());
+      } else {
+        _handlePreBattleOpponentForfeit(room.seed);
+      }
+      return;
+    }
+
+    if (room.status == 'playing') {
+      _scheduleOnlineAutoStart(room);
       return;
     }
 
     if (room.bothPlayersJoined) {
       _playMatchedSfxOnce();
-      unawaited(_attemptAutoReady());
+      if (!_isFriendMode) {
+        unawaited(_attemptAutoReady());
+      }
     }
 
-    if (room.bothPlayersReady) {
+    if (!_isFriendMode && room.bothPlayersReady) {
       _scheduleOnlineAutoStart(room);
       return;
     }
@@ -5431,7 +6010,34 @@ class _GameScreenState extends State<GameScreen>
     unawaited(_playMatchedHaptic());
   }
 
+  Future<Duration> _playReadySfx() async {
+    var fileName = _readySfx;
+    try {
+      fileName = await AudioSelectionManager.selectedSfxFile(
+        'ready',
+        _readySfx,
+      );
+      unawaited(SfxPlayer.play(fileName, volume: 1.0));
+    } catch (_) {
+      // READY SEの再生失敗で開始演出は止めない。
+    }
+    return fileName == _countdownReadySfx || _onlineRoomUsesCountdownReadySfx()
+        ? _countdownReadyToGoDelay
+        : _defaultReadyToGoDelay;
+  }
+
+  bool _onlineRoomUsesCountdownReadySfx() {
+    final room = _room ?? _multiplayerManager.currentRoom;
+    if (room == null || !_isOnlineMode) {
+      return false;
+    }
+    return room.players.values.any((player) => player.readySfxId == 'ready_03');
+  }
+
   Future<void> _playMatchedHaptic() async {
+    if (!AppSettings.instance.hapticsEnabled.value) {
+      return;
+    }
     await HapticFeedback.vibrate();
     await Future<void>.delayed(const Duration(milliseconds: 180));
     await HapticFeedback.heavyImpact();
@@ -5673,7 +6279,10 @@ class _GameScreenState extends State<GameScreen>
 
   Future<void> _attemptAutoReady() async {
     final room = _room;
-    if (room == null || !room.bothPlayersJoined || _onlineGameStarted) {
+    if (_isFriendMode ||
+        room == null ||
+        !room.bothPlayersJoined ||
+        _onlineGameStarted) {
       return;
     }
 
@@ -6277,9 +6886,9 @@ class _GameScreenState extends State<GameScreen>
     setState(() {
       _readyGoOverlayText = 'READY...';
     });
-    unawaited(SfxPlayer.play(_readySfx, volume: 1.0));
+    final readyToGoDelay = await _playReadySfx();
 
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    await Future<void>.delayed(readyToGoDelay);
     if (!mounted) {
       return;
     }
@@ -6402,6 +7011,10 @@ class _GameScreenState extends State<GameScreen>
     _cpuBattlePlayerWon = null;
     _resetResultProgressionState();
     _rankedAutoStartTimer?.cancel();
+    if (_isFriendMode) {
+      _playerGame.configureGridRows(_playerBoardRows);
+      _cpuGame?.configureGridRows(_opponentBoardRows);
+    }
     _playerGame.resumeEngine();
     _cpuGame?.resumeEngine();
     _playerGame.startGame(newSeed: seed, spawnInitialPiece: false);
@@ -6421,9 +7034,9 @@ class _GameScreenState extends State<GameScreen>
       _onlineGameStarted = true;
       _readyGoOverlayText = 'READY...';
     });
-    unawaited(SfxPlayer.play(_readySfx, volume: 1.0));
+    final readyToGoDelay = await _playReadySfx();
 
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    await Future<void>.delayed(readyToGoDelay);
     if (!mounted) {
       return;
     }
@@ -7005,11 +7618,11 @@ class _GameScreenState extends State<GameScreen>
 
     _rankedRatingApplied = true;
     try {
-      _showOptimisticRankedRatingChange(isWin: isWin);
       final connected = await _ensureServerConnection();
       if (!connected) {
         return;
       }
+      await _ensureRankedSeasonReadyForResult();
       final change = await _multiplayerManager.applyRankedResult(
         isWin: isWin,
         applyOpponentResult: applyOpponentResult,
@@ -7028,8 +7641,6 @@ class _GameScreenState extends State<GameScreen>
       );
       await _syncPlayerProfileOnline(
         rating: change.newRating,
-        incrementDailyWin: change.delta != 0 && isWin,
-        incrementSeasonLoss: change.delta != 0 && !isWin,
       );
       if (!mounted) {
         return;
@@ -7054,14 +7665,11 @@ class _GameScreenState extends State<GameScreen>
 
     _rankedRatingApplied = true;
     try {
-      _showOptimisticRankedRatingChange(
-        isWin: isWin,
-        opponentRating: opponentRating,
-      );
       final connected = await _ensureServerConnection();
       if (!connected) {
         return;
       }
+      await _ensureRankedSeasonReadyForResult();
       final change = await _multiplayerManager.applyRankedBotResult(
         isWin: isWin,
         opponentRating: opponentRating,
@@ -7080,8 +7688,6 @@ class _GameScreenState extends State<GameScreen>
       );
       await _syncPlayerProfileOnline(
         rating: change.newRating,
-        incrementDailyWin: change.delta != 0 && isWin,
-        incrementSeasonLoss: change.delta != 0 && !isWin,
       );
       if (!mounted) {
         return;
@@ -7093,32 +7699,6 @@ class _GameScreenState extends State<GameScreen>
       }
       _showRealtimeOfflineMessage();
     }
-  }
-
-  void _showOptimisticRankedRatingChange({
-    required bool isWin,
-    int? opponentRating,
-  }) {
-    if (!mounted || !widget.isRankedMode || _rankedRatingChange != null) {
-      return;
-    }
-    final oldRating = _multiplayerManager.currentRating;
-    final resolvedOpponentRating = opponentRating ??
-        _multiplayerManager
-            .currentRoom?.players[_multiplayerManager.opponentRoleId]?.rating ??
-        oldRating;
-    final newRating = _multiplayerManager.calculateNewRating(
-      oldRating,
-      resolvedOpponentRating,
-      isWin,
-    );
-    setState(() {
-      _rankedRatingChange = RankedRatingChange(
-        oldRating: oldRating,
-        newRating: newRating,
-        delta: newRating - oldRating,
-      );
-    });
   }
 
   void _resetResultProgressionState() {
@@ -7258,6 +7838,22 @@ class _GameScreenState extends State<GameScreen>
     return false;
   }
 
+  Future<void> _ensureRankedSeasonReadyForResult() async {
+    if (!widget.isRankedMode) {
+      return;
+    }
+    await _rankingManager
+        .syncSeasonStateForCurrentPlayer()
+        .timeout(_playerProfileSyncTimeout);
+    await _playerDataManager.load();
+    final nowJst = await ServerTimeManager.instance.nowJst(forceRefresh: true);
+    final currentSeasonId =
+        RankedSeasonManager.currentSeasonId(nowJstOverride: nowJst);
+    if (_playerDataManager.rankedSeasonId != currentSeasonId) {
+      throw StateError('ランク戦のシーズン同期に失敗しました。');
+    }
+  }
+
   Widget _buildBadgeUnlockResultCard() {
     if (_newlyUnlockedBadges.isEmpty) {
       return const SizedBox.shrink();
@@ -7347,7 +7943,7 @@ class _GameScreenState extends State<GameScreen>
 
     _resultCoinApplied = true;
     final earnedCoins = _calculateBattleCoinReward(isWin: isWin);
-    final adsRemoved = AppSettings.instance.adsRemoved.value;
+    final adsRemoved = AppSettings.instance.adRemovalBenefitsEnabled;
     await _playerDataManager.addCoins(earnedCoins * (adsRemoved ? 3 : 1));
     if (!mounted) {
       return;
@@ -7367,6 +7963,9 @@ class _GameScreenState extends State<GameScreen>
         _resultCoinTripleClaimed ||
         baseCoins == null ||
         baseCoins <= 0) {
+      return;
+    }
+    if (!AppSettings.instance.canRequestRewardedAds) {
       return;
     }
 
@@ -7511,6 +8110,9 @@ class _GameScreenState extends State<GameScreen>
         _multiplayerManager
             .currentRoom?.players[_multiplayerManager.opponentRoleId];
     final opponentUid = widget.isCpuMode ? '' : opponentPlayer?.uid ?? '';
+    if (mode == 'RANKED') {
+      await _ensureRankedSeasonReadyForResult();
+    }
     await _playerDataManager.recordMatchResult(
       isWin: isWin,
       mode: mode,
@@ -7534,6 +8136,14 @@ class _GameScreenState extends State<GameScreen>
       rating:
           _rankedRatingChange?.newRating ?? _playerDataManager.currentRating,
     );
+    if (mode == 'RANKED') {
+      await _rankingManager.syncRankedResultAbsolute(
+        rating:
+            _rankedRatingChange?.newRating ?? _playerDataManager.currentRating,
+        isWin: isWin,
+        reason: isForfeitWin ? 'ranked_forfeit_result' : 'ranked_result',
+      );
+    }
     _refreshNewlyUnlockedBadgesFromSnapshot();
   }
 
@@ -7587,6 +8197,7 @@ class _GameScreenState extends State<GameScreen>
       maxChain: _playerGame.scoreManager.maxChainThisRun,
       score: _currentPlayerScore,
     );
+    unawaited(_missionManager.recordEvent('play_daily'));
     await _syncPlayerProfileOnline(rating: _playerDataManager.currentRating);
     _refreshNewlyUnlockedBadgesFromSnapshot();
   }
@@ -7631,6 +8242,7 @@ class _GameScreenState extends State<GameScreen>
     if (_isReturningToHome || _isCheckingHomeReturnConnection) {
       return;
     }
+    await _markRankedWinReviewPromptPendingIfNeeded();
     final isOfflineForfeitResult =
         _pendingOfflineForfeitCommit || _onlineResultWasOfflineForfeit;
     if (isOfflineForfeitResult) {
@@ -7707,6 +8319,18 @@ class _GameScreenState extends State<GameScreen>
         builder: (_) => HomeScreen(bootstrapData: bootstrapData),
       ),
     );
+  }
+
+  Future<void> _markRankedWinReviewPromptPendingIfNeeded() async {
+    if (!widget.isRankedMode || widget.isArenaMode || !_sharePlayerWon) {
+      return;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_rankedWinReviewPromptPendingKey, true);
+    } catch (_) {
+      // レビュー依頼フラグ保存失敗でホーム遷移を止めない。
+    }
   }
 
   Future<void> _returnHomeAfterOfflineForfeit() async {
@@ -7788,6 +8412,10 @@ class _GameScreenState extends State<GameScreen>
   }
 
   void _handleOpponentDisconnected() {
+    if (_isFriendMode) {
+      unawaited(_showFriendDisconnectedReturnHome());
+      return;
+    }
     if (!_onlineGameStarted) {
       _handlePreBattleOpponentForfeit(_room?.seed);
       return;
@@ -7905,12 +8533,13 @@ class _GameScreenState extends State<GameScreen>
     }
     _isBattleBgmPlaying = true;
     try {
+      final selectedBgm = await AudioSelectionManager.selectedBattleBgm();
       await SeamlessBgm.instance.setMasterVolume(
         AppSettings.instance.musicVolume.value,
       );
       await SeamlessBgm.instance.play(
-        assetPath: 'audio/battle_bgm01.wav',
-        duration: _battleBgmDuration,
+        assetPath: selectedBgm.assetPath,
+        duration: selectedBgm.duration,
         volume: 0.2448,
         owner: _bgmOwner,
       );
@@ -7929,8 +8558,8 @@ class _GameScreenState extends State<GameScreen>
         AppSettings.instance.musicVolume.value,
       );
       await SeamlessBgm.instance.play(
-        assetPath: 'audio/home_screen_bgm01.wav',
-        duration: _homeBgmDuration,
+        assetPath: AudioSelectionManager.defaultHomeBgm.assetPath,
+        duration: AudioSelectionManager.defaultHomeBgm.duration,
         volume: 0.576,
         owner: _bgmOwner,
       );
@@ -8509,6 +9138,14 @@ class _GameScreenState extends State<GameScreen>
       return false;
     }
 
+    if (!AppSettings.instance.canRequestRewardedAds) {
+      await _showCyberAlertDialog(
+        'フレンド対戦',
+        '現在、動画広告による回復は利用できません。',
+      );
+      return false;
+    }
+
     unawaited(RewardedAdManager.instance.warmUp());
     final shouldWatchAd = await _showFriendMatchRestoreDialog();
     if (!mounted || shouldWatchAd != true) {
@@ -8566,7 +9203,7 @@ class _GameScreenState extends State<GameScreen>
                   const SizedBox(width: 12),
                   Expanded(
                     child: _buildCyberDialogButton(
-                      label: '動画を見る',
+                      label: '動画広告を見る',
                       accentColor: _friendPink,
                       onPressed: () => Navigator.of(dialogContext).pop(true),
                     ),
@@ -8583,6 +9220,106 @@ class _GameScreenState extends State<GameScreen>
   void _leaveOnlineBattle() {
     _clearAllPendingAttacks();
     unawaited(_returnHomeAfterMatch());
+  }
+
+  Future<void> _returnFriendLobbyAfterResult() async {
+    if (!_isFriendMode || _isReturningToHome) {
+      _leaveOnlineBattle();
+      return;
+    }
+    try {
+      _clearAllPendingAttacks();
+      _rankedAutoStartTimer?.cancel();
+      _rankedAutoStartScheduled = false;
+      await _stopBattleBgm();
+      await _multiplayerManager.returnFriendRoomToLobby();
+      if (!mounted) {
+        return;
+      }
+      _playerGame.configureGridRows(_playerBoardRows);
+      _cpuGame?.configureGridRows(_opponentBoardRows);
+      setState(() {
+        _onlineGameStarted = false;
+        _friendLobbyMatchAllowanceConsumed = false;
+        _onlineResultMessage = null;
+        _onlineResultWasForfeit = false;
+        _onlineResultWasOfflineForfeit = false;
+        _activeResultWasForfeit = false;
+        _battleResultWasOfflineForfeitLoss = false;
+        _battleResultStarted = false;
+        _resultRevealPending = false;
+        _isWaitingForRematch = false;
+        _opponentRequestedRematch = false;
+        _opponentUnavailableForRematch = false;
+        _opponentRealtimeDisconnected = false;
+        _pendingPreBattleForfeitWin = false;
+        _readyGoOverlayText = null;
+        _autoReadyRequested = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      await _showErrorDialog('ロビーへ戻れませんでした', '$error');
+    }
+  }
+
+  Future<void> _showFriendDisconnectedReturnHome() async {
+    if (!mounted || _friendDisconnectDialogShown || _isReturningToHome) {
+      return;
+    }
+    _friendDisconnectDialogShown = true;
+    _isReturningToHome = true;
+    _clearAllPendingAttacks();
+    _rankedAutoStartTimer?.cancel();
+    _playerGame.pauseEngine();
+    _cpuGame?.pauseEngine();
+    await _stopBattleBgm();
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return _buildCyberDialog(
+          accentColor: _friendPink,
+          title: '接続切断',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '接続が切断されました。\nホーム画面へ戻ります。',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white70,
+                  height: 1.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 20),
+              _buildCyberDialogButton(
+                label: '確認',
+                accentColor: _friendPink,
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    try {
+      await _multiplayerManager.leaveRoom(forceRemove: true);
+      await GameActivityPresence.instance.exit();
+    } catch (_) {
+      // 切断時の後始末に失敗しても、ユーザーはホームへ戻す。
+    }
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    );
   }
 
   void _queueOjamaTask(PuzzleGame targetGame, OjamaTask task) {
@@ -8753,18 +9490,26 @@ class _GameScreenState extends State<GameScreen>
         }
       }
       unawaited(_applyBattleCoinReward(isWin: playerWon));
+      setState(() {
+        _activeResultWasForfeit = false;
+        _isStampGridVisible = false;
+        _resultRevealPending = false;
+      });
+      if (widget.isRankedMode && !widget.isArenaMode) {
+        await _applyRankedBotRatingResult(isWin: playerWon);
+        if (_rankedRatingChange == null) {
+          return;
+        }
+      }
+      if (!mounted) {
+        return;
+      }
       unawaited(
         _applyMatchExpReward(
           isWin: playerWon,
           grantLocalExp: true,
         ),
       );
-      unawaited(_applyRankedBotRatingResult(isWin: playerWon));
-      setState(() {
-        _activeResultWasForfeit = false;
-        _isStampGridVisible = false;
-        _resultRevealPending = false;
-      });
       return;
     }
 
@@ -8786,24 +9531,6 @@ class _GameScreenState extends State<GameScreen>
         }
       }
       unawaited(_applyBattleCoinReward(isWin: playerWon));
-      unawaited(
-        _applyMatchExpReward(
-          isWin: playerWon,
-          isForfeitWin: resultWasForfeit && playerWon,
-          grantLocalExp: true,
-        ),
-      );
-      unawaited(
-        _applyRankedRatingResult(
-          isWin: playerWon,
-          applyOpponentResult: resultWasForfeit,
-          reason: resultWasForfeit && playerWon
-              ? 'opponent_offline_forfeit'
-              : resultWasOfflineForfeit
-                  ? 'offline_forfeit'
-                  : null,
-        ),
-      );
       unawaited(_recordArenaResult(isWin: playerWon));
       unawaited(_multiplayerManager.clearSavedSession());
       setState(() {
@@ -8814,6 +9541,30 @@ class _GameScreenState extends State<GameScreen>
         _isStampGridVisible = false;
         _resultRevealPending = false;
       });
+      if (widget.isRankedMode && !widget.isArenaMode) {
+        await _applyRankedRatingResult(
+          isWin: playerWon,
+          applyOpponentResult: resultWasForfeit,
+          reason: resultWasForfeit && playerWon
+              ? 'opponent_offline_forfeit'
+              : resultWasOfflineForfeit
+                  ? 'offline_forfeit'
+                  : null,
+        );
+        if (_rankedRatingChange == null) {
+          return;
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      unawaited(
+        _applyMatchExpReward(
+          isWin: playerWon,
+          isForfeitWin: resultWasForfeit && playerWon,
+          grantLocalExp: true,
+        ),
+      );
       return;
     }
 
@@ -8836,9 +9587,6 @@ class _GameScreenState extends State<GameScreen>
       );
       unawaited(InterstitialAdManager.instance.warmUp());
     }
-    if (_currentPlayerScore >= 10000) {
-      unawaited(_missionManager.recordEvent('score_endless_10000'));
-    }
     unawaited(_applySoloExpReward());
     unawaited(_recordSoloStats());
     setState(() {
@@ -8848,17 +9596,28 @@ class _GameScreenState extends State<GameScreen>
     });
   }
 
-  OjamaTask? _createOjamaTaskForAttack(WazaType waza, BallColor? color) {
+  OjamaTask? _createOjamaTaskForAttack(
+    WazaType waza,
+    BallColor? color, {
+    String? ballSkinId,
+    String? effectSkinId,
+  }) {
+    final resolvedBallSkinId =
+        ballSkinId ?? _playerDataManager.equippedBallSkinId;
+    final resolvedEffectSkinId =
+        effectSkinId ?? _playerDataManager.equippedOjamaEffectId;
     switch (waza) {
       case WazaType.hexagon:
         return OjamaTask(
           OjamaType.hexagonSet,
-          ballSkinId: _playerDataManager.equippedBallSkinId,
+          ballSkinId: resolvedBallSkinId,
+          effectSkinId: resolvedEffectSkinId,
         );
       case WazaType.pyramid:
         return OjamaTask(
           OjamaType.pyramidSet,
-          ballSkinId: _playerDataManager.equippedBallSkinId,
+          ballSkinId: resolvedBallSkinId,
+          effectSkinId: resolvedEffectSkinId,
         );
       case WazaType.straight:
         final startColor = color ?? BallColor.blue;
@@ -8866,7 +9625,8 @@ class _GameScreenState extends State<GameScreen>
           OjamaType.straightSet,
           startColor: startColor,
           presetColors: _generateStraightOjamaColors(startColor),
-          ballSkinId: _playerDataManager.equippedBallSkinId,
+          ballSkinId: resolvedBallSkinId,
+          effectSkinId: resolvedEffectSkinId,
         );
       case WazaType.none:
         return null;

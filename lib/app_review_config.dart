@@ -29,6 +29,10 @@ class AppReviewConfig {
     'PRIVACY_POLICY_URL',
     defaultValue: 'https://takutonkatsu.com/Hexagon/privacy.html',
   );
+  static const String contactFormUrl = String.fromEnvironment(
+    'CONTACT_FORM_URL',
+    defaultValue: 'https://takutonkatsu.com/Hexagon/#contact',
+  );
   static const String supportEmail = String.fromEnvironment(
     'SUPPORT_EMAIL',
     defaultValue: 'takutonkatsu.dev@gmail.com',
@@ -73,6 +77,7 @@ class AppReviewConfig {
   );
 
   static bool get hasPrivacyPolicy => privacyPolicyUrl.trim().isNotEmpty;
+  static bool get hasContactForm => contactFormUrl.trim().isNotEmpty;
   static bool get hasSupportEmail => supportEmail.trim().isNotEmpty;
   static bool get hasAdRemovalProduct =>
       adRemovalProductId.trim().isNotEmpty ||

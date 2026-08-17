@@ -27,11 +27,13 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   void initState() {
     super.initState();
     AppSettings.instance.adsRemoved.addListener(_handleAdsRemovedChanged);
+    AppSettings.instance.serverAdsGloballyDisabled
+        .addListener(_handleAdsRemovedChanged);
     _loadBannerAd();
   }
 
   void _handleAdsRemovedChanged() {
-    if (AppSettings.instance.adsRemoved.value) {
+    if (AppSettings.instance.adRemovalBenefitsEnabled) {
       _retryTimer?.cancel();
       _bannerAd?.dispose();
       _bannerAd = null;
@@ -112,7 +114,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   }
 
   void _scheduleRetry() {
-    if (AppSettings.instance.adsRemoved.value) {
+    if (AppSettings.instance.adRemovalBenefitsEnabled) {
       return;
     }
     _retryTimer?.cancel();
@@ -126,6 +128,8 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
   @override
   void dispose() {
     AppSettings.instance.adsRemoved.removeListener(_handleAdsRemovedChanged);
+    AppSettings.instance.serverAdsGloballyDisabled
+        .removeListener(_handleAdsRemovedChanged);
     _retryTimer?.cancel();
     _bannerAd?.dispose();
     super.dispose();
@@ -133,7 +137,7 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (AppSettings.instance.adsRemoved.value) {
+    if (AppSettings.instance.adRemovalBenefitsEnabled) {
       return const SizedBox.shrink();
     }
     final ad = _bannerAd;
