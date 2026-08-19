@@ -455,29 +455,15 @@ class _CollectionScreenState extends State<CollectionScreen>
   Widget _stampInfoButton(String message) {
     return Builder(
       builder: (buttonContext) {
-        return InkWell(
-          onTap: () => _showStampInfoBubble(buttonContext, message),
-          borderRadius: BorderRadius.circular(7),
-          child: Container(
-            width: 30,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: GameThemeColors.cyan.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(7),
-              border: Border.all(
-                color: GameThemeColors.cyan.withValues(alpha: 0.56),
-              ),
-            ),
-            child: const Text(
-              'i',
-              style: TextStyle(
-                color: GameThemeColors.cyan,
-                fontWeight: FontWeight.w900,
-                fontSize: 16,
-              ),
-            ),
+        return IconButton(
+          onPressed: () => _showStampInfoBubble(buttonContext, message),
+          icon: const Icon(
+            Icons.info_outline_rounded,
+            color: GameThemeColors.cyan,
+            size: 20,
           ),
+          visualDensity: VisualDensity.compact,
+          tooltip: '詳細',
         );
       },
     );
@@ -1030,6 +1016,11 @@ class _CollectionScreenState extends State<CollectionScreen>
             numberLabel: '03',
             fileName: 'readyGo03_3_2_1_GO!!!_レースのスタート音.mp3',
           ),
+          _AudioPreviewItem(
+            id: 'ready_04',
+            numberLabel: '04',
+            fileName: 'readyGo04_ほら貝を吹き鳴らす.mp3',
+          ),
         ],
       ),
       _AudioPreviewSection(
@@ -1040,7 +1031,12 @@ class _CollectionScreenState extends State<CollectionScreen>
           _AudioPreviewItem(
             id: 'load_screen_01',
             numberLabel: '01',
-            fileName: 'loadScreen01_サウンドロゴ_3.mp3',
+            fileName: 'loadScreen01_データ表示4.mp3',
+          ),
+          _AudioPreviewItem(
+            id: 'load_screen_02',
+            numberLabel: '02',
+            fileName: 'loadScreen02_金属タイトル表示3.mp3',
           ),
         ],
       ),
@@ -1110,6 +1106,11 @@ class _CollectionScreenState extends State<CollectionScreen>
             id: 'loser_05',
             numberLabel: '05',
             fileName: 'loser05_不穏なファンファーレ.mp3',
+          ),
+          _AudioPreviewItem(
+            id: 'loser_06',
+            numberLabel: '06',
+            fileName: 'loser06_試合終了のゴング.mp3',
           ),
         ],
       ),
@@ -1969,7 +1970,12 @@ class _CollectionScreenState extends State<CollectionScreen>
       final settingsVolume = item.isBgm
           ? AppSettings.instance.musicVolume.value
           : AppSettings.instance.sfxVolume.value;
-      await _audioPreviewPlayer.setVolume(settingsVolume.clamp(0.0, 1.0));
+      await _audioPreviewPlayer.setVolume(
+        (settingsVolume *
+                _gamePlaybackBaseVolumeForPreview(item) *
+                AudioSelectionManager.volumeMultiplierForAudioId(item.id))
+            .clamp(0.0, 1.0),
+      );
       await _audioPreviewPlayer.play(AssetSource('audio/${item.fileName}'));
     } catch (_) {
       await _resumeBgmAfterAudioPreview();
@@ -1978,6 +1984,16 @@ class _CollectionScreenState extends State<CollectionScreen>
     if (mounted) {
       setState(() => _previewingAudioId = item.id);
     }
+  }
+
+  double _gamePlaybackBaseVolumeForPreview(_AudioPreviewItem item) {
+    if (item.id.startsWith('home_bgm_')) {
+      return 0.576;
+    }
+    if (item.id.startsWith('battle_bgm_')) {
+      return 0.2448;
+    }
+    return 1.0;
   }
 
   Future<void> _stopAudioPreview({bool updateState = true}) async {
@@ -2023,7 +2039,7 @@ class _CollectionScreenState extends State<CollectionScreen>
       await SeamlessBgm.instance.play(
         assetPath: selectedBgm.assetPath,
         duration: selectedBgm.duration,
-        volume: 0.576,
+        volume: 0.576 * selectedBgm.volumeMultiplier,
         owner: 'home_screen',
         forceRestart: true,
       );
@@ -2133,58 +2149,36 @@ class _CollectionScreenState extends State<CollectionScreen>
   }) {
     final frame = frameId == 'default' ? null : GameItemCatalog.byId(frameId);
     final color = frame == null ? GameThemeColors.cyan : _frameColor(frame);
-    final frameDecoration = frame?.colorName == 'rainbow'
-        ? const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: SweepGradient(
-              colors: [
-                Color(0xFFFF4D6D),
-                Color(0xFFFFD54A),
-                Color(0xFF35F0FF),
-                Color(0xFFB91DFF),
-                Color(0xFFFF4D6D),
-              ],
-            ),
-          )
-        : BoxDecoration(
-            color: playerIconInnerBackgroundColor(
-              iconId,
-              color.withValues(alpha: 0.12),
-              frameId: frameId,
-            ),
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 2),
-          );
+    if (frame?.colorName == 'rainbow') {
+      return RainbowFrameRing(
+        size: size,
+        strokeWidth: 4,
+        child: PlayerIconImage(
+          iconId: iconId,
+          fallbackIcon: Icons.person,
+          size: size * 0.55,
+        ),
+      );
+    }
     return Container(
       width: size,
       height: size,
-      decoration: frameDecoration,
-      padding: frame?.colorName == 'rainbow' ? const EdgeInsets.all(4) : null,
-      child: frame?.colorName == 'rainbow'
-          ? DecoratedBox(
-              decoration: BoxDecoration(
-                color: playerIconInnerBackgroundColor(
-                  iconId,
-                  const Color(0xFF111827),
-                  frameId: frameId,
-                ),
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: PlayerIconImage(
-                  iconId: iconId,
-                  fallbackIcon: Icons.person,
-                  size: size * 0.55,
-                ),
-              ),
-            )
-          : Center(
-              child: PlayerIconImage(
-                iconId: iconId,
-                fallbackIcon: Icons.person,
-                size: size * 0.55,
-              ),
-            ),
+      decoration: BoxDecoration(
+        color: playerIconInnerBackgroundColor(
+          iconId,
+          color.withValues(alpha: 0.12),
+          frameId: frameId,
+        ),
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: 2),
+      ),
+      child: Center(
+        child: PlayerIconImage(
+          iconId: iconId,
+          fallbackIcon: Icons.person,
+          size: size * 0.55,
+        ),
+      ),
     );
   }
 
@@ -2257,37 +2251,17 @@ class _CollectionScreenState extends State<CollectionScreen>
   }) {
     final color =
         frame.id == 'default' ? GameThemeColors.cyan : _frameColor(frame);
-    final decoration = frame.colorName == 'rainbow'
-        ? const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: SweepGradient(
-              colors: [
-                Color(0xFFFF4D6D),
-                Color(0xFFFFD54A),
-                Color(0xFF35F0FF),
-                Color(0xFFB91DFF),
-                Color(0xFFFF4D6D),
-              ],
-            ),
-          )
-        : BoxDecoration(
-            color: Colors.transparent,
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 2),
-          );
+    if (frame.colorName == 'rainbow') {
+      return RainbowFrameRing(size: size, strokeWidth: 4);
+    }
     return Container(
       width: size,
       height: size,
-      decoration: decoration,
-      padding: frame.colorName == 'rainbow' ? const EdgeInsets.all(4) : null,
-      child: frame.colorName == 'rainbow'
-          ? const DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color(0xFF101A2A),
-                shape: BoxShape.circle,
-              ),
-            )
-          : null,
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: 2),
+      ),
     );
   }
 

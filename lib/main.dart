@@ -21,6 +21,7 @@ import 'data/player_data_manager.dart';
 import 'firebase_database_provider.dart';
 import 'firebase_options_dev.dart' as firebase_dev;
 import 'firebase_options_prod.dart' as firebase_prod;
+import 'friends/friend_deep_link_service.dart';
 import 'moderation/moderation_manager.dart';
 import 'network/multiplayer_manager.dart';
 import 'network/ranking_manager.dart';
@@ -49,6 +50,7 @@ void main() {
           debugPrintStack(stackTrace: stackTrace);
         }),
       );
+      FriendDeepLinkService.instance.start();
       runApp(const MyApp());
     },
     (error, stackTrace) {
@@ -221,7 +223,7 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
   static const Duration _bootstrapTimeout = Duration(seconds: 8);
   static const Duration _connectionStartupWaitTimeout = Duration(seconds: 8);
   static const Duration _nameRegistrationSyncTimeout = Duration(seconds: 4);
-  static const String _loadScreenSfx = 'loadScreen01_サウンドロゴ_3.mp3';
+  static const String _loadScreenSfx = 'loadScreen01_データ表示4.mp3';
 
   late final AnimationController _progressController;
   late final AnimationController _startPromptController;
@@ -264,7 +266,9 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
       );
       await _loadScreenPlayer.setReleaseMode(ap.ReleaseMode.stop);
       await _loadScreenPlayer.setVolume(
-        AppSettings.instance.sfxVolume.value.clamp(0.0, 1.0),
+        (AppSettings.instance.sfxVolume.value *
+                AudioSelectionManager.volumeMultiplierForFileName(fileName))
+            .clamp(0.0, 1.0),
       );
       await _loadScreenPlayer.play(ap.AssetSource('audio/$fileName'));
     } catch (_) {
@@ -513,7 +517,9 @@ class _StartupLoadingScreenState extends State<StartupLoadingScreen>
     required String initialName,
     required int rating,
   }) async {
-    final controller = TextEditingController(text: initialName);
+    final controller = TextEditingController(
+      text: initialName.trim() == 'プレイヤー' ? '' : initialName,
+    );
     String registeredName = initialName.trim();
     try {
       await showDialog<void>(

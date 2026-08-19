@@ -24,7 +24,9 @@ dependencies:
   app_tracking_transparency: ^2.0.6+1
   package_info_plus: ^10.1.0
   share_plus: ^13.1.0
+  qr_flutter: ^4.1.0
   web_socket_channel: ^3.0.2
+  app_links: ^7.2.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

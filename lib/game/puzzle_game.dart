@@ -252,8 +252,11 @@ class PuzzleGame extends FlameGame with KeyboardEvents {
 
   void _playSfx(String fileName, {double volume = 1.0}) {
     final masterVolume = AppSettings.instance.sfxVolume.value;
+    final itemMultiplier =
+        AudioSelectionManager.volumeMultiplierForFileName(fileName);
     final adjustedVolume =
-        (volume * _sfxVolumeMultiplier * masterVolume).clamp(0.0, 1.0);
+        (volume * itemMultiplier * _sfxVolumeMultiplier * masterVolume)
+            .clamp(0.0, 1.0);
     unawaited(_playSfxSafely(fileName, volume: adjustedVolume));
   }
 

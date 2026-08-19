@@ -9,8 +9,13 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    private var deepLinkChannel: MethodChannel? = null
+    private var pendingFriendLink: String? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        pendingFriendLink = intent?.dataString ?: pendingFriendLink
+        configureDeepLinkChannel(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "hexagon/share_image"
@@ -67,6 +72,30 @@ class MainActivity : FlutterActivity() {
                 result.success(true)
             } catch (error: Exception) {
                 result.error("share_failed", error.message, null)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val link = intent.dataString
+        if (!link.isNullOrBlank()) {
+            pendingFriendLink = link
+            deepLinkChannel?.invokeMethod("onFriendLink", link)
+        }
+    }
+
+    private fun configureDeepLinkChannel(flutterEngine: FlutterEngine) {
+        deepLinkChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "hexagon/deep_link"
+        )
+        deepLinkChannel?.setMethodCallHandler { call, result ->
+            if (call.method == "getInitialFriendLink") {
+                result.success(pendingFriendLink)
+            } else {
+                result.notImplemented()
             }
         }
     }

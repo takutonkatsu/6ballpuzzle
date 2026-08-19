@@ -196,6 +196,7 @@ class GachaManager {
           const _WeightedItemPool([
             ...GameItemCatalog.effectItems,
             ...GameItemCatalog.audioItems,
+            ...GameItemCatalog.ballSkins,
           ], 5),
         ],
       GachaCategory.stamp => [
@@ -207,8 +208,9 @@ class GachaManager {
           const _WeightedItemPool(GameItemCatalog.profileBanners, 25),
         ],
       GachaCategory.effect => [
-          _WeightedItemPool(formationEffects, 50),
-          _WeightedItemPool(ojamaEffects, 50),
+          _WeightedItemPool(formationEffects, 40),
+          _WeightedItemPool(ojamaEffects, 40),
+          const _WeightedItemPool(GameItemCatalog.ballSkins, 20),
         ],
       GachaCategory.audio => [
           _WeightedItemPool(bgmItems, 35),
@@ -220,6 +222,7 @@ class GachaManager {
           const _WeightedItemPool([
             ...GameItemCatalog.effectItems,
             ...GameItemCatalog.audioItems,
+            ...GameItemCatalog.ballSkins,
           ], 40),
         ],
     };

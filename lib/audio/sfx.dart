@@ -19,9 +19,12 @@ class AppSfx {
   }) async {
     try {
       final master = AppSettings.instance.sfxVolume.value;
+      final itemMultiplier =
+          AudioSelectionManager.volumeMultiplierForFileName(fileName);
       await SfxPlayer.play(
         fileName,
-        volume: (volume * _boostMultiplier * master).clamp(0.0, 1.0),
+        volume: (volume * itemMultiplier * _boostMultiplier * master)
+            .clamp(0.0, 1.0),
       );
     } catch (_) {
       // SE再生失敗で画面遷移や進行を止めない。

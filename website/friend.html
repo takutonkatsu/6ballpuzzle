@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ヘキサゴンのフレンド追加ページです。">
+  <title>フレンド追加 | ヘキサゴン</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel: rgba(17, 22, 32, .94);
+      --line: rgba(255, 255, 255, .16);
+      --text: #f6f8fb;
+      --muted: #aeb7c6;
+      --cyan: #22d3ee;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 28px 18px;
+      background:
+        radial-gradient(circle at 50% 0%, rgba(34, 211, 238, .16), transparent 34rem),
+        linear-gradient(180deg, #080a10, #0b111b 58%, #07090f);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+      line-height: 1.7;
+    }
+    main {
+      width: min(560px, 100%);
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: var(--panel);
+      text-align: center;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, .32);
+    }
+    .icon {
+      width: 86px;
+      height: 86px;
+      margin: 0 auto 12px;
+      border-radius: 22px;
+      border: 2px solid rgba(34, 211, 238, .58);
+      box-shadow: 0 0 34px rgba(34, 211, 238, .18);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(24px, 7vw, 34px);
+      font-weight: 950;
+    }
+    p { margin: 10px 0; color: var(--muted); font-weight: 700; }
+    .actions {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+    a.button {
+      display: block;
+      padding: 13px 16px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #2bf4ff, #0aa4df);
+      color: #041018;
+      text-decoration: none;
+      font-weight: 950;
+    }
+    a.button.secondary {
+      background: rgba(255, 255, 255, .08);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, .18);
+    }
+    .small { font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <img class="icon" src="/Hexagon/assets/images/Hexagon_icon.png" alt="ヘキサゴン">
+    <h1>フレンド追加</h1>
+    <p>ヘキサゴンをインストール済みの場合は、自動でアプリが開きます。開かない場合は下のボタンを押してください。</p>
+    <div class="actions">
+      <a class="button" id="open-app" href="#">アプリで開く</a>
+      <a class="button secondary" id="app-store" href="https://apps.apple.com/jp/app/%E3%83%98%E3%82%AD%E3%82%B5%E3%82%B4%E3%83%B3-%E3%83%AA%E3%82%A2%E3%83%AB%E3%82%BF%E3%82%A4%E3%83%A0%E5%AF%BE%E6%88%A6%E3%83%9C%E3%83%BC%E3%83%AB%E3%83%91%E3%82%BA%E3%83%AB/id6766177240">App Store で入手</a>
+      <a class="button secondary" href="/Hexagon/">公式サイトへ</a>
+    </div>
+    <p class="small">フレンドリンクの有効期限が切れている場合は、フレンドにもう一度リンクを作成してもらってください。</p>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const code = (params.get('code') || '').trim().toUpperCase();
+    const openApp = document.getElementById('open-app');
+    const appStore = document.getElementById('app-store');
+    const appUrl = code ? `hexagon://friend?code=${encodeURIComponent(code)}` : '/Hexagon/';
+    openApp.href = appUrl;
+    let pageHidden = false;
+    document.addEventListener('visibilitychange', () => {
+      pageHidden = document.hidden;
+    });
+    if (code) {
+      window.setTimeout(() => {
+        location.href = appUrl;
+      }, 250);
+      window.setTimeout(() => {
+        if (!pageHidden) {
+          location.href = appStore.href;
+        }
+      }, 1800);
+    }
+  </script>
+</body>
+</html>

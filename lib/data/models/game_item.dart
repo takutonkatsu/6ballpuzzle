@@ -901,6 +901,16 @@ class GameItemCatalog {
         type: ItemType.audio,
         rarity: ItemRarity.rare),
     GameItem(
+        id: 'ready_04',
+        name: 'READY 04',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'load_screen_02',
+        name: 'ロード画面 02',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
         id: 'winner_02',
         name: '勝利 02',
         type: ItemType.audio,
@@ -943,6 +953,11 @@ class GameItemCatalog {
     GameItem(
         id: 'loser_05',
         name: '敗北 05',
+        type: ItemType.audio,
+        rarity: ItemRarity.rare),
+    GameItem(
+        id: 'loser_06',
+        name: '敗北 06',
         type: ItemType.audio,
         rarity: ItemRarity.rare),
     GameItem(

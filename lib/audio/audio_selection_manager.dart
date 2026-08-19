@@ -5,11 +5,13 @@ class AudioTrackSelection {
     required this.id,
     required this.assetPath,
     required this.duration,
+    this.volumeMultiplier = 1.0,
   });
 
   final String id;
   final String assetPath;
   final Duration duration;
+  final double volumeMultiplier;
 }
 
 class AudioSelectionManager {
@@ -38,6 +40,7 @@ class AudioSelectionManager {
       id: 'home_bgm_02',
       assetPath: 'audio/bgm_homeScreen02_ドードドド・スタンピード.mp3',
       duration: Duration(microseconds: 60617667),
+      volumeMultiplier: 0.85,
     ),
   };
 
@@ -47,52 +50,87 @@ class AudioSelectionManager {
       id: 'battle_bgm_02',
       assetPath: 'audio/bgm_battle02_Light_Ray.mp3',
       duration: Duration(microseconds: 81502042),
+      volumeMultiplier: 1.2,
     ),
     'battle_bgm_03': AudioTrackSelection(
       id: 'battle_bgm_03',
       assetPath: 'audio/bgm_battle03_小さな台風のケビン.mp3',
       duration: Duration(microseconds: 84456000),
+      volumeMultiplier: 1.1,
     ),
     'battle_bgm_04': AudioTrackSelection(
       id: 'battle_bgm_04',
       assetPath: 'audio/bgm_battle04_灼熱のユーロビート_2.mp3',
       duration: Duration(microseconds: 235464000),
+      volumeMultiplier: 1.1,
     ),
     'battle_bgm_05': AudioTrackSelection(
       id: 'battle_bgm_05',
       assetPath: 'audio/bgm_battle05_渦巻く砂漠の風.mp3',
       duration: Duration(microseconds: 92640000),
+      volumeMultiplier: 1.05,
     ),
     'battle_bgm_06': AudioTrackSelection(
       id: 'battle_bgm_06',
       assetPath: 'audio/bgm_battle06_有明のユーロビート_2.mp3',
       duration: Duration(microseconds: 126048000),
+      volumeMultiplier: 1.1,
     ),
     'battle_bgm_07': AudioTrackSelection(
       id: 'battle_bgm_07',
       assetPath: 'audio/bgm_battle07_忘れてたー！_2.mp3',
       duration: Duration(microseconds: 80871938),
+      volumeMultiplier: 1.05,
     ),
     'battle_bgm_08': AudioTrackSelection(
       id: 'battle_bgm_08',
       assetPath: 'audio/bgm_battle08バーゲンセール_2.mp3',
       duration: Duration(microseconds: 79881563),
+      volumeMultiplier: 0.85,
     ),
     'battle_bgm_09': AudioTrackSelection(
       id: 'battle_bgm_09',
       assetPath: 'audio/bgm_battle09どたばたサーカス_2.mp3',
       duration: Duration(microseconds: 129009375),
+      volumeMultiplier: 1.1,
     ),
     'battle_bgm_10': AudioTrackSelection(
       id: 'battle_bgm_10',
       assetPath: 'audio/bgm_battle10_迅雷のユーロビート_2.mp3',
       duration: Duration(microseconds: 122780437),
+      volumeMultiplier: 1.05,
     ),
     'battle_bgm_11': AudioTrackSelection(
       id: 'battle_bgm_11',
       assetPath: 'audio/bgm_battle11_コミック☆はろはろ！.mp3',
       duration: Duration(microseconds: 70685833),
+      volumeMultiplier: 1.1,
     ),
+  };
+
+  static const Map<String, double> _sfxVolumeMultiplierById = {
+    'ready_02': 1.15,
+    'ready_03': 0.85,
+    'button_01': 0.85,
+    'button_02': 0.75,
+    'button_03': 0.85,
+    'button_04': 0.95,
+    'button_06': 1.3,
+    'button_07': 1.2,
+    'matching_02': 0.95,
+    'matching_03': 1.1,
+    'matching_04': 0.85,
+    'matching_06': 1.05,
+    'formation_02': 0.95,
+    'formation_04': 0.95,
+    'formation_05': 0.95,
+    'formation_06': 0.9,
+    'formation_07': 0.75,
+    'obstacle_03': 0.9,
+    'obstacle_04': 0.9,
+    'spawn_01': 0.9,
+    'spawn_02': 0.75,
+    'spawn_03': 0.75,
   };
 
   static const Map<String, Map<String, String>> _sfxFileBySectionAndId = {
@@ -100,9 +138,11 @@ class AudioSelectionManager {
       'ready_01': 'readyGo01_メニューを開く3.mp3',
       'ready_02': 'readyGo02_メニューを開く2.mp3',
       'ready_03': 'readyGo03_3_2_1_GO!!!_レースのスタート音.mp3',
+      'ready_04': 'readyGo04_ほら貝を吹き鳴らす.mp3',
     },
     'load_screen': {
-      'load_screen_01': 'loadScreen01_サウンドロゴ_3.mp3',
+      'load_screen_01': 'loadScreen01_データ表示4.mp3',
+      'load_screen_02': 'loadScreen02_金属タイトル表示3.mp3',
     },
     'winner': {
       'winner_01': 'winner01_jingle_22.mp3',
@@ -118,6 +158,7 @@ class AudioSelectionManager {
       'loser_03': 'loser03_ティロリー.mp3',
       'loser_04': 'loser04＿ゲームオーバー.mp3',
       'loser_05': 'loser05_不穏なファンファーレ.mp3',
+      'loser_06': 'loser06_試合終了のゴング.mp3',
     },
     'button': {
       'button_01': 'buttonTap01_決定ボタンを押す44.mp3',
@@ -206,6 +247,13 @@ class AudioSelectionManager {
     return _sfxFileBySectionAndId[sectionId]?[itemId];
   }
 
+  static Map<String, String> defaultSfxSelectionIds() {
+    return {
+      for (final sectionId in _sfxFileBySectionAndId.keys)
+        sectionId: '${sectionId}_01',
+    };
+  }
+
   static String? audioFileForItemId(String itemId) {
     final homeBgm = _homeBgmById[itemId];
     if (homeBgm != null) {
@@ -222,6 +270,39 @@ class AudioSelectionManager {
       }
     }
     return null;
+  }
+
+  static double volumeMultiplierForAudioId(String itemId) {
+    final homeBgm = _homeBgmById[itemId];
+    if (homeBgm != null) {
+      return homeBgm.volumeMultiplier;
+    }
+    final battleBgm = _battleBgmById[itemId];
+    if (battleBgm != null) {
+      return battleBgm.volumeMultiplier;
+    }
+    return _sfxVolumeMultiplierById[itemId] ?? 1.0;
+  }
+
+  static double volumeMultiplierForFileName(String fileName) {
+    for (final entry in _homeBgmById.entries) {
+      if (entry.value.assetPath.endsWith(fileName)) {
+        return entry.value.volumeMultiplier;
+      }
+    }
+    for (final entry in _battleBgmById.entries) {
+      if (entry.value.assetPath.endsWith(fileName)) {
+        return entry.value.volumeMultiplier;
+      }
+    }
+    for (final section in _sfxFileBySectionAndId.values) {
+      for (final entry in section.entries) {
+        if (entry.value == fileName) {
+          return volumeMultiplierForAudioId(entry.key);
+        }
+      }
+    }
+    return 1.0;
   }
 
   static String sfxFileFromSelections(

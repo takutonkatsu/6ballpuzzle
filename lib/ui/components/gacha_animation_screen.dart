@@ -427,29 +427,7 @@ class _GachaAnimationScreenState extends State<GachaAnimationScreen>
     }
     if (item.type == ItemType.frame) {
       if (item.colorName == 'rainbow') {
-        return Container(
-          width: 104,
-          height: 104,
-          padding: const EdgeInsets.all(13),
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: SweepGradient(
-              colors: [
-                Color(0xFFFF4D6D),
-                Color(0xFFFFD54A),
-                Color(0xFF35F0FF),
-                Color(0xFFB91DFF),
-                Color(0xFFFF4D6D),
-              ],
-            ),
-          ),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.84),
-              shape: BoxShape.circle,
-            ),
-          ),
-        );
+        return const RainbowFrameRing(size: 104, strokeWidth: 13);
       }
       final frameColor = _colorFromFrameName(item.colorName);
       return Container(
@@ -542,7 +520,7 @@ class _GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = color.withValues(alpha: 0.1 + 0.3 * progress)
+      ..color = color.withValues(alpha: 0.035 + 0.12 * progress)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0;
 

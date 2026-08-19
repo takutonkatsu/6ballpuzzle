@@ -427,35 +427,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       color: Colors.white,
       size: iconSize,
     );
-    final innerBackgroundColor = playerIconInnerBackgroundColor(
-      iconId,
-      const Color(0xFF111827),
-      frameId: frameId,
-    );
     if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
-      return Container(
-        width: size,
-        height: size,
-        padding: const EdgeInsets.all(4),
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: SweepGradient(
-            colors: [
-              Color(0xFFFF4D6D),
-              Color(0xFFFFD54A),
-              Color(0xFF35F0FF),
-              Color(0xFFB91DFF),
-              Color(0xFFFF4D6D),
-            ],
-          ),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: innerBackgroundColor,
-            shape: BoxShape.circle,
-          ),
-          child: Center(child: icon),
-        ),
+      return RainbowFrameRing(
+        size: size,
+        strokeWidth: 4,
+        child: icon,
       );
     }
     return Container(
@@ -528,7 +504,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: SizedBox(
                   width: 30,
                   height: 30,
-                  child: Center(child: badge.icon),
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: SizedBox.square(
+                      dimension: 40,
+                      child: Center(child: badge.icon),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -811,7 +793,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       label: badge.label,
       detail: badge.unlockedCondition.description,
       color: badge.frameColor,
-      icon: Icon(badge.icon, color: badge.frameColor, size: 40),
+      icon: SizedBox.square(
+        dimension: 40,
+        child: Center(
+          child: Icon(badge.icon, color: badge.frameColor, size: 36),
+        ),
+      ),
       isProgressBadge: _isProgressOwnedBadge(badge),
     );
   }

@@ -569,7 +569,39 @@ bool _drawBallSkinImage(
       ..filterQuality = FilterQuality.high
       ..color = Colors.white.withValues(alpha: alpha),
   );
+  final palette = _paletteFor(color);
+  _drawImageBallSkinGloss(canvas, center, radius, palette, alpha);
   return true;
+}
+
+void _drawImageBallSkinGloss(
+  Canvas canvas,
+  Offset center,
+  double radius,
+  _SpherePalette palette,
+  double alpha,
+) {
+  final bodyRect = Rect.fromCircle(center: center, radius: radius);
+  canvas.save();
+  canvas.clipPath(Path()..addOval(bodyRect));
+  canvas.drawCircle(
+    center,
+    radius,
+    Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.28, -0.36),
+        radius: 1.0,
+        colors: [
+          Colors.white.withValues(alpha: 0.20 * alpha),
+          Colors.transparent,
+          Colors.black.withValues(alpha: 0.18 * alpha),
+        ],
+        stops: const [0.0, 0.46, 1.0],
+      ).createShader(bodyRect),
+  );
+  canvas.restore();
+  _drawFresnelRim(canvas, center, radius, palette, alpha, false);
+  _drawSpecularHighlights(canvas, center, radius, alpha, false);
 }
 
 Color _hexaOrbitAccentFor(String skinId, _SpherePalette palette) {

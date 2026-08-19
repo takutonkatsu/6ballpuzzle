@@ -232,6 +232,36 @@
         ".write": "auth != null && auth.uid === $uid"
       }
     },
+    "friends": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$friendUid": {
+          ".write": "auth != null && (auth.uid === $uid || auth.uid === $friendUid)"
+        }
+      }
+    },
+    "friendLinks": {
+      ".read": "auth != null",
+      ".indexOn": ["ownerUid", "expiresAt"],
+      "$code": {
+        ".write": "auth != null && ((!data.exists() && newData.child('ownerUid').val() === auth.uid) || (data.exists() && data.child('ownerUid').val() === auth.uid))"
+      }
+    },
+    "friendInvites": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$inviteId": {
+          ".read": "auth != null && (auth.uid === $uid || data.child('fromUid').val() === auth.uid)",
+          ".write": "auth != null && (auth.uid === $uid || newData.child('fromUid').val() === auth.uid || data.child('fromUid').val() === auth.uid)"
+        }
+      }
+    },
+    "friendPresence": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
     "playerRecordSummaries": {
       ".read": "auth != null",
       ".indexOn": ["publicId", "displayName", "updatedAt", "recordDate"],

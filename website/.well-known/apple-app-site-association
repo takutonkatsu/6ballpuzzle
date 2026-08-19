@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "VDL978W2MR.com.takutonkatsu.hexagon",
+        "paths": [
+          "/Hexagon/friend",
+          "/Hexagon/friend/*",
+          "/Hexagon/friend.html"
+        ]
+      }
+    ]
+  }
+}

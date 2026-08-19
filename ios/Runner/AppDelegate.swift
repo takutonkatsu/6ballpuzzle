@@ -3,14 +3,21 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+  private var deepLinkChannel: FlutterMethodChannel?
+  private var pendingFriendLink: String?
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     purgeRealtimeDatabasePersistenceCache()
+    if let url = launchOptions?[.url] as? URL {
+      pendingFriendLink = url.absoluteString
+    }
     let result = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     if let controller = window?.rootViewController as? FlutterViewController {
       configureShareImageChannel(binaryMessenger: controller.binaryMessenger)
+      configureDeepLinkChannel(binaryMessenger: controller.binaryMessenger)
     }
     return result
   }
@@ -19,7 +26,53 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HexagonShareImage") {
       configureShareImageChannel(binaryMessenger: registrar.messenger())
+      configureDeepLinkChannel(binaryMessenger: registrar.messenger())
     }
+  }
+
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey : Any] = [:]
+  ) -> Bool {
+    handleFriendLink(url.absoluteString)
+    return super.application(app, open: url, options: options)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+       let url = userActivity.webpageURL {
+      handleFriendLink(url.absoluteString)
+    }
+    return super.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
+  }
+
+  private func configureDeepLinkChannel(binaryMessenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(
+      name: "hexagon/deep_link",
+      binaryMessenger: binaryMessenger
+    )
+    deepLinkChannel = channel
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "getInitialFriendLink" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(self?.pendingFriendLink)
+    }
+  }
+
+  func handleFriendLink(_ link: String) {
+    pendingFriendLink = link
+    deepLinkChannel?.invokeMethod("onFriendLink", arguments: link)
   }
 
   private func configureShareImageChannel(binaryMessenger: FlutterBinaryMessenger) {

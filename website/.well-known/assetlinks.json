@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.takutonkatsu.hexagon",
+      "sha256_cert_fingerprints": [
+        "3B:F2:AB:25:FD:7F:44:17:8E:2C:D0:BB:7F:16:58:0D:05:0B:86:D4:F3:51:01:BB:FA:57:DA:47:06:DB:46:49"
+      ]
+    }
+  }
+]

@@ -14,8 +14,11 @@ import '../app_review_config.dart';
 import '../audio/audio_selection_manager.dart';
 import '../audio/seamless_bgm.dart';
 import '../audio/sfx.dart';
+import '../auth/auth_manager.dart';
 import '../data/player_data_manager.dart';
 import '../firebase_database_provider.dart';
+import '../friends/friend_deep_link_service.dart';
+import '../friends/friend_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/daily_challenge_manager.dart';
 import '../game/friend_match_limit_manager.dart';
@@ -42,6 +45,7 @@ import 'components/rewarded_ad_manager.dart';
 import 'components/stamp_widget.dart';
 import 'collection_screen.dart';
 import 'game_screen.dart';
+import 'friend_screen.dart';
 import 'mission_screen.dart';
 import 'profile_screen.dart';
 import 'ranking_screen.dart';
@@ -120,8 +124,8 @@ enum _HomeLobbyDestination {
   shop,
   collection,
   home,
+  friend,
   ranking,
-  record,
 }
 
 enum _ModeIconPlacement {
@@ -455,16 +459,21 @@ class _HomeScreenState extends State<HomeScreen>
   Timer? _seasonStateTimer;
   Timer? _networkErrorTimer;
   StreamSubscription<bool>? _networkConnectionSubscription;
+  StreamSubscription<FriendBattleInvite?>? _friendInviteSubscription;
+  StreamSubscription<Uri>? _appLinkSubscription;
+  FriendBattleInvite? _pendingFriendInvite;
+  String? _lastHandledFriendLinkCode;
   bool _isSyncingRankedSeason = false;
   bool _networkErrorDialogVisible = false;
+  int _friendScreenRefreshToken = 0;
   int _selectedLobbyPageIndex = 2;
 
   static const List<_HomeLobbyDestination> _lobbyDestinations = [
     _HomeLobbyDestination.shop,
     _HomeLobbyDestination.collection,
     _HomeLobbyDestination.home,
+    _HomeLobbyDestination.friend,
     _HomeLobbyDestination.ranking,
-    _HomeLobbyDestination.record,
   ];
 
   // ignore: unused_element
@@ -634,6 +643,8 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _startSeasonStateMonitor();
     _startNetworkErrorMonitor();
+    _startFriendPresenceAndInviteMonitor();
+    _startFriendDeepLinkMonitor();
     AppSettings.instance.serverAdsGloballyDisabled.addListener(
       _handleServerAdsConfigChanged,
     );
@@ -647,6 +658,8 @@ class _HomeScreenState extends State<HomeScreen>
     _seasonStateTimer?.cancel();
     _networkErrorTimer?.cancel();
     unawaited(_networkConnectionSubscription?.cancel());
+    unawaited(_friendInviteSubscription?.cancel());
+    unawaited(_appLinkSubscription?.cancel());
     AppSettings.instance.serverAdsGloballyDisabled.removeListener(
       _handleServerAdsConfigChanged,
     );
@@ -765,6 +778,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(FriendManager.instance.markPresence(online: true));
       unawaited(_resumeHomeBgmFromLifecycle());
       unawaited(_checkRankedSeasonBoundary(showResultLog: true));
       unawaited(_loadRemoteNotice(showUnread: true));
@@ -774,8 +788,111 @@ class _HomeScreenState extends State<HomeScreen>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
+      unawaited(FriendManager.instance.markPresence(online: false));
       unawaited(_suspendHomeBgmForLifecycle());
     }
+  }
+
+  void _startFriendPresenceAndInviteMonitor() {
+    unawaited(FriendManager.instance.markPresence(online: true));
+    _friendInviteSubscription?.cancel();
+    _friendInviteSubscription =
+        FriendManager.instance.watchLatestInvite().listen((invite) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _pendingFriendInvite = invite;
+      });
+    });
+  }
+
+  void _startFriendDeepLinkMonitor() {
+    final pendingUri = FriendDeepLinkService.instance.consumePendingUri();
+    if (pendingUri != null) {
+      unawaited(_handleFriendDeepLink(pendingUri));
+    }
+    _appLinkSubscription?.cancel();
+    _appLinkSubscription = FriendDeepLinkService.instance.stream.listen(
+      (uri) => unawaited(_handleFriendDeepLink(uri)),
+      onError: (_) {},
+    );
+  }
+
+  Future<void> _handleFriendDeepLink(Uri uri) async {
+    if (!mounted || !_isFriendDeepLink(uri)) {
+      return;
+    }
+    final code = _friendCodeFromUri(uri);
+    if (code.isEmpty || code == _lastHandledFriendLinkCode) {
+      return;
+    }
+    _lastHandledFriendLinkCode = code;
+    final result = await FriendManager.instance.addFriendByCode(code);
+    if (!mounted) {
+      return;
+    }
+    if (result.status == FriendAddStatus.alreadyFriends) {
+      setState(() {
+        _friendScreenRefreshToken++;
+      });
+      return;
+    }
+    final message = switch (result.status) {
+      FriendAddStatus.added => result.message,
+      FriendAddStatus.alreadyFriends => 'すでにフレンドに追加されています。',
+      FriendAddStatus.self => '自分自身はフレンドに追加できません。',
+      FriendAddStatus.limitReached => 'フレンド上限に達しています。',
+      FriendAddStatus.targetLimitReached => '相手のフレンド上限に達しています。',
+      FriendAddStatus.expired => 'このフレンドリンクは期限切れです。',
+      FriendAddStatus.invalid => 'フレンドリンクが無効です。',
+    };
+    await _showAlert(context, 'フレンド追加', message);
+    if (!mounted) {
+      return;
+    }
+    if (result.status == FriendAddStatus.added ||
+        result.status == FriendAddStatus.alreadyFriends) {
+      setState(() {
+        _friendScreenRefreshToken++;
+      });
+    }
+  }
+
+  bool _isFriendDeepLink(Uri uri) {
+    if (uri.scheme.toLowerCase() == 'hexagon' &&
+        uri.host.toLowerCase() == 'friend') {
+      return true;
+    }
+    final host = uri.host.toLowerCase();
+    if (host != 'takutonkatsu.com' && host != 'www.takutonkatsu.com') {
+      return false;
+    }
+    final normalizedPath = uri.path.toLowerCase();
+    return normalizedPath == '/hexagon/friend' ||
+        normalizedPath == '/hexagon/friend/' ||
+        normalizedPath == '/hexagon/friend.html';
+  }
+
+  String _friendCodeFromUri(Uri uri) {
+    final queryCode = (uri.queryParameters['code'] ?? '').trim();
+    if (queryCode.isNotEmpty) {
+      return queryCode.toUpperCase();
+    }
+    final fragmentUri = Uri.tryParse(uri.fragment);
+    final fragmentCode = (fragmentUri?.queryParameters['code'] ?? '').trim();
+    if (fragmentCode.isNotEmpty) {
+      return fragmentCode.toUpperCase();
+    }
+    if (uri.scheme.toLowerCase() == 'hexagon') {
+      for (final segment in uri.pathSegments.reversed) {
+        final value = segment.trim();
+        if (value.isNotEmpty && value.toLowerCase() != 'friend') {
+          return value.toUpperCase();
+        }
+      }
+    }
+    return '';
   }
 
   Future<void> _suspendHomeBgmForLifecycle() async {
@@ -833,7 +950,7 @@ class _HomeScreenState extends State<HomeScreen>
       await SeamlessBgm.instance.play(
         assetPath: selectedBgm.assetPath,
         duration: selectedBgm.duration,
-        volume: 0.576,
+        volume: 0.576 * selectedBgm.volumeMultiplier,
         owner: _bgmOwner,
         forceRestart: forceRestart,
       );
@@ -1834,6 +1951,7 @@ class _HomeScreenState extends State<HomeScreen>
               },
             ),
           ),
+          if (_pendingFriendInvite != null) _buildFriendInviteBanner(),
         ],
       ),
     );
@@ -2046,35 +2164,11 @@ class _HomeScreenState extends State<HomeScreen>
       color: Colors.white,
       size: iconSize,
     );
-    final innerBackgroundColor = playerIconInnerBackgroundColor(
-      iconId,
-      const Color(0xFF111827),
-      frameId: frameId,
-    );
     if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
-      return Container(
-        width: size,
-        height: size,
-        padding: const EdgeInsets.all(4),
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: SweepGradient(
-            colors: [
-              Color(0xFFFF4D6D),
-              Color(0xFFFFD54A),
-              Color(0xFF35F0FF),
-              Color(0xFFB91DFF),
-              Color(0xFFFF4D6D),
-            ],
-          ),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: innerBackgroundColor,
-            shape: BoxShape.circle,
-          ),
-          child: Center(child: icon),
-        ),
+      return RainbowFrameRing(
+        size: size,
+        strokeWidth: 4,
+        child: icon,
       );
     }
     return Container(
@@ -2175,9 +2269,11 @@ class _HomeScreenState extends State<HomeScreen>
             embedded: true,
             active: active,
           ),
-        _HomeLobbyDestination.record => const RecordScreen(
-            key: ValueKey('record_page'),
+        _HomeLobbyDestination.friend => FriendScreen(
+            key: const ValueKey('friend_page'),
             embedded: true,
+            refreshToken: _friendScreenRefreshToken,
+            onFriendBattle: _startFriendInviteBattle,
           ),
       },
     );
@@ -2215,7 +2311,10 @@ class _HomeScreenState extends State<HomeScreen>
             ],
           ),
         ),
-        _buildInterstitialSkipTicketHomeButton(),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: _buildInterstitialSkipTicketHomeButton(),
+        ),
       ],
     );
   }
@@ -2308,11 +2407,11 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(width: 6),
                   _buildRoundIcon(
-                    Icons.question_mark,
+                    Icons.bar_chart_rounded,
                     _homeCyan,
-                    () => unawaited(_showHowToDialog()),
-                    tooltip: '遊び方',
-                    assetPath: 'assets/images/HomeActions/action_help.png',
+                    () => unawaited(_openRecordScreen()),
+                    tooltip: 'レコード',
+                    assetPath: 'assets/images/HomeNav/nav_record.png',
                   ),
                   const SizedBox(width: 6),
                   _buildRoundIcon(
@@ -2692,6 +2791,7 @@ class _HomeScreenState extends State<HomeScreen>
                         _dailyBlue,
                         () => _showDailyStartDialog(context),
                         alignment: Alignment.bottomRight,
+                        assetPath: 'assets/images/HomeModes/mode_daily.png',
                       ),
                     ),
                   ],
@@ -2805,14 +2905,15 @@ class _HomeScreenState extends State<HomeScreen>
             ? TextAlign.right
             : TextAlign.center;
 
-    return InkWell(
+    return GamePressable(
+      enabled: onTap != null,
+      borderRadius: BorderRadius.circular(16),
       onTap: onTap == null
           ? null
           : () {
               _playUiTap();
               onTap();
             },
-      borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
             color: const Color(0xFF111722),
@@ -2881,15 +2982,17 @@ class _HomeScreenState extends State<HomeScreen>
     Color accentColor,
     VoidCallback? onTap, {
     Alignment alignment = Alignment.center,
+    String? assetPath,
   }) {
-    return InkWell(
+    return GamePressable(
+      enabled: onTap != null,
+      borderRadius: BorderRadius.circular(16),
       onTap: onTap == null
           ? null
           : () {
               _playUiTap();
               onTap();
             },
-      borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xFF111722),
@@ -2903,15 +3006,25 @@ class _HomeScreenState extends State<HomeScreen>
           alignment: alignment,
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Text(
-              'デイリー',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                color: accentColor.withValues(alpha: 0.96),
-                fontWeight: FontWeight.w900,
-                fontSize: 17,
-                letterSpacing: 1.2,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (assetPath != null) ...[
+                  _buildModeIconImage(assetPath, accentColor),
+                  const SizedBox(height: 4),
+                ],
+                Text(
+                  'デイリー',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                    color: accentColor.withValues(alpha: 0.96),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -3187,16 +3300,16 @@ class _HomeScreenState extends State<HomeScreen>
             iconAsset: 'assets/images/HomeNav/nav_battle.png',
           ),
           _buildBottomTextButton(
+            Icons.group_rounded,
+            'フレンド',
+            _HomeLobbyDestination.friend,
+            iconAsset: 'assets/images/HomeNav/nav_friend.png',
+          ),
+          _buildBottomTextButton(
             Icons.leaderboard_rounded,
             'ランキング',
             _HomeLobbyDestination.ranking,
             iconAsset: 'assets/images/HomeNav/nav_ranking.png',
-          ),
-          _buildBottomTextButton(
-            Icons.bar_chart_rounded,
-            'レコード',
-            _HomeLobbyDestination.record,
-            iconAsset: 'assets/images/HomeNav/nav_record.png',
           ),
         ],
       ),
@@ -3487,6 +3600,152 @@ class _HomeScreenState extends State<HomeScreen>
           },
         );
       },
+    );
+  }
+
+  Future<void> _openRecordScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RecordScreen()),
+    );
+    if (mounted) {
+      await _refreshPlayerEconomy();
+    }
+  }
+
+  Widget _buildFriendInviteBanner() {
+    final invite = _pendingFriendInvite;
+    if (invite == null) {
+      return const SizedBox.shrink();
+    }
+    return Positioned(
+      top: 28,
+      left: 14,
+      right: 14,
+      child: SafeArea(
+        child: Material(
+          color: Colors.transparent,
+          child: AnimatedBuilder(
+            animation: _animController,
+            builder: (context, child) {
+              final pulse =
+                  0.5 + 0.5 * math.sin(_animController.value * math.pi * 2);
+              final borderAlpha = 0.58 + pulse * 0.34;
+              final glowAlpha = 0.14 + pulse * 0.24;
+              final bob = math.sin(_animController.value * math.pi * 4) * 2.8;
+              return Transform.translate(
+                offset: Offset(0, bob),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xF20F1624),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: _friendPink.withValues(alpha: borderAlpha),
+                      width: 1.6 + pulse * 0.9,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _friendPink.withValues(alpha: glowAlpha),
+                        blurRadius: 16 + pulse * 10,
+                        spreadRadius: 1 + pulse,
+                      ),
+                    ],
+                  ),
+                  child: child,
+                ),
+              );
+            },
+            child: Row(
+              children: [
+                Image.asset(
+                  'assets/images/HomeActions/action_friend.png',
+                  width: 42,
+                  height: 42,
+                  fit: BoxFit.contain,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '${invite.fromName}さんから招待',
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'フレンド対戦に参加しますか？',
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _friendInviteButton('参加', _friendPink, () {
+                  unawaited(_acceptFriendInvite(invite));
+                }),
+                const SizedBox(width: 6),
+                _friendInviteButton('辞退', Colors.white54, () {
+                  unawaited(_declineFriendInvite(invite));
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _friendInviteButton(
+    String label,
+    Color color,
+    VoidCallback onPressed,
+  ) {
+    return SizedBox(
+      height: 36,
+      width: 54,
+      child: GamePressable(
+        enabled: !_isBusy,
+        borderRadius: BorderRadius.circular(10),
+        onTap: onPressed,
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -5118,6 +5377,15 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               const SizedBox(height: 14),
               _buildCyberDialogButton(
+                label: 'フレンドを招待',
+                accentColor: _friendPink,
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                  unawaited(_showFriendInvitePicker());
+                },
+              ),
+              const SizedBox(height: 10),
+              _buildCyberDialogButton(
                 label: 'キャンセル',
                 accentColor: Colors.white54,
                 onPressed: () => Navigator.of(dialogContext).pop(),
@@ -5127,6 +5395,103 @@ class _HomeScreenState extends State<HomeScreen>
         );
       },
     );
+  }
+
+  Future<void> _showFriendInvitePicker() async {
+    final available = await _ensureModeAvailable(
+      context,
+      MaintenanceMode.friend,
+    );
+    if (!available || !mounted) {
+      return;
+    }
+    try {
+      final friends = await FriendManager.instance.fetchFriends();
+      if (!mounted) {
+        return;
+      }
+      if (friends.isEmpty) {
+        await _showAlert(
+          context,
+          'フレンドを招待',
+          '招待できるフレンドがまだいません。',
+        );
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => _buildCyberDialog(
+          accentColor: _friendPink,
+          title: 'フレンドを招待',
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 420),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: friends.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final friend = friends[index];
+                return GamePressable(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    _playUiTap();
+                    Navigator.of(dialogContext).pop();
+                    unawaited(_startFriendInviteBattle(friend));
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _friendPink.withValues(alpha: 0.48),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        PlayerIconImage(
+                          iconId: friend.playerIconId,
+                          fallbackIcon: Icons.person,
+                          size: 30,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              friend.displayName,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.white70,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        await _showAlert(context, 'フレンド招待に失敗しました', '$error');
+      }
+    }
   }
 
   Widget _buildFriendRoomActionButton({
@@ -6418,6 +6783,171 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  Future<void> _startFriendInviteBattle(FriendEntry friend) async {
+    final available = await _ensureModeAvailable(
+      context,
+      MaintenanceMode.friend,
+    );
+    if (!available || !mounted) {
+      return;
+    }
+    final hasAllowance = await _ensureFriendMatchAllowance();
+    if (!mounted || !hasAllowance) {
+      return;
+    }
+    setState(() => _isBusy = true);
+    try {
+      final roomId = await _multiplayerManager.createRoom();
+      final consumed = await FriendMatchLimitManager.instance.consumeMatch();
+      if (!consumed) {
+        await _multiplayerManager.cancelLobby();
+        if (!mounted) {
+          return;
+        }
+        await _showAlert(
+          context,
+          'フレンド対戦',
+          '本日の無料フレンド対戦回数を使い切りました。',
+        );
+        return;
+      }
+      final inviteId = await FriendManager.instance.sendBattleInvite(
+        friendUid: friend.uid,
+        roomId: roomId,
+        fromName: _playerNameController.text.trim().isEmpty
+            ? 'プレイヤー'
+            : _playerNameController.text.trim(),
+      );
+      await FriendManager.instance.markPresence(
+        online: true,
+        inBattle: true,
+        mode: 'friend',
+      );
+      if (!mounted) {
+        return;
+      }
+      unawaited(_stopHomeBgm());
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => GameScreen.online(
+            roomId: roomId,
+            isHost: true,
+            friendInviteTargetUid: friend.uid,
+            friendInviteId: inviteId,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        await _showAlert(context, 'フレンド招待に失敗しました', '$error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isBusy = false);
+      }
+    }
+  }
+
+  Future<void> _acceptFriendInvite(FriendBattleInvite invite) async {
+    final available = await _ensureModeAvailable(
+      context,
+      MaintenanceMode.friend,
+    );
+    if (!available || !mounted) {
+      return;
+    }
+    final hasAllowance = await _ensureFriendMatchAllowance();
+    if (!mounted || !hasAllowance) {
+      return;
+    }
+    setState(() {
+      _isBusy = true;
+      _pendingFriendInvite = null;
+    });
+    try {
+      final joined = await _multiplayerManager.joinRoom(invite.roomId);
+      if (!mounted) {
+        return;
+      }
+      if (!joined) {
+        final uid = await _currentUid();
+        if (!mounted) {
+          return;
+        }
+        await FriendManager.instance.updateInviteStatus(
+          targetUid: uid,
+          inviteId: invite.id,
+          status: 'failed',
+        );
+        if (!mounted) {
+          return;
+        }
+        await _showAlert(
+          context,
+          'ルームに参加できません',
+          '部屋が見つからないか、すでに対戦中です。',
+        );
+        return;
+      }
+      final consumed = await FriendMatchLimitManager.instance.consumeMatch();
+      if (!consumed) {
+        await _multiplayerManager.leaveRoom();
+        if (!mounted) {
+          return;
+        }
+        await _showAlert(
+          context,
+          'フレンド対戦',
+          '本日の無料フレンド対戦回数を使い切りました。',
+        );
+        return;
+      }
+      await FriendManager.instance.updateInviteStatus(
+        targetUid: await _currentUid(),
+        inviteId: invite.id,
+        status: 'accepted',
+      );
+      await FriendManager.instance.markPresence(
+        online: true,
+        inBattle: true,
+        mode: 'friend',
+      );
+      if (!mounted) {
+        return;
+      }
+      unawaited(_stopHomeBgm());
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => GameScreen.online(
+            roomId: invite.roomId,
+            isHost: false,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        await _showAlert(context, 'フレンド対戦に参加できません', '$error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isBusy = false);
+      }
+    }
+  }
+
+  Future<void> _declineFriendInvite(FriendBattleInvite invite) async {
+    setState(() => _pendingFriendInvite = null);
+    await FriendManager.instance.updateInviteStatus(
+      targetUid: await _currentUid(),
+      inviteId: invite.id,
+      status: 'declined',
+    );
+  }
+
+  Future<String> _currentUid() async {
+    return await AuthManager.instance.ensureSignedIn();
+  }
+
   Future<bool> _ensureFriendMatchAllowance() async {
     if (await FriendMatchLimitManager.instance.canStartMatch()) {
       return true;
@@ -7513,6 +8043,12 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                   const SizedBox(height: 10),
                   _buildCyberDialogButton(
+                    label: '遊び方',
+                    accentColor: _homeCyan,
+                    onPressed: () => unawaited(_showHowToDialog()),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildCyberDialogButton(
                     label: AppSettings.instance.text('チュートリアル', 'Tutorial'),
                     accentColor: _homeCyan,
                     onPressed: () => unawaited(
@@ -8328,27 +8864,40 @@ class _HomeScreenState extends State<HomeScreen>
   }) {
     final effectiveAccentColor =
         label == '閉じる' || label == 'キャンセル' ? _mutedButtonGrey : accentColor;
-    return OutlinedButton(
-      onPressed: () {
+    return GamePressable(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () {
         _playUiTap();
         onPressed();
       },
-      style: OutlinedButton.styleFrom(
-        foregroundColor: effectiveAccentColor,
-        side: BorderSide(
-          color: effectiveAccentColor == _homeCyan
-              ? _homeCyanBorder
-              : effectiveAccentColor.withValues(alpha: 0.75),
-          width: 1.4,
-        ),
+      child: Container(
+        alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 18),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-      child: Text(
-        AppSettings.instance.translate(label),
-        style: const TextStyle(
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.6,
+        decoration: BoxDecoration(
+          color: effectiveAccentColor.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: effectiveAccentColor == _homeCyan
+                ? _homeCyanBorder
+                : effectiveAccentColor.withValues(alpha: 0.75),
+            width: 1.4,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: effectiveAccentColor.withValues(alpha: 0.14),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Text(
+          AppSettings.instance.translate(label),
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: effectiveAccentColor,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.6,
+          ),
         ),
       ),
     );
@@ -8869,7 +9418,7 @@ class _ModeButtonBorderOverlayPainter extends CustomPainter {
     _endlessGreen,
     _friendPink,
     _computerYellow,
-    const Color(0xFF8B96A3),
+    _dailyBlue,
   ];
 
   @override
@@ -9016,6 +9565,8 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
     'ランキング報酬は、次の切替までに受け取りましょう。',
     'ランキング報酬は、切替15分後から受け取れます。',
     'スタンプで煽ってから負けるのは、人として一番恥ずかしいです。',
+    'バグや不具合を見つけた場合は、設定のお問い合わせからお知らせください。',
+    '初心者の方は、ヒントガイドを活用して置き方を覚えましょう。',
   ];
 
   List<String> _hints = _defaultHints;
@@ -9027,7 +9578,7 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
     super.initState();
     _index = DateTime.now().millisecondsSinceEpoch % _hints.length;
     unawaited(_loadServerHints());
-    _timer = Timer.periodic(const Duration(seconds: 8), (_) => _nextHint());
+    _startAutoHintTimer();
   }
 
   @override
@@ -9036,13 +9587,24 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
     super.dispose();
   }
 
-  void _nextHint() {
+  void _startAutoHintTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(
+      const Duration(seconds: 8),
+      (_) => _nextHint(),
+    );
+  }
+
+  void _nextHint({bool resetTimer = false}) {
     if (!mounted) {
       return;
     }
     setState(() {
       _index = (_index + 1) % _hints.length;
     });
+    if (resetTimer) {
+      _startAutoHintTimer();
+    }
   }
 
   Future<void> _loadServerHints() async {
@@ -9121,7 +9683,7 @@ class _RankedMatchmakingHintState extends State<_RankedMatchmakingHint> {
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _nextHint,
+      onTap: () => _nextHint(resetTimer: true),
       child: Container(
         width: double.infinity,
         height: 92,

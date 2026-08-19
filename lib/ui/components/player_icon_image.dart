@@ -72,7 +72,71 @@ Color playerIconInnerBackgroundColor(
   Color fallback, {
   String? frameId,
 }) {
+  if (frameId == 'frame_rainbow') {
+    return Colors.transparent;
+  }
   return fallback;
+}
+
+const List<Color> rainbowFrameColors = [
+  Color(0xFFFF4D6D),
+  Color(0xFFFFD54A),
+  Color(0xFF35F0FF),
+  Color(0xFFB91DFF),
+  Color(0xFFFF4D6D),
+];
+
+class RainbowFrameRing extends StatelessWidget {
+  const RainbowFrameRing({
+    super.key,
+    required this.size,
+    this.strokeWidth = 4,
+    this.child,
+  });
+
+  final double size;
+  final double strokeWidth;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _RainbowFrameRingPainter(strokeWidth: strokeWidth),
+        child: Padding(
+          padding: EdgeInsets.all(strokeWidth),
+          child: child == null ? null : Center(child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _RainbowFrameRingPainter extends CustomPainter {
+  const _RainbowFrameRingPainter({required this.strokeWidth});
+
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final center = rect.center;
+    final radius = (size.shortestSide - strokeWidth) / 2;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..shader = const SweepGradient(
+        colors: rainbowFrameColors,
+      ).createShader(rect);
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(_RainbowFrameRingPainter oldDelegate) {
+    return oldDelegate.strokeWidth != strokeWidth;
+  }
 }
 
 class PlayerIconImage extends StatelessWidget {

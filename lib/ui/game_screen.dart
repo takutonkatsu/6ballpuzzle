@@ -20,6 +20,7 @@ import '../audio/sfx_player.dart';
 import '../data/models/badge_item.dart';
 import '../data/models/game_item.dart';
 import '../data/player_data_manager.dart';
+import '../friends/friend_manager.dart';
 import '../game/arena_manager.dart';
 import '../game/components/ball_component.dart';
 import '../game/components/effect_components.dart';
@@ -85,6 +86,8 @@ class GameScreen extends StatefulWidget {
   final bool isDailyMode;
   final String? dailyDateKey;
   final int? dailySeed;
+  final String? friendInviteTargetUid;
+  final String? friendInviteId;
 
   const GameScreen({
     super.key,
@@ -104,6 +107,8 @@ class GameScreen extends StatefulWidget {
     this.isDailyMode = false,
     this.dailyDateKey,
     this.dailySeed,
+    this.friendInviteTargetUid,
+    this.friendInviteId,
   });
 
   const GameScreen.online({
@@ -112,6 +117,8 @@ class GameScreen extends StatefulWidget {
     this.isHost = false,
     this.isRankedMode = false,
     this.isArenaMode = false,
+    this.friendInviteTargetUid,
+    this.friendInviteId,
   })  : cpuDifficulty = CPUDifficulty.hard,
         rankedBotRating = null,
         rankedBotName = _rankedBotDefaultName,
@@ -198,6 +205,7 @@ class _GameScreenState extends State<GameScreen>
   bool _opponentRequestedRematch = false;
   bool _opponentUnavailableForRematch = false;
   bool _friendDisconnectDialogShown = false;
+  bool _friendInviteDeclineHandled = false;
   bool _isReturningToHome = false;
   bool _isCheckingHomeReturnConnection = false;
   bool? _cpuBattlePlayerWon;
@@ -253,6 +261,7 @@ class _GameScreenState extends State<GameScreen>
   Timer? _myStampTimer;
   Timer? _opponentStampTimer;
   Timer? _stampCooldownTimer;
+  StreamSubscription<String>? _friendInviteStatusSubscription;
   Timer? _tutorialTimer;
   StreamSubscription<bool>? _realtimeConnectionSubscription;
   bool _realtimeConnected = true;
@@ -374,6 +383,28 @@ class _GameScreenState extends State<GameScreen>
   bool get _isFriendMode =>
       _isOnlineMode && !widget.isRankedMode && !widget.isArenaMode;
 
+  String get _friendPresenceMode {
+    if (widget.isRankedMode) {
+      return 'ranked';
+    }
+    if (widget.isArenaMode) {
+      return 'arena';
+    }
+    if (_isFriendMode) {
+      return 'friend';
+    }
+    if (widget.isDailyMode) {
+      return 'daily';
+    }
+    if (widget.isCpuMode) {
+      return 'computer';
+    }
+    if (widget.isTutorialMode) {
+      return 'tutorial';
+    }
+    return 'endless';
+  }
+
   int get _playerBoardRows {
     final room = _room ?? _multiplayerManager.currentRoom;
     final roleId = _multiplayerManager.myRoleId;
@@ -471,6 +502,12 @@ class _GameScreenState extends State<GameScreen>
       duration: const Duration(milliseconds: 1150),
     )..repeat(reverse: true);
     unawaited(_enterGameActivityPresence());
+    unawaited(FriendManager.instance.markPresence(
+      online: true,
+      inBattle: true,
+      mode: _friendPresenceMode,
+    ));
+    _startFriendInviteStatusMonitorIfNeeded();
     unawaited(RewardedAdManager.instance.warmUp());
     unawaited(_arenaManager.load().then((_) {
       if (mounted) {
@@ -591,6 +628,7 @@ class _GameScreenState extends State<GameScreen>
         autoStart: false,
         useConstantFallSpeed: true,
         wallColor: _battleOpponentColor,
+        sfxSelectionIds: AudioSelectionManager.defaultSfxSelectionIds(),
       );
       if (_cpuGame!.cpuAgent != null) {
         _cpuGame!.cpuAgent!.setDifficulty(widget.cpuDifficulty);
@@ -757,7 +795,7 @@ class _GameScreenState extends State<GameScreen>
             _playerGame,
             waza,
             color,
-            ballSkinId: _playerDataManager.equippedBallSkinId,
+            ballSkinId: _cpuGame!.ballSkinId,
             effectSkinId: 'effect_ojama_default',
           );
     }
@@ -973,6 +1011,7 @@ class _GameScreenState extends State<GameScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(GameActivityPresence.instance.exit());
+    unawaited(FriendManager.instance.markPresence(online: true));
     _clearAllPendingAttacks();
     _dailyChallengeTimer?.cancel();
     _rankedAutoStartTimer?.cancel();
@@ -982,6 +1021,7 @@ class _GameScreenState extends State<GameScreen>
     _stampCooldownTimer?.cancel();
     _tutorialTimer?.cancel();
     _realtimeConnectionSubscription?.cancel();
+    _friendInviteStatusSubscription?.cancel();
     _rankedOfflineForfeitTimer?.cancel();
     _opponentDisconnectForfeitTimer?.cancel();
     _resultTriplePromptController.dispose();
@@ -1368,11 +1408,18 @@ class _GameScreenState extends State<GameScreen>
     );
   }
 
-  Widget _buildResultRewardSummaryRow({bool highlightTripleReward = false}) {
+  Widget _buildResultRewardSummaryRow({
+    bool highlightTripleReward = false,
+    bool includeRankedRating = false,
+  }) {
     final expSummary = _buildResultExpSummary();
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (includeRankedRating) ...[
+          _buildRankedRatingAnimationSummary(),
+          const SizedBox(height: 10),
+        ],
         Row(
           children: [
             Expanded(
@@ -1571,17 +1618,6 @@ class _GameScreenState extends State<GameScreen>
 
   Widget _buildResultExpSummary() {
     final totalExp = _totalResultExpEarned;
-    if (totalExp == null) {
-      return const Text(
-        'EXPを集計中...',
-        style: TextStyle(
-          color: Colors.white70,
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
-      );
-    }
-
     return SizedBox(
       height: 58,
       width: double.infinity,
@@ -1608,23 +1644,25 @@ class _GameScreenState extends State<GameScreen>
               ),
             ),
             Center(
-              child: TweenAnimationBuilder<int>(
-                tween: IntTween(begin: 0, end: totalExp),
-                duration: const Duration(milliseconds: 620),
-                curve: Curves.easeOutCubic,
-                builder: (context, value, child) {
-                  return Text(
-                    '$value',
-                    maxLines: 1,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.5,
+              child: totalExp == null
+                  ? const SizedBox.shrink()
+                  : TweenAnimationBuilder<int>(
+                      tween: IntTween(begin: 0, end: totalExp),
+                      duration: const Duration(milliseconds: 620),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) {
+                        return Text(
+                          '$value',
+                          maxLines: 1,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
           ],
         ),
@@ -1753,11 +1791,8 @@ class _GameScreenState extends State<GameScreen>
 
   Widget _buildRankedRatingAnimationSummary() {
     final change = _rankedRatingChange;
-    if (change == null) {
-      return const SizedBox.shrink();
-    }
     final deltaColor =
-        change.delta >= 0 ? _battlePlayerColor : _battleOpponentColor;
+        (change?.delta ?? 0) >= 0 ? _battlePlayerColor : _battleOpponentColor;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1793,57 +1828,63 @@ class _GameScreenState extends State<GameScreen>
                   children: [
                     const HexagonTrophyIcon(size: 24),
                     const SizedBox(width: 8),
-                    TweenAnimationBuilder<int>(
-                      tween: IntTween(
-                        begin: change.oldRating,
-                        end: change.newRating,
+                    if (change == null)
+                      const SizedBox(height: 26, width: 58)
+                    else
+                      TweenAnimationBuilder<int>(
+                        tween: IntTween(
+                          begin: change.oldRating,
+                          end: change.newRating,
+                        ),
+                        duration: const Duration(milliseconds: 900),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, child) {
+                          return Text(
+                            '$value',
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.6,
+                              height: 1.0,
+                            ),
+                          );
+                        },
                       ),
-                      duration: const Duration(milliseconds: 900),
-                      curve: Curves.easeOutCubic,
-                      builder: (context, value, child) {
-                        return Text(
-                          '$value',
-                          maxLines: 1,
-                          style: const TextStyle(
-                            color: Colors.amberAccent,
-                            fontSize: 26,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.6,
-                            height: 1.0,
-                          ),
-                        );
-                      },
-                    ),
                   ],
                 ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: deltaColor.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: deltaColor.withValues(alpha: 0.52)),
+          if (change == null)
+            const SizedBox(width: 58, height: 36)
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: deltaColor.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: deltaColor.withValues(alpha: 0.52)),
+              ),
+              child: TweenAnimationBuilder<int>(
+                tween: IntTween(begin: 0, end: change.delta),
+                duration: const Duration(milliseconds: 900),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  final deltaText = value > 0 ? '+$value' : '$value';
+                  return Text(
+                    deltaText,
+                    style: TextStyle(
+                      color: deltaColor,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      height: 1.0,
+                    ),
+                  );
+                },
+              ),
             ),
-            child: TweenAnimationBuilder<int>(
-              tween: IntTween(begin: 0, end: change.delta),
-              duration: const Duration(milliseconds: 900),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, child) {
-                final deltaText = value > 0 ? '+$value' : '$value';
-                return Text(
-                  deltaText,
-                  style: TextStyle(
-                    color: deltaColor,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    height: 1.0,
-                  ),
-                );
-              },
-            ),
-          ),
         ],
       ),
     );
@@ -2856,10 +2897,6 @@ class _GameScreenState extends State<GameScreen>
                 ? _buildTutorialResultChildren()
                 : [
                     _buildBattleResultProfiles(),
-                    if (widget.isRankedMode && _rankedRatingChange != null) ...[
-                      const SizedBox(height: 10),
-                      _buildRankedRatingAnimationSummary(),
-                    ],
                     if (!isBattleResult && !widget.isDailyMode) ...[
                       const SizedBox(height: 12),
                       _buildResultScoreSummary(),
@@ -2869,6 +2906,7 @@ class _GameScreenState extends State<GameScreen>
                     const SizedBox(height: 18),
                     _buildResultRewardSummaryRow(
                       highlightTripleReward: isBattleResult && cpuPlayerWon,
+                      includeRankedRating: widget.isRankedMode,
                     ),
                     if (_newlyUnlockedBadges.isNotEmpty) ...[
                       const SizedBox(height: 12),
@@ -2931,10 +2969,6 @@ class _GameScreenState extends State<GameScreen>
         titleColor: textColor,
         children: [
           _buildBattleResultProfiles(),
-          if (widget.isRankedMode && _rankedRatingChange != null) ...[
-            const SizedBox(height: 10),
-            _buildRankedRatingAnimationSummary(),
-          ],
           if (widget.isArenaMode) ...[
             const SizedBox(height: 12),
             _buildArenaResultSummary(),
@@ -2942,7 +2976,10 @@ class _GameScreenState extends State<GameScreen>
           const SizedBox(height: 10),
           _buildResultWazaSummary(),
           const SizedBox(height: 18),
-          _buildResultRewardSummaryRow(highlightTripleReward: win),
+          _buildResultRewardSummaryRow(
+            highlightTripleReward: win,
+            includeRankedRating: widget.isRankedMode,
+          ),
           if (_newlyUnlockedBadges.isNotEmpty) ...[
             const SizedBox(height: 12),
             _buildBadgeUnlockResultCard(),
@@ -4040,8 +4077,10 @@ class _GameScreenState extends State<GameScreen>
     if (frame?.colorName == 'rainbow') {
       canvas.drawCircle(
         center,
-        radius,
+        radius - 4,
         Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 8
           ..shader = ui.Gradient.sweep(
             center,
             const [
@@ -4061,17 +4100,17 @@ class _GameScreenState extends State<GameScreen>
         radius,
         Paint()..color = frameColor.withValues(alpha: 0.95),
       );
+      canvas.drawCircle(
+        center,
+        radius - 8,
+        Paint()
+          ..color = playerIconInnerBackgroundColor(
+            iconId,
+            const Color(0xFF101827),
+            frameId: frameId,
+          ),
+      );
     }
-    canvas.drawCircle(
-      center,
-      radius - 8,
-      Paint()
-        ..color = playerIconInnerBackgroundColor(
-          iconId,
-          const Color(0xFF101827),
-          frameId: frameId,
-        ),
-    );
     if (playerIconAssetPath(iconId) != null && iconImage != null) {
       _drawShareImageContain(
         canvas,
@@ -4865,7 +4904,7 @@ class _GameScreenState extends State<GameScreen>
         _displayNameForRole(_multiplayerManager.opponentRoleId);
     final showAutoStart = widget.isRankedMode || widget.isArenaMode;
     final showLobbyTitle =
-        widget.isRankedMode || widget.isArenaMode || !_isFriendMode || !isHost;
+        widget.isRankedMode || widget.isArenaMode || !_isFriendMode;
 
     if (_onlineGameStarted || room == null) {
       return const SizedBox.shrink();
@@ -4902,7 +4941,7 @@ class _GameScreenState extends State<GameScreen>
                           ? 'アリーナマッチが成立しました'
                           : widget.isRankedMode
                               ? 'ランク戦が成立しました'
-                              : 'フレンド対戦に参加しました',
+                              : 'フレンド対戦',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 22,
@@ -4913,7 +4952,7 @@ class _GameScreenState extends State<GameScreen>
                     ),
                     const SizedBox(height: 20),
                   ],
-                  if (isHost && !widget.isRankedMode) ...[
+                  if (_isFriendMode || (isHost && !widget.isRankedMode)) ...[
                     Text(
                       'ルームID',
                       style: TextStyle(
@@ -5094,7 +5133,7 @@ class _GameScreenState extends State<GameScreen>
                     ? '相手の準備完了を待っています。'
                     : '相手がロビーに戻るまでお待ちください。'
             : myStatus == 'ready'
-                ? '準備完了しました。ホストの開始を待っています。'
+                ? 'ホストの開始を待っています。'
                 : '準備ができたらボタンを押してください。';
 
     return Column(
@@ -5568,7 +5607,70 @@ class _GameScreenState extends State<GameScreen>
   Future<void> _cancelFriendLobby() async {
     _clearAllPendingAttacks();
     await _stopBattleBgm();
+    final inviteTargetUid = widget.friendInviteTargetUid;
+    final inviteId = widget.friendInviteId;
+    if (inviteTargetUid != null &&
+        inviteTargetUid.isNotEmpty &&
+        inviteId != null &&
+        inviteId.isNotEmpty) {
+      unawaited(
+        FriendManager.instance.updateInviteStatus(
+          targetUid: inviteTargetUid,
+          inviteId: inviteId,
+          status: 'cancelled',
+        ),
+      );
+    }
     await _multiplayerManager.cancelLobby();
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    );
+  }
+
+  void _startFriendInviteStatusMonitorIfNeeded() {
+    final inviteTargetUid = widget.friendInviteTargetUid;
+    final inviteId = widget.friendInviteId;
+    if (!widget.isOnlineMultiplayer ||
+        !widget.isHost ||
+        inviteTargetUid == null ||
+        inviteTargetUid.isEmpty ||
+        inviteId == null ||
+        inviteId.isEmpty) {
+      return;
+    }
+    _friendInviteStatusSubscription?.cancel();
+    _friendInviteStatusSubscription = FriendManager.instance
+        .watchInviteStatus(
+      targetUid: inviteTargetUid,
+      inviteId: inviteId,
+    )
+        .listen((status) {
+      if (status == 'declined') {
+        unawaited(_handleFriendInviteDeclined());
+      }
+    });
+  }
+
+  Future<void> _handleFriendInviteDeclined() async {
+    if (_friendInviteDeclineHandled) {
+      return;
+    }
+    _friendInviteDeclineHandled = true;
+    await _friendInviteStatusSubscription?.cancel();
+    _friendInviteStatusSubscription = null;
+    _clearAllPendingAttacks();
+    await _stopBattleBgm();
+    await _multiplayerManager.cancelLobby();
+    if (!mounted) {
+      return;
+    }
+    await _showCyberAlertDialog(
+      'フレンド対戦',
+      '相手が招待を辞退しました。ルームを解散しました。',
+    );
     if (!mounted) {
       return;
     }
@@ -7144,35 +7246,11 @@ class _GameScreenState extends State<GameScreen>
       color: Colors.white,
       size: iconSize,
     );
-    final innerBackgroundColor = playerIconInnerBackgroundColor(
-      iconId,
-      const Color(0xFF111827),
-      frameId: frameId,
-    );
     if (GameItemCatalog.byId(frameId)?.colorName == 'rainbow') {
-      return Container(
-        width: size,
-        height: size,
-        padding: EdgeInsets.all(size >= 40 ? 3.2 : 2.4),
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: SweepGradient(
-            colors: [
-              Color(0xFFFF4D6D),
-              Color(0xFFFFD54A),
-              Color(0xFF35F0FF),
-              Color(0xFFB91DFF),
-              Color(0xFFFF4D6D),
-            ],
-          ),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: innerBackgroundColor,
-            shape: BoxShape.circle,
-          ),
-          child: Center(child: icon),
-        ),
+      return RainbowFrameRing(
+        size: size,
+        strokeWidth: size >= 40 ? 3.2 : 2.4,
+        child: icon,
       );
     }
     return Container(
@@ -8540,7 +8618,7 @@ class _GameScreenState extends State<GameScreen>
       await SeamlessBgm.instance.play(
         assetPath: selectedBgm.assetPath,
         duration: selectedBgm.duration,
-        volume: 0.2448,
+        volume: 0.2448 * selectedBgm.volumeMultiplier,
         owner: _bgmOwner,
       );
     } catch (_) {

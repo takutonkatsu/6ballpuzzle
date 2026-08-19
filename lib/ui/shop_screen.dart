@@ -15,6 +15,7 @@ import '../game/gacha_manager.dart';
 import '../game/game_models.dart';
 import '../game/mission_manager.dart';
 import 'components/gacha_animation_screen.dart';
+import 'components/game_pressable.dart';
 import 'components/hexagon_grid_background.dart';
 import 'components/hexagon_currency_icons.dart';
 import 'components/player_icon_image.dart';
@@ -470,7 +471,10 @@ class _ShopScreenState extends State<ShopScreen> {
       await _gachaAudioPreviewPlayer.stop();
       await _gachaAudioPreviewPlayer.setReleaseMode(ReleaseMode.stop);
       await _gachaAudioPreviewPlayer.setVolume(
-        AppSettings.instance.sfxVolume.value.clamp(0.0, 1.0),
+        (AppSettings.instance.sfxVolume.value *
+                AudioSelectionManager.volumeMultiplierForAudioId(
+                    result.item.id))
+            .clamp(0.0, 1.0),
       );
       await _gachaAudioPreviewPlayer.play(AssetSource('audio/$fileName'));
       unawaited(
@@ -483,8 +487,17 @@ class _ShopScreenState extends State<ShopScreen> {
     }
   }
 
-  Future<void> _showGachaResultDialog(GachaRollResult result) {
-    return Navigator.of(context).push(
+  Future<void> _stopGachaResultAudioAndResumeBgm() async {
+    try {
+      await _gachaAudioPreviewPlayer.stop();
+    } catch (_) {
+      // ガチャ結果音の停止失敗で画面復帰は止めない。
+    }
+    await SeamlessBgm.instance.resumeFromExternalAudio();
+  }
+
+  Future<void> _showGachaResultDialog(GachaRollResult result) async {
+    await Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         transitionDuration: const Duration(milliseconds: 500),
@@ -496,6 +509,7 @@ class _ShopScreenState extends State<ShopScreen> {
         },
       ),
     );
+    await _stopGachaResultAudioAndResumeBgm();
   }
 
   Future<void> _notifyEconomyChanged() async {
@@ -726,7 +740,16 @@ class _ShopScreenState extends State<ShopScreen> {
       bottom: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-        child: Center(child: _ShopPageTitle(title: title, subtitle: subtitle)),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Center(child: _ShopPageTitle(title: title, subtitle: subtitle)),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _coinBadge(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -813,27 +836,12 @@ class _ShopScreenState extends State<ShopScreen> {
           SizedBox(
             width: 100,
             height: 44,
-            child: ElevatedButton(
-              onPressed: !_isBuying && canBuy
-                  ? () {
-                      _playUiTap();
-                      unawaited(_buyItem(item));
-                    }
-                  : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    canBuy ? accent.withValues(alpha: 0.15) : Colors.white10,
-                foregroundColor: canBuy ? accent : Colors.white30,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  side: BorderSide(
-                    color:
-                        canBuy ? accent.withValues(alpha: 0.8) : Colors.white24,
-                  ),
-                ),
-                padding: EdgeInsets.zero,
-              ),
+            child: _shopPressableButton(
+              enabled: !_isBuying && canBuy,
+              color: accent,
+              height: 44,
+              radius: 6,
+              onTap: () => unawaited(_buyItem(item)),
               child: canBuy
                   ? HexagonCoinAmount(
                       _priceFor(item),
@@ -862,9 +870,13 @@ class _ShopScreenState extends State<ShopScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: _sectionTitle('コレクションメダル交換所')),
-            _collectionMedalBadge(),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _collectionMedalBadge(),
+            ),
             const SizedBox(width: 8),
           ],
         ),
@@ -905,7 +917,7 @@ class _ShopScreenState extends State<ShopScreen> {
     if (item == null) {
       return const SizedBox.shrink();
     }
-    final owned = _ownedItems.any((ownedItem) => ownedItem.id == item.id);
+    final owned = _isOwnedForMedalExchange(item);
     final enough = _collectionMedals >= entry.cost;
     final accent = _iconColorFor(item);
     return Container(
@@ -958,28 +970,11 @@ class _ShopScreenState extends State<ShopScreen> {
           SizedBox(
             width: 94,
             height: 42,
-            child: ElevatedButton(
-              onPressed: !_isBuying && !owned && enough
-                  ? () {
-                      _playUiTap();
-                      unawaited(_exchangeMedalItem(entry));
-                    }
-                  : null,
-              style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    enough ? accent.withValues(alpha: 0.15) : Colors.white10,
-                foregroundColor: enough ? Colors.white : Colors.white38,
-                elevation: 0,
-                padding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  side: BorderSide(
-                    color: enough
-                        ? accent.withValues(alpha: 0.70)
-                        : Colors.white24,
-                  ),
-                ),
-              ),
+            child: _shopPressableButton(
+              enabled: !_isBuying && !owned && enough,
+              color: accent,
+              height: 42,
+              onTap: () => unawaited(_exchangeMedalItem(entry)),
               child: owned
                   ? const Text(
                       '所持済み',
@@ -991,6 +986,23 @@ class _ShopScreenState extends State<ShopScreen> {
         ],
       ),
     );
+  }
+
+  bool _isOwnedForMedalExchange(GameItem item) {
+    if (item.id == 'default') {
+      return true;
+    }
+    if (_playerData.displayPlayerName ==
+        AudioSelectionManager.allAudioUnlockedPlayerName) {
+      return true;
+    }
+    if (item.isEffect) {
+      return _ownedItems.any((ownedItem) => ownedItem.id == item.id);
+    }
+    if (item.isAudio) {
+      return _ownedItems.any((ownedItem) => ownedItem.id == item.id);
+    }
+    return _ownedItems.any((ownedItem) => ownedItem.id == item.id);
   }
 
   Widget _buildGachaPanel() {
@@ -1286,24 +1298,10 @@ class _ShopScreenState extends State<ShopScreen> {
     required Color color,
     required Future<void> Function() onTap,
   }) {
-    return ElevatedButton(
-      onPressed: _isBuying
-          ? null
-          : () {
-              _playUiTap();
-              unawaited(onTap());
-            },
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color.withValues(alpha: 0.16),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: color.withValues(alpha: 0.82), width: 1.2),
-        ),
-        minimumSize: const Size.fromHeight(54),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-      ),
+    return _shopPressableButton(
+      enabled: !_isBuying,
+      color: color,
+      onTap: () => unawaited(onTap()),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Row(
@@ -1340,29 +1338,10 @@ class _ShopScreenState extends State<ShopScreen> {
     required Future<void> Function() onTap,
   }) {
     final enabled = !_isBuying && remaining > 0;
-    return ElevatedButton(
-      onPressed: enabled
-          ? () {
-              _playUiTap();
-              unawaited(onTap());
-            }
-          : null,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: enabled
-            ? color.withValues(alpha: 0.16)
-            : Colors.white.withValues(alpha: 0.06),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(
-            color: enabled ? color.withValues(alpha: 0.82) : Colors.white24,
-            width: 1.2,
-          ),
-        ),
-        minimumSize: const Size.fromHeight(54),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-      ),
+    return _shopPressableButton(
+      enabled: enabled,
+      color: color,
+      onTap: () => unawaited(onTap()),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Column(
@@ -1390,6 +1369,43 @@ class _ShopScreenState extends State<ShopScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _shopPressableButton({
+    required bool enabled,
+    required Color color,
+    required VoidCallback onTap,
+    required Widget child,
+    double height = 54,
+    double radius = 10,
+  }) {
+    return GamePressable(
+      enabled: enabled,
+      borderRadius: BorderRadius.circular(radius),
+      onTap: () {
+        _playUiTap();
+        onTap();
+      },
+      child: Opacity(
+        opacity: enabled ? 1 : 0.56,
+        child: Container(
+          height: height,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: enabled
+                ? color.withValues(alpha: 0.16)
+                : Colors.white.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(radius),
+            border: Border.all(
+              color: enabled ? color.withValues(alpha: 0.82) : Colors.white24,
+              width: 1.2,
+            ),
+          ),
+          child: child,
         ),
       ),
     );
@@ -1513,9 +1529,11 @@ class _ShopScreenState extends State<ShopScreen> {
     final seItems = GameItemCatalog.audioItems
         .where((item) => !item.id.contains('bgm'))
         .toList();
+    const ballSkins = GameItemCatalog.ballSkins;
     final standardEffectAudio = [
       ...GameItemCatalog.effectItems,
       ...GameItemCatalog.audioItems,
+      ...GameItemCatalog.ballSkins,
     ];
     final standardProfileItems = [
       ...GameItemCatalog.playerIcons,
@@ -1548,11 +1566,13 @@ class _ShopScreenState extends State<ShopScreen> {
         ],
       GachaCategory.effect => [
           '#カテゴリ別の排出率',
-          'フォーメーション演出：50%',
-          '妨害演出：50%',
+          'フォーメーション演出：40%',
+          '妨害演出：40%',
+          'ボールスキン：20%',
           '#アイテム別の排出率',
-          ..._itemOddsLines(formationEffects, 50),
-          ..._itemOddsLines(ojamaEffects, 50),
+          ..._itemOddsLines(formationEffects, 40),
+          ..._itemOddsLines(ojamaEffects, 40),
+          ..._itemOddsLines(ballSkins, 20),
         ],
       GachaCategory.audio => [
           '#カテゴリ別の排出率',
@@ -1566,7 +1586,7 @@ class _ShopScreenState extends State<ShopScreen> {
           '#通常ガチャ カテゴリ別の排出率',
           'スタンプ：70%',
           'アイコン/フレーム/バナー：25%',
-          'エフェクト/ミュージック：5%',
+          'エフェクト/ミュージック/ボールスキン：5%',
           '#通常ガチャ アイテム別の排出率',
           ..._itemOddsLines(GameItemCatalog.commonStamps, 70),
           ..._itemOddsLines(standardProfileItems, 25),
@@ -1574,7 +1594,7 @@ class _ShopScreenState extends State<ShopScreen> {
           '#プレミアムガチャ カテゴリ別の排出率',
           'スタンプ：20%',
           'アイコン/フレーム/バナー：40%',
-          'エフェクト/ミュージック：40%',
+          'エフェクト/ミュージック/ボールスキン：40%',
           '#プレミアムガチャ アイテム別の排出率',
           ..._itemOddsLines(GameItemCatalog.commonStamps, 20),
           ..._itemOddsLines(premiumProfileItems, 40),
@@ -1585,7 +1605,7 @@ class _ShopScreenState extends State<ShopScreen> {
           '#カテゴリ別の排出率',
           'スタンプ：20%',
           'アイコン/フレーム/バナー：40%',
-          'エフェクト/ミュージック：40%',
+          'エフェクト/ミュージック/ボールスキン：40%',
           '#アイテム別の排出率',
           ..._itemOddsLines(GameItemCatalog.commonStamps, 20),
           ..._itemOddsLines(premiumProfileItems, 40),
@@ -1683,29 +1703,7 @@ class _ShopScreenState extends State<ShopScreen> {
       );
     }
     if (item.type == ItemType.frame && item.colorName == 'rainbow') {
-      return Container(
-        width: 32,
-        height: 32,
-        padding: const EdgeInsets.all(4),
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: SweepGradient(
-            colors: [
-              Color(0xFFFF4D6D),
-              Color(0xFFFFD54A),
-              Color(0xFF35F0FF),
-              Color(0xFFB91DFF),
-              Color(0xFFFF4D6D),
-            ],
-          ),
-        ),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: _shopPanelColor,
-            shape: BoxShape.circle,
-          ),
-        ),
-      );
+      return const RainbowFrameRing(size: 32, strokeWidth: 4);
     }
     if (item.type == ItemType.frame) {
       final frameColor = _colorFromFrameName(item.colorName);
